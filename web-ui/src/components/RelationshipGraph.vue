@@ -19,7 +19,6 @@
               :max-zoom="2"
               :edges-updatable="false"
               :is-valid-connection="isValidConnection"
-              fit-view-on-init
               @connect="onConnect"
               @edge-click="onEdgeClick"
             >
@@ -101,7 +100,7 @@ const props = defineProps({
 const emit = defineEmits(['close'])
 const confirmFn = inject('confirm')
 
-const { addEdges, removeEdges } = useVueFlow()
+const { addEdges, removeEdges, fitView } = useVueFlow()
 const nodeTypes = markRaw({ charNode: markRaw(CharacterNode) })
 
 const elements = ref([])
@@ -126,9 +125,9 @@ const inputDialog = reactive({
 const existingRels = ref([])
 
 // ── Layout constants ──
-const CENTER_X = 450
-const CENTER_Y = 380
-const RADIUS = 280
+const CENTER_X = 540
+const CENTER_Y = 456
+const RADIUS = 336
 
 // ── isValidConnection: only allow center → other ──
 function isValidConnection(connection) {
@@ -249,6 +248,9 @@ async function buildGraph() {
   elements.value = graphNodes
   await new Promise(r => setTimeout(r, 0))
   if (graphEdges.length > 0) addEdges(graphEdges)
+  await nextTick()
+  await new Promise(r => requestAnimationFrame(r))
+  fitView({ padding: 0.1, duration: 200 })
 }
 
 // ── Watch visible / centerCharacter ──
@@ -429,8 +431,8 @@ async function deleteEdge() {
 .rel-panel {
   background: #f4f1ee;
   border-radius: 18px;
-  width: min(96vw, 960px);
-  height: min(90vh, 700px);
+  width: min(96vw, 1152px);
+  height: min(90vh, 840px);
   display: flex; flex-direction: column;
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.22);
   overflow: hidden;
