@@ -3,24 +3,14 @@
     <div v-if="modelValue" class="modal-overlay" @click.self="close">
       <div class="modal-panel modal-wide">
         <div class="modal-header">
-          <h3>LoRA 设置（全局画风 & HiresFix细化）</h3>
+          <h3>LoRA 设置（全局画风）</h3>
           <button class="modal-close" @click="close">✕</button>
         </div>
-        <div class="lora-tab-bar">
-          <button :class="['lora-tab', { active: activeTab === 'global' }]" @click="activeTab = 'global'">
-            全局画风
-            <span v-if="globalCount > 0" class="lora-tab-count">{{ globalCount }}</span>
-          </button>
-          <button :class="['lora-tab', { active: activeTab === 'hires' }]" @click="switchTab('hires')">
-            HiresFix细化
-            <span v-if="hiresCount > 0" class="lora-tab-count">{{ hiresCount }}</span>
-          </button>
-        </div>
-        <p class="lora-tab-hint">{{ activeTab === 'hires' ? '仅作用于放大细化工作流，追加在 LoRA 链末尾（普通生图不受影响）' : '全局画风 LoRA，按适用范围生效（注意去掉画师串或者和画师串并存）' }}</p>
+        <p class="lora-tab-hint">全局画风 LoRA，按适用范围生效（注意去掉画师串或者和画师串并存）</p>
         <div class="modal-body">
           <div class="lora-body-card">
             <TransitionGroup name="lora-card" tag="div" class="lora-list">
-              <div v-for="(item, idx) in activeItems" :key="`${activeTab}-${idx}`" class="lora-item-card" :class="{ 'lora-disabled': !item.enabled }">
+              <div v-for="(item, idx) in activeItems" :key="'global-' + idx" class="lora-item-card" :class="{ 'lora-disabled': !item.enabled }">
                 <button class="lora-remove-btn" @click="removeLoraGroup(idx)" title="删除 LoRA">
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
                 </button>
@@ -74,8 +64,7 @@
                   <input v-model="item.triggerWord" class="fi" autocomplete="off" placeholder="可选，用于增强 lora 效果的提示词" />
                 </div>
                 <div class="lora-scenes-row">
-                  <template v-if="activeTab === 'global'">
-                    <span class="fl lora-inline-label">适用范围</span>
+                  <span class="fl lora-inline-label">适用范围</span>
                     <div class="lora-scenes-chips">
                       <button
                         v-for="s in sceneOptions"
@@ -87,7 +76,6 @@
                         {{ s.label }}
                       </button>
                     </div>
-                  </template>
                   <div style="flex:1;min-width:0"></div>
                   <label class="lora-enable-toggle" @click.stop>
                     <span class="lora-enable-status">{{ item.enabled ? '已启用' : '已禁用' }}</span>
@@ -101,7 +89,7 @@
             </TransitionGroup>
 
             <div v-if="activeItems.length === 0" class="lora-empty-hint">
-              {{ activeTab === 'hires' ? '尚未配置任何细化 LoRA，点击下方按钮添加' : '尚未配置任何全局 LoRA，点击下方按钮添加' }}
+              尚未配置任何全局 LoRA，点击下方按钮添加
             </div>
 
             <button class="lora-add-btn" @click="addLoraGroup">
@@ -134,25 +122,14 @@ import * as api from '../api/index.js'
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
   initialLoras: { type: Array, default: () => [] },
-  initialHiresLoras: { type: Array, default: () => [] },
 })
 
 const emit = defineEmits(['update:modelValue', 'saved'])
 
 const toastFn = inject('toast')
 
-// 标签页: 'global' = 全局画风 LoRA（带场景过滤）；'hires' = HiresFix 细化专用 LoRA（仅细化工作流生效）
-const activeTab = ref('global')
 const globalItems = ref([])
-const hiresItems = ref([])
-const activeItems = computed(() => (activeTab.value === 'hires' ? hiresItems.value : globalItems.value))
-const globalCount = computed(() => globalItems.value.filter(l => l.path && l.enabled !== false).length)
-const hiresCount = computed(() => hiresItems.value.filter(l => l.path && l.enabled !== false).length)
-
-function switchTab(tab) {
-  activeTab.value = tab
-  activeLoraFileIdx.value = null
-}
+const activeItems = computed(() => globalItems.value)
 
 const sceneOptions = [
   { value: 'chat', label: '聊天' },
@@ -181,8 +158,6 @@ watch(() => props.modelValue, (v) => {
       return raw
     }
     globalItems.value = normalize(props.initialLoras)
-    hiresItems.value = normalize(props.initialHiresLoras)
-    activeTab.value = 'global'
     fetchLorasFiles()
   }
 })
@@ -271,14 +246,10 @@ function onLoraKeydown(e, idx) {
 
 async function save() {
   const validGlobal = globalItems.value.filter(l => l.path && l.path.trim())
-  const validHires = hiresItems.value.filter(l => l.path && l.path.trim())
   loraLoading.value = true
   try {
-    await Promise.all([
-      api.updateGlobalLora(validGlobal),
-      api.updateHiresLora(validHires),
-    ])
-    emit('saved', validGlobal, validHires)
+    await api.updateGlobalLora(validGlobal)
+    emit('saved', validGlobal)
     emit('update:modelValue', false)
     if (toastFn) toastFn('LoRA 设置已保存', 'success')
   } catch (e) {
