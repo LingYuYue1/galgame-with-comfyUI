@@ -33,6 +33,7 @@ import { config } from '../config.js';
 import { extractFirstJson, repairJson } from './eventGenerator.js';
 import { buildCharacterPersona } from './characterPersona.js';
 import { charArtistOverrideWithFallback } from './characterImageOpts.js';
+import { mediaAvatarLibrary } from './mediaAvatarLibrary.js';
 
 /** 一次刷新默认抽多少条 */
 export const DEFAULT_BATCH_SIZE = 6;
@@ -246,10 +247,17 @@ function mapPostRow(r) {
     author_type: r.author_type,
     character_id: r.character_id,
     author_name: r.author_name,
-    author_avatar: r.author_avatar,
+    author_avatar: r.author_type === 'anonymous'
+      ? mediaAvatarLibrary.resolve(r.outlet_id, r.author_name)
+      : r.author_avatar,
     likes: r.likes,
     views: r.views,
-    comments: safeParse(r.comments_json, []) || [],
+    comments: (safeParse(r.comments_json, []) || []).map(comment => ({
+      ...comment,
+      author_avatar: comment.author_type === 'character'
+        ? comment.author_avatar
+        : mediaAvatarLibrary.resolve(r.outlet_id, comment.author),
+    })),
     image: r.image,
     // 周刊/海报的结构化正文（feed 形态为 null）
     payload: safeParse(r.payload_json, null),

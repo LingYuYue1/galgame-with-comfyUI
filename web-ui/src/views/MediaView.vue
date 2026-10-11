@@ -34,6 +34,9 @@
                 选择你的信息频道
               </span>
               <div class="header-actions">
+                <media-game-button variant="ghost" @click="showAvatarSettings = true">
+                  头像设置
+                </media-game-button>
                 <media-game-button variant="ghost" @click="showSettings = true">
                   媒体设置
                 </media-game-button>
@@ -612,6 +615,7 @@
         />
       </div>
     </Teleport>
+    <MediaAvatarSettingsModal v-model="showAvatarSettings" @changed="reloadAll" />
     <MediaSettingsModal
       v-model="showSettings"
       :outlets="outlets"
@@ -633,6 +637,7 @@ import MediaGameButton from '../components/media/MediaGameButton.vue'
 import LinsheTabs from '../components/ui/LinsheTabs.vue'
 import MediaPostDetail from '../components/media/MediaPostDetail.vue'
 import MediaSettingsModal from '../components/MediaSettingsModal.vue'
+import MediaAvatarSettingsModal from '../components/MediaAvatarSettingsModal.vue'
 import NewspaperModal from '../components/NewspaperModal.vue'
 import MediaWeekly from '../components/media/MediaWeekly.vue'
 import MediaPoster from '../components/media/MediaPoster.vue'
@@ -684,6 +689,7 @@ const loadError = ref('')
 const loadingMore = ref(false)
 const refreshing = ref(false)
 const showSettings = ref(false)
+const showAvatarSettings = ref(false)
 const detailPost = ref(null)
 const detailVisible = ref(false)
 /** 图片放大（点版式里的图 → 与《邻舍日报》详情同口径） */
@@ -1348,6 +1354,7 @@ watch(() => mediaStore.refreshSignal, async () => {
 let unsubNew = null
 let unsubImg = null
 let unsubPortal = null
+let unsubAvatars = null
 let disposed = false
 
 onMounted(async () => {
@@ -1356,6 +1363,7 @@ onMounted(async () => {
   }, { root: scrollContainer.value, rootMargin: '0px 0px 200px 0px' })
   observeFeedEnd()
   // Subscribe before loading data or starting image generation.
+  unsubAvatars = onEvent('media_avatars_updated', () => reloadAll())
   unsubImg = onEvent('media_image_ready', (event) => {
     for (const post of new Set([...posts.value, detailPost.value])) {
       applyMediaImageUpdate(post, event)
@@ -1407,6 +1415,7 @@ onUnmounted(() => {
   if (unsubNew) unsubNew()
   if (unsubImg) unsubImg()
   if (unsubPortal) unsubPortal()
+  if (unsubAvatars) unsubAvatars()
 })
 </script>
 
@@ -1544,6 +1553,7 @@ onUnmounted(() => {
 }
 .header-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
   color: var(--media-light);
 }

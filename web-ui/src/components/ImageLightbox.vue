@@ -49,6 +49,8 @@ const props = defineProps({
   index: { type: Number, default: 0 },
 
   showRegenerate: { type: Boolean, default: true },
+  regenerateHandler: { type: Function, default: null },
+  regenerateBusy: { type: Boolean, default: false },
   showUpscale: { type: Boolean, default: true },
   showDelete: { type: Boolean, default: true },
   showDownload: { type: Boolean, default: true },
@@ -135,10 +137,14 @@ function injectActionBar() {
   const mkBtn = (key, cls, attrs, label, onClick) => {
     const btn = document.createElement('div')
     btn.setAttribute('role', 'button')
+    btn.setAttribute('tabindex', '0')
     for (const [k, v] of Object.entries(attrs)) btn.setAttribute(k, v)
     if (cls) btn.className = cls
     btn.innerHTML = BTN_SVGS[key] + (label != null ? `<span>${label}</span>` : '')
     btn.addEventListener('click', (e) => { e.stopPropagation(); onClick() })
+    btn.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onClick() }
+    })
     return btn
   }
 
@@ -181,7 +187,7 @@ function syncActionBar() {
     if (label && !mobile) label.textContent = busy ? busyLabel : idleLabel
   }
   set('[data-vel-delete], .vel-rail-btn.danger', deleting.value, '删除中...', '删除图片', '删除中…', '删除')
-  set('[data-vel-regenerate], .vel-rail-btn.regen', regenerating.value, '重新生成中...', '重新生成', '重新生成中…', '重新生成')
+  set('[data-vel-regenerate], .vel-rail-btn.regen', regenerating.value || props.regenerateBusy, '正在生成，请稍候', '重新生成', '生成中…', '重新生成')
   set('[data-vel-upscale], .vel-rail-btn.accent', upscaling.value, '放大细化中（高清重绘，可能需要几分钟）...', '放大细化（高清放大重绘）', '细化中…', '放大细化')
   const dlBtn = _actionBar.querySelector('[data-vel-download], .vel-rail-btn.dl')
   if (dlBtn) {
@@ -209,6 +215,7 @@ watch(() => settingsStore.imageProvider, async () => {
 })
 
 watch([regenerating, upscaling, deleting, downloading], syncActionBar)
+watch(() => props.regenerateBusy, syncActionBar)
 
 onUnmounted(() => {
   removeActionBar()
@@ -386,11 +393,15 @@ function onHide() {
 }
 
 async function onRegenerate() {
-  if (regenerating.value) return
+  if (regenerating.value || props.regenerateBusy) return
   const url = getCurrentUrl()
   if (!url) return
   regenerating.value = true
   try {
+    if (props.regenerateHandler) {
+      await props.regenerateHandler(url)
+      return
+    }
     await imageEditTasks.start('regenerate', url)
     toastFn?.('已转入后台执行，完成后在右下角确认', 'info')
     emit('hide')

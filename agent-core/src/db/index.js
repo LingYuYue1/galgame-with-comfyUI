@@ -33,6 +33,7 @@ import { migrateExpressionStandings, recoverExpressionStandingJobs } from './exp
 import { migrateStandingInteractions } from './standingInteractionSchema.js';
 import { migrateCharacterReactionPacksSchema } from './characterReactionPackSchema.js';
 import { migrateCharacterDiarySchema } from './diarySchema.js';
+import { migrateMediaAvatarLibrary } from './mediaAvatarSchema.js';
 
 let db;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -441,6 +442,18 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_media_posts_outlet ON media_posts(outlet_id, id DESC);
     CREATE INDEX IF NOT EXISTS idx_media_posts_board ON media_posts(board_id);
     CREATE INDEX IF NOT EXISTS idx_media_posts_img ON media_posts(image_status);
+
+    CREATE TABLE IF NOT EXISTS media_avatars (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      image TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE TABLE IF NOT EXISTS media_npc_avatars (
+      outlet_id INTEGER NOT NULL REFERENCES media_outlets(id) ON DELETE CASCADE,
+      author_name TEXT NOT NULL,
+      avatar_id INTEGER NOT NULL REFERENCES media_avatars(id),
+      PRIMARY KEY (outlet_id, author_name)
+    );
 
     -- 通用限时服饰（如一套女仆装的 tag 组合）。character_id 为空 = 全员可见的全局服饰；
     -- 指定角色 = 道具系统写入的该角色专属限时服饰。expires_at 为过期时间（空 = 永久生效），
@@ -2727,6 +2740,7 @@ export function migrateMediaOutletLayouts(db) {
  */
 function migrateMediaSchema(db) {
   try {
+    migrateMediaAvatarLibrary(db);
     // ── 结构升级（独立于种子开关，老库也要加上）──
     // layout：媒体形态，决定前端用哪套版式渲染
     //   'feed'   = 帖子瀑布流（网络热门 / 公司脉脉 / 幻月暗所…）

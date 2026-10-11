@@ -80,6 +80,7 @@ function _connect() {
     media_new_posts:   d => _dispatch('media_new_posts', d),
     media_post_deleted: d => _dispatch('media_post_deleted', d),
     media_image_ready: d => _dispatch('media_image_ready', d),
+    media_avatars_updated: d => _dispatch('media_avatars_updated', d),
     media_portal_ready: d => _dispatch('media_portal_ready', d),
     new_comment:       d => _dispatch('new_comment', d),
     user_moment_vision_error: d => _dispatch('user_moment_vision_error', d),
