@@ -544,8 +544,9 @@ const MAX_SUBMIT_RETRIES = 2;
 async function submitWithRetry(rawPrompt, {
   artist, width, height, onProgress, submitRetries = MAX_SUBMIT_RETRIES,
   loras, customWorkflow, scene, workflowScene, globalLoraSnapshot, qualityPrompt, negativePrompt,
+  imageProvider = config.comfyui.imageProvider,
 } = {}) {
-  if (config.comfyui.imageProvider === 'novelai') {
+  if (imageProvider === 'novelai') {
     // NovelAI receives the same prepared scene description and artist tags as ComfyUI,
     // but does not use either character or global LoRA data.
     return submitNovelaiImage(rawPrompt, { artist, onProgress });

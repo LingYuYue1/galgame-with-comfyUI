@@ -19,6 +19,7 @@ import {
 } from '../services/mediaService.js';
 import { config, updateMediaAutoMinutes } from '../config.js';
 import { generateMediaOutletDraft } from '../services/mediaOutletDesigner.js';
+import { mediaAvatarLibrary } from '../services/mediaAvatarLibrary.js';
 
 const router = Router();
 
@@ -30,6 +31,19 @@ function fail(res, err) {
 }
 
 // ── 媒体 ──
+
+router.get('/avatars', (req, res) => {
+  try { res.json(mediaAvatarLibrary.list()); } catch (err) { fail(res, err); }
+});
+router.post('/avatars/generate', (req, res) => {
+  try { res.status(202).json(mediaAvatarLibrary.start(req.body?.direction, req.body?.artist, req.body?.count)); } catch (err) { fail(res, err); }
+});
+router.delete('/avatars/:id', (req, res) => {
+  try { res.json(mediaAvatarLibrary.remove(Number(req.params.id))); } catch (err) { fail(res, err); }
+});
+router.post('/avatars/:id/regenerate', (req, res) => {
+  try { res.status(202).json(mediaAvatarLibrary.regenerate(Number(req.params.id), req.body?.direction, req.body?.artist)); } catch (err) { fail(res, err); }
+});
 
 // 仅生成表单草稿，不创建媒体、不触发出刊或生图。
 router.post('/outlets/draft', async (req, res) => {

@@ -2038,6 +2038,19 @@ export const stopBackfillMoments = taskId => request(`/moments/backfill/${encode
 
 // ── 媒体内容页（传媒 / 板块 / 帖子）──
 
+export function listMediaAvatars() {
+  return request('/media/avatars')
+}
+export function generateMediaAvatars(direction = '', artist = '@ebora', count = 10) {
+  return request('/media/avatars/generate', { method: 'POST', body: { direction, artist, count } })
+}
+export function regenerateMediaAvatar(id, direction = '', artist = '@ebora') {
+  return request(`/media/avatars/${id}/regenerate`, { method: 'POST', body: { direction, artist } })
+}
+export function removeMediaAvatar(id) {
+  return request(`/media/avatars/${id}`, { method: 'DELETE' })
+}
+
 /** 全部媒体（含板块数与帖子数） */
 export function listMediaOutlets() {
   return request('/media/outlets')
