@@ -1940,10 +1940,11 @@ onMounted(async () => {
     const data = await getConfig()
     form.value = {
       artist: data.comfy.artist, width: data.comfy.width, height: data.comfy.height,
-      momentsArtist: data.comfy.momentsArtist || data.comfy.artist,
+      // 空字符串表示明确不注入画师串；只有缺失字段才回退。
+      momentsArtist: data.comfy.momentsArtist ?? data.comfy.artist,
       momentsWidth: data.comfy.momentsWidth || 1600,
       momentsHeight: data.comfy.momentsHeight || 1200,
-      eventArtist: data.comfy.eventArtist || data.comfy.momentsArtist || data.comfy.artist,
+      eventArtist: data.comfy.eventArtist ?? data.comfy.momentsArtist ?? data.comfy.artist,
       eventWidth: data.comfy.eventWidth || 1600,
       eventHeight: data.comfy.eventHeight || 1200,
     }

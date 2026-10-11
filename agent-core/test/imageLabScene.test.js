@@ -40,6 +40,26 @@ const loras = [
   { path: 'disabled.safetensors', scenes: ['events'], enabled: false },
 ];
 
+for (const [mode, configuredArtist] of [['chat', '@chat'], ['moments', '@moments'], ['event', '@event']]) {
+  for (const artist of ['', '@ebora', undefined]) {
+    test(`图片实验室 ${mode}: 画师串 ${JSON.stringify(artist)} 区分留空与未传`, async () => {
+      let options;
+      const handler = loadHandler('/test-style', {
+        config: { comfyui: { artist: '@chat', momentsArtist: '@moments', eventArtist: '@event' } },
+        generateImageRaw: async (_, opts) => {
+          options = opts;
+          return { success: true, images: [image] };
+        },
+      });
+      await handler({ body: { mode, artist, prompt: 'test scene', alreadyPrepared: true } }, {
+        json(value) { assert.equal(value.success, true); },
+        status(code) { assert.fail(`Unexpected HTTP ${code}`); },
+      });
+      assert.equal(options.artist, artist === undefined ? configuredArtist : artist);
+    });
+  }
+}
+
 for (const [mode, scene] of [['event', 'events'], ['chat', 'chat'], ['moments', 'moments']]) {
   for (const route of ['/test-style', '/test-hires']) {
     test(`图片实验室 ${route}: ${mode} 使用 ${scene} 范围的全局 LoRA`, async () => {
