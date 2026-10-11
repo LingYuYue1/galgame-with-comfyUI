@@ -73,8 +73,8 @@ export function initialize() {
   const now = new Date();
   const today = getLocalDateKey(now);
 
-  // 全量清理超过 2 天的旧日程快照
-  db.prepare(`DELETE FROM daily_schedules WHERE schedule_date < DATE('now', 'localtime', '-2 days')`).run();
+  // 从 JS 的 today 按日历减两天，与日程日期使用同一个时钟。
+  db.prepare(`DELETE FROM daily_schedules WHERE schedule_date < DATE(?, '-2 days')`).run(today);
 
   // 检查所有角色：日程数据的存废由 daily_schedules 自身决定，不看 schedule_enabled。
   // 后者只用来控制「要不要花 token 重新生成日程」（见 replyQueueScheduler），
@@ -208,10 +208,10 @@ function getTodayScheduleRaw(characterId) {
         VALUES (?, ?, ?)
       `).run(characterId, today, template.schedule_json);
       reapplyActiveEventSchedule(characterId, db);
-      // 清理超过 2 天的旧快照
+      // 清理阈值沿用本次快照的 today，不读取 SQLite 墙钟。
       db.prepare(
-        `DELETE FROM daily_schedules WHERE character_id = ? AND schedule_date < DATE('now', 'localtime', '-2 days')`
-      ).run(characterId);
+        `DELETE FROM daily_schedules WHERE character_id = ? AND schedule_date < DATE(?, '-2 days')`
+      ).run(characterId, today);
       row = db.prepare('SELECT schedule_json FROM daily_schedules WHERE character_id = ? AND schedule_date = ?')
         .get(characterId, today);
     }
