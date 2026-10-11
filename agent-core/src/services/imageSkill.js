@@ -619,6 +619,7 @@ async function _execute(rawPrompt, opts) {
       skipOptimization: opts.skipOptimization === true,
       ragTimeoutMs: opts.ragTimeoutMs,
     });
+    opts.onPromptPrepared?.(preparation.promptRefined);
     if (_limitEnabled()) {
       await acquireSlot();
       slotAcquired = true;
