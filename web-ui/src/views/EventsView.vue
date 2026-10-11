@@ -46,7 +46,7 @@
     </linshe-modal>
 
     <!-- 事件库管理弹窗 -->
-    <LibraryModal v-model="libraryOpen" type="event-types" />
+    <LibraryModal v-model="libraryOpen" type="event-types" @published="store.loadEvents()" />
     <EventCard v-if="linkedEvent" :key="`town-story:${linkedEvent.id}`" :event="linkedEvent" initial-open
       @updated="onEventUpdated" @closed="closeLinkedEvent" />
 

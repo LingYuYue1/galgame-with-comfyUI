@@ -37,7 +37,7 @@
     </Transition>
 
     <!-- 话题库管理弹窗 -->
-    <LibraryModal v-model="libraryOpen" type="topics" />
+    <LibraryModal v-model="libraryOpen" type="topics" @published="moments.loadPosts()" />
 
     <!-- 内容区 -->
     <div ref="scrollContainer" class="moments-feed" @scroll="onScroll">
