@@ -731,6 +731,15 @@ type="range" min="0" :max="MOMENT_FREQ_STEPS.length - 1" step="1"
 </div>
           <linshe-switch v-model="features.weather" @change="saveFeature('weather', features.weather)" />
         </div>
+
+        <!-- 朋友圈成人话题 -->
+        <div class="toggle-row">
+          <div style="flex:1">
+            <div class="tl">朋友圈成人话题</div>
+            <div class="td">关闭时，露骨成人话题（如「足交」「口交」「公园露出」）不参与朋友圈抽题，正常话题不受影响；开启后它们才会被抽中。</div>
+          </div>
+          <linshe-switch v-model="features.momentsAdult" title="朋友圈成人话题" aria-label="朋友圈成人话题" @change="saveFeature('momentsAdult', features.momentsAdult)" />
+        </div>
       </div>
 
       <!-- 生图服务连接 -->
@@ -1358,7 +1367,7 @@ const novelaiApiKeySaved = ref(false)
 const novelaiApiKeyCleared = ref(false)
 const connDirty = ref(false)
 const connSaved = ref(false)
-const features = reactive({ emotion: false, memory: false, replyGuesses: false, realtimeAffinityDisplay: false, serializeBackgroundLLM: false, backgroundLLMMaxConcurrency: 3, mergeMessages: false, weather: true })
+const features = reactive({ emotion: false, memory: false, replyGuesses: false, realtimeAffinityDisplay: false, serializeBackgroundLLM: false, backgroundLLMMaxConcurrency: 3, mergeMessages: false, weather: true, momentsAdult: false })
 const freqSlider = ref(0.5)
 const eventFreqSlider = ref(1)
 // 朋友圈发帖频率档位：value 是 momentFreq（周期 = 基准 2~8 小时 / value）。

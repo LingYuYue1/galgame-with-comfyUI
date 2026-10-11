@@ -199,6 +199,7 @@ defaultTimeoutMs: parseInt(process.env.VECTOR_DEFAULT_TIMEOUT_MS, 10) || 120000,
     mergeMessages: process.env.FEATURE_MERGE_MESSAGES === 'true', // 默认关：合并连续同角色消息兼容Jinja模板
     deepThinkMode: false, // 默认关：私聊深度思考（planner 先规划媒介组合再回复），设置页/聊天页可开
     weather: process.env.FEATURE_WEATHER !== 'false', // 默认开：实时天气
+    momentsAdult: process.env.FEATURE_MOMENTS_ADULT === 'true', // 默认关：朋友圈成人话题（开启后露骨话题才参与抽题）
     groupChat: process.env.FEATURE_GROUP_CHAT !== 'false', // 默认开：群聊系统
     groupIdleBudget: Math.max(0, parseInt(process.env.GROUP_IDLE_BUDGET ?? '0', 10) || 0), // 默认关闭；显式设为正数后启用每群每日后台闲聊预算
     town: process.env.FEATURE_TOWN !== 'false', // 默认开：AI 小镇（世界页）

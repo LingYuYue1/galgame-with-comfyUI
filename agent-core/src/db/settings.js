@@ -98,6 +98,7 @@ export const SETTING_TO_CONFIG = {
   feature_backgroundLLMMaxConcurrency: { obj: 'features', key: 'backgroundLLMMaxConcurrency', type: 'int' },
   feature_mergeMessages:             { obj: 'features', key: 'mergeMessages',             type: 'bool' },
   feature_weather:                   { obj: 'features', key: 'weather',                type: 'bool' },
+  feature_momentsAdult:              { obj: 'features', key: 'momentsAdult',           type: 'bool' },
   feature_groupChat:                 { obj: 'features', key: 'groupChat',              type: 'bool' },
   feature_town:                      { obj: 'features', key: 'town',                  type: 'bool' },
   feature_townLLM:                   { obj: 'features', key: 'townLLM',               type: 'bool' },

@@ -1101,6 +1101,9 @@ function initSchema(db) {
   // 迁移: 朋友圈话题可勾选 — moment_topics 加 checked 列
   migrateMomentTopicCheckedSchema(db);
 
+  // 迁移: 朋友圈成人话题 — moment_topics 加 adult 列（1=露骨，受总开关控制）
+  migrateMomentTopicAdultSchema(db);
+
   // 迁移: 允许系统/自定义话题同名共存 — 唯一约束改为 (source, name)
   migrateMomentTopicAllowDuplicateName(db);
 
@@ -1353,12 +1356,12 @@ function seedEventLibraries(db) {
 
   // 朋友圈话题库
   const seedTopic = db.prepare(`
-    INSERT OR IGNORE INTO moment_topics (name, desc, source, is_active)
-    VALUES (?, ?, 'default', 1)
+    INSERT OR IGNORE INTO moment_topics (name, desc, source, is_active, adult)
+    VALUES (?, ?, 'default', 1, ?)
   `);
   let topicCount = 0;
   for (const t of DEFAULT_MOMENT_TOPICS) {
-    const result = seedTopic.run(t.name, t.desc ?? '');
+    const result = seedTopic.run(t.name, t.desc ?? '', t.adult ? 1 : 0);
     if (result.changes > 0) topicCount++;
   }
   if (topicCount > 0) console.log(`[seed] moment_topics: ${topicCount} seeded`);
@@ -1808,6 +1811,25 @@ function migrateMomentTopicCheckedSchema(db) {
     }
   } catch (err) {
     console.log('[db] migrateMomentTopicCheckedSchema error:', err.message);
+  }
+}
+
+/**
+ * 迁移: 朋友圈成人话题 — moment_topics 加 adult 列
+ *
+ * adult=1 标记该话题为露骨成人向，是否参与抽题由「朋友圈成人话题」总开关
+ * （config.features.momentsAdult）决定：关闭时抽题查询排除 adult=1 的条目。
+ * 默认 0，保证老库升级后既有话题行为不变。
+ */
+function migrateMomentTopicAdultSchema(db) {
+  try {
+    const cols = db.prepare('PRAGMA table_info(moment_topics)').all();
+    if (!cols.find(c => c.name === 'adult')) {
+      db.exec('ALTER TABLE moment_topics ADD COLUMN adult INTEGER DEFAULT 0');
+      console.log('[db] Added moment_topics.adult column (default 0)');
+    }
+  } catch (err) {
+    console.log('[db] migrateMomentTopicAdultSchema error:', err.message);
   }
 }
 
