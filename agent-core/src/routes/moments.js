@@ -15,7 +15,6 @@ import { getCurrentActivity } from '../services/scheduleManager.js';
 import { triggerFriendComments } from '../services/momentInteractionService.js';
 import { publishUserMoment } from '../services/momentUserPostService.js';
 import { handleUserComment } from '../services/momentCommentService.js';
-import { getWorldIntegrationRule } from '../builtinRules.js';
 import { DEFAULT_MOMENT_IMAGE_PROMPT, parseMomentResponse, sanitizeMomentContent } from '../services/momentResponseParser.js';
 import { MOMENT_FORMS, weightedPick, pickMomentImageCount, MOMENT_SINGLE_FOCUS_RULE, MOMENT_TONE_RULES, MOMENT_IMAGE_RULES, buildMomentOutputFormat, buildMomentMotiveDirective, buildMomentScheduleContext, buildMomentMultiImageRule, MOMENT_RECORD_BACKDROP_RULE } from '../services/momentForms.js';
 
@@ -271,7 +270,7 @@ router.get('/:id', (req, res) => {
 
 // POST /api/moments/generate — 手动触发某角色发帖
 router.post('/generate', async (req, res) => {
-  const { character_id } = req.body;
+  const { character_id, topic_id } = req.body;
   if (!character_id) return res.status(400).json({ error: 'character_id is required' });
 
   const db = getDb();
@@ -279,14 +278,14 @@ router.post('/generate', async (req, res) => {
   if (!character) return res.status(404).json({ error: 'Character not found' });
 
   try {
-    const result = await generateMomentPost(character, { manual: true });
+    const result = await generateMomentPost(character, { manual: true, topicId: topic_id });
     res.json(result);
   } catch (err) {
     console.error('[moments] generate error:', err.message);
     if (err.message === 'ALREADY_GENERATING') {
       return res.status(409).json({ error: '该角色正在生成朋友圈中，请稍后再试' });
     }
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 
@@ -618,6 +617,17 @@ async function generateMomentPost(character, opts = {}) {
 async function generateMomentPostImpl(character, opts = {}) {
   const db = getDb();
 
+  // 手动点题按 id 读取原条目；checked 只影响自动抽取，不限制手动发送。
+  // 在创建帖子和更改调度时间前验证，失效话题不能悄悄退回随机抽题。
+  let selectedTopic = null;
+  if (opts.topicId != null) {
+    if (!Number.isSafeInteger(opts.topicId) || opts.topicId <= 0) {
+      throw Object.assign(new Error('话题参数无效，请重新选择'), { status: 400 });
+    }
+    selectedTopic = db.prepare('SELECT name, desc FROM moment_topics WHERE id = ? AND is_active = 1').get(opts.topicId);
+    if (!selectedTopic) throw Object.assign(new Error('这个话题已删除，请刷新话题库后重试'), { status: 404 });
+  }
+
   // 0. 并发保护：检查该角色是否已有正在生成中的帖子
   const staleThresholdSeconds = 600; // 10 分钟：超过此时间视为卡住的僵尸帖子
   const existingGenerating = db.prepare(
@@ -656,8 +666,11 @@ async function generateMomentPostImpl(character, opts = {}) {
   let isSpecialMode = false;
   let isFreeMode = false;
 
-  // 报纸吐槽帖：调度器传入 forcedTopic 时跳过掷骰，动因直接用强制话题（《邻舍日报》当期特稿）
-  if (opts.forcedTopic?.desc) {
+  // 用户点题优先；报纸吐槽帖仍沿用调度器传入的 forcedTopic 动因。
+  if (selectedTopic) {
+    pickedTopic = selectedTopic;
+    combinedStyle = selectedTopic.name;
+  } else if (opts.forcedTopic?.desc) {
     pickedTopic = {
       name: String(opts.forcedTopic.name || '今日话题'),
       desc: String(opts.forcedTopic.desc),
@@ -771,16 +784,11 @@ async function generateMomentPostImpl(character, opts = {}) {
   const permissionPrompt = worldSetting
     ? getSystemRulesWithWorld()
     : getSystemRules();
-  const worldIntegrationNote = worldSetting
-    ? getWorldIntegrationRule('moments')
-    : null;
 
   const multiPersonImageNote = multiPersons.length > 0 ? `
 - **多人画面**：包含你和${multiPersons.map(p => p.otherName).join('、')}，另指定同框的用户也计入人数；每人独立描述，参与同一活动。` : '';
 
-  const postingTaskIntro = worldSetting
-    ? '你正在发朋友圈。你的人设生存在<world_setting>中，融入世界观，把世界观当做常识，像刷手机时随手发一条那样发出一条真实的朋友圈动态——不是写作品。'
-    : '你正在发朋友圈。请根据你的人设，像刷手机时随手发一条那样发出一条真实的朋友圈动态——不是写作品。';
+  const postingTaskIntro = '你正在发朋友圈。请根据你的人设，像刷手机时随手发一条那样发出一条真实的朋友圈动态——不是写作品。';
 
   const imagePromptRule = getGlobalRule('image_prompt');
   const imagePromptGuide = imagePromptRule?.rule_content || '';
@@ -818,7 +826,7 @@ async function generateMomentPostImpl(character, opts = {}) {
   const postingTask = (() => {
     const textShape = isSpecialMode
       ? '中文口语，第一人称，优先围绕当前日程；仅在梦境或幻想动因符合采纳条件时讲一场梦或幻想'
-      : '中文口语，只围绕一个具体中心，留下角色的反应';
+      : '中文口语，只围绕一个具体中心，用角色自己的语气表达';
     const jsonFmt = buildMomentOutputFormat({ imageCount, textRequirement: textShape });
 
     const multiImageRule = buildMomentMultiImageRule(imageCount);
@@ -829,7 +837,6 @@ async function generateMomentPostImpl(character, opts = {}) {
 ${MOMENT_SINGLE_FOCUS_RULE}
 ${MOMENT_TONE_RULES}
 ${MOMENT_IMAGE_RULES}
-${worldSetting ? '- **世界观驱动**：你的朋友圈发生在<world_setting>中，不是在真空或现实世界中。你分享的日常、你的语气、你描述的场景和互动方式，都应该是这个世界里一个普通人发的朋友圈——这个世界的"日常"就是你的日常，不需要刻意解释。' : ''}
 - text 中的事符合当前时间和天气，但不用报时或报天气；只有它直接触发了这次反应才自然提及。`;
 
     const dynamicRules = `- text用中文（参考 ${pickedForm ? pickedForm.len : '30-80字'}，不凑字数），imagePrompt 用英文
@@ -862,7 +869,7 @@ ${dynamicRules}`;
   let scheduleContext = '';
   let scheduleWithUser = false; // 日程提到了用户（如聊天约定改写的日程）→ 本条朋友圈带上用户
   try {
-    if (opts.backfill || (!isFreeMode && config.features.schedule !== false)) {
+    if (!selectedTopic && (opts.backfill || (!isFreeMode && config.features.schedule !== false))) {
       const activity = opts.backfill ? opts.activity : getCurrentActivity(character.id);
       if (activity && activity.activity !== '自由时间') {
         scheduleContext = buildMomentScheduleContext(character.display_name, activity);
@@ -873,7 +880,7 @@ ${dynamicRules}`;
     }
   } catch { /* schedule not available, skip */ }
 
-  const styleDirective = isFreeMode
+  const styleDirective = isFreeMode || selectedTopic
     ? ''
     : buildMomentMotiveDirective(
         isSpecialMode
@@ -885,9 +892,8 @@ ${dynamicRules}`;
     ? `${timeTag}${scheduleContext}${styleDirective} ${multiPersons.map(p => p.relDesc).join('，')}——和${multiPersons.map(p => p.otherName).join('、')}在一起。同行者只作为同一场景里的互动对象，不要另写人物介绍或关系感想。发一条朋友圈。`
     : `${timeTag}${scheduleContext}${styleDirective} 发一条朋友圈。`;
 
-  // msgs[0] 舞台 → [世界观] → msgs[1] 任务 → msgs[2] 角色 → msgs[3] 交互(多人) → user
+  // msgs[0] 舞台（含基础世界观）→ msgs[1] 任务 → msgs[2] 角色 → msgs[3] 交互(多人) → user
   const msgs = [{ role: 'system', content: permissionPrompt }];
-  if (worldIntegrationNote) msgs.push({ role: 'system', content: worldIntegrationNote });
   msgs.push({ role: 'system', content: postingTask });
   // 整卡人格（统一入口，含生效外观注入；输出含 imagePrompt，配图需体现当前外观）
   msgs.push({ role: 'system', content: buildCharacterPersona(character, { variant: 'full' }) });
@@ -919,10 +925,12 @@ ${userName}的信息：${userDesc || '信息未知，按普通人处理'}
       });
     }
   }
-  const worldRulePrefix = worldSetting
-    ? '请遵循<world_setting>来发朋友圈，角色人设如果和<world_setting>有冲突，则以<world_setting>最高优先级，人设会因为<world_setting>改变。\n\n'
-    : '';
-  msgs.push({ role: 'user', content: worldRulePrefix + userMsg });
+  if (selectedTopic) {
+    msgs.push({ role: 'system', content: `【用户指定的朋友圈话题】\n名称：${selectedTopic.name}\n描述：${selectedTopic.desc || selectedTopic.name}` });
+  }
+  msgs.push({ role: 'user', content: selectedTopic
+    ? `${userMsg} 本次围绕用户指定话题生成图文，严格按 JSON 格式输出。`
+    : userMsg });
 
   let text = '', imagePrompt = '', imageUrls = [];
   let imagePrompts = [];
@@ -1076,9 +1084,6 @@ async function generateSpecialScheduleMoment({ characterId, activity }) {
   const permissionPrompt = worldSetting
     ? getSystemRulesWithWorld()
     : getSystemRules();
-  const worldIntegrationNote = worldSetting
-    ? getWorldIntegrationRule('moments')
-    : null;
 
   const imagePromptRule = getGlobalRule('image_prompt');
   const imagePromptGuide = imagePromptRule?.rule_content || '';
@@ -1104,7 +1109,6 @@ async function generateSpecialScheduleMoment({ characterId, activity }) {
 ${MOMENT_SINGLE_FOCUS_RULE}
 ${MOMENT_TONE_RULES}
 ${MOMENT_IMAGE_RULES}
-${worldSetting ? '- **世界观驱动**：你的朋友圈发生在<world_setting>中，不是在真空或现实世界中。' : ''}
 - text 中的事符合当前时间，不用特意报时。
 
 ${buildMomentOutputFormat({ textRequirement: `中文口语，第一人称，写你和${userName}赴约时的一个细节或互动` })}
@@ -1125,7 +1129,6 @@ ${weatherHint}`;
 **【本次发朋友圈动因】这是你与${userName}约好的事情——就是上面【此刻正在做】的内容，只围绕它发一条朋友圈。**`;
 
   const msgs = [{ role: 'system', content: permissionPrompt }];
-  if (worldIntegrationNote) msgs.push({ role: 'system', content: worldIntegrationNote });
   msgs.push({ role: 'system', content: postingTask });
   msgs.push({ role: 'system', content: buildCharacterPersona(character, { variant: 'full' }) });
   // 约定对象「我」的外观设定：画面必须带上这个人
@@ -1137,10 +1140,7 @@ ${userDesc || '信息未知，按普通人处理。'}
 imagePrompt 中${userName}的外观以上述描述为准。`,
   });
 
-  const worldRulePrefix = worldSetting
-    ? '请遵循<world_setting>来发朋友圈，角色人设如果和<world_setting>有冲突，则以<world_setting>最高优先级。\n\n'
-    : '';
-  msgs.push({ role: 'user', content: worldRulePrefix + userMsg });
+  msgs.push({ role: 'user', content: userMsg });
 
   // 创建 generating 记录（style 标记为日程赴约，与普通帖区分）
   const postResult = db.prepare(

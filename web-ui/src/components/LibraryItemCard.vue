@@ -47,6 +47,7 @@
     </CardHeightTransition>
 
     <div class="card-actions">
+      <linshe-button v-if="!item._editing && item.id" size="sm" :disabled="publishing" @click="emit('publish', item)">立即发送</linshe-button>
       <linshe-button size="sm" @click="onToggleEdit">{{ item._editing ? '取消' : '编辑' }}</linshe-button>
       <linshe-button v-if="item._editing" variant="primary" size="sm" @click="emit('save', item)">保存</linshe-button>
       <linshe-button v-else variant="danger" size="sm" @click="emit('remove', item)">删除</linshe-button>
@@ -65,8 +66,9 @@ const props = defineProps({
   isEvents: { type: Boolean, default: false },
   // 朋友圈话题支持勾选（决定参不参与抽题）；奇遇事件库不启用
   selectable: { type: Boolean, default: false },
+  publishing: { type: Boolean, default: false },
 })
-const emit = defineEmits(['edit', 'cancel', 'save', 'remove', 'toggle-check'])
+const emit = defineEmits(['edit', 'cancel', 'save', 'remove', 'toggle-check', 'publish'])
 
 // 标签以逗号分隔字符串编辑，实时同步回数组
 const funFromText = ref('')
@@ -125,7 +127,7 @@ function onToggleEdit() {
   font-size: 11px; padding: 2px 8px; border-radius: 999px;
   background: rgba(var(--accent-rgb),0.1); color: var(--accent-hover);
 }
-.card-actions { display: flex; gap: 6px; justify-content: flex-end; margin-top: 10px; }
+.card-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; margin-top: 10px; }
 .edit-form { display: flex; flex-direction: column; gap: 8px; }
 .edit-field { display: flex; flex-direction: column; gap: 4px; }
 .edit-label { font-size: 11px; color: var(--text-secondary, #888); }

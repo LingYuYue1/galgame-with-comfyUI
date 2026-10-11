@@ -1024,8 +1024,8 @@ export async function markMomentsRead() {
   return request(`/moments/mark-read`, { method: 'POST' })
 }
 
-export async function generateMoment(characterId) {
-  return request(`/moments/generate`, { method: 'POST', body: { character_id: characterId } })
+export async function generateMoment(characterId, topicId) {
+  return request(`/moments/generate`, { method: 'POST', body: { character_id: characterId, topic_id: topicId } })
 }
 
 export async function updateMoment(postId, content) {

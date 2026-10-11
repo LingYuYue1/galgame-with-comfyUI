@@ -15,7 +15,6 @@ import { recordCompletedImageTask } from '../imageTaskRecorder.js';
 import { broadcast as broadcastToUnified } from '../unifiedStreamBus.js';
 import { config } from '../../config.js';
 import { getTimeTag, getLightNoteWithWeather } from '../timeLight.js';
-import { getWorldIntegrationRule } from '../../builtinRules.js';
 import { createTownActorRegistry } from './townActorRegistry.js';
 import { townNpcPortraitUrl } from './townNpcEventGenerator.js';
 import { MOMENT_FORMS, weightedPick, MOMENT_SINGLE_FOCUS_RULE, MOMENT_TONE_RULES, MOMENT_IMAGE_RULES, buildMomentOutputFormat } from '../momentForms.js';
@@ -141,7 +140,6 @@ export async function generateTownNpcMoment(npc, opts = {}) {
   // 3. LLM 生成文案 + 配图提示词
   const worldSetting = getWorldSetting();
   const permissionPrompt = worldSetting ? getSystemRulesWithWorld() : getSystemRules();
-  const worldIntegrationNote = worldSetting ? getWorldIntegrationRule('moments') : null;
   const imagePromptRule = getGlobalRule('image_prompt');
   const imagePromptGuide = imagePromptRule?.rule_content || '';
   const now = new Date();
@@ -178,12 +176,9 @@ ${weatherHint}`;
   const personaMsg = `以下是小镇镇民「${npc.display_name}」的资料，发帖时保持这个人设：\n\n${npcPersonaBlock(npc)}`;
 
   const msgs = [{ role: 'system', content: permissionPrompt }];
-  if (worldIntegrationNote) msgs.push({ role: 'system', content: worldIntegrationNote });
   msgs.push({ role: 'system', content: formatPrompt });
   msgs.push({ role: 'system', content: personaMsg });
-  msgs.push({ role: 'user', content: worldSetting
-    ? `请遵循当前<world_setting>来发朋友圈。${timeTag}${factsBlock}现在发一条朋友圈。`
-    : `${timeTag}${factsBlock}现在发一条朋友圈。` });
+  msgs.push({ role: 'user', content: `${timeTag}${factsBlock}现在发一条朋友圈。` });
 
   let text = '', imagePrompt = '';
   try {
