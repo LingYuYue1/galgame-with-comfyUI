@@ -503,10 +503,10 @@ export function snapshotTodaySchedule(characterId) {
   `).run(characterId, today, template.schedule_json);
   reapplyActiveEventSchedule(characterId, db);
 
-  // 清理超过 2 天的旧快照
+  // 从同一个 today 按日历减两天，避免 SQLite 墙钟与 JS 时钟不一致。
   db.prepare(
-    `DELETE FROM daily_schedules WHERE character_id = ? AND schedule_date < DATE('now', 'localtime', '-2 days')`
-  ).run(characterId);
+    `DELETE FROM daily_schedules WHERE character_id = ? AND schedule_date < DATE(?, '-2 days')`
+  ).run(characterId, today);
 
   return db.prepare('SELECT schedule_json FROM daily_schedules WHERE character_id = ? AND schedule_date = ?')
     .get(characterId, today).schedule_json;

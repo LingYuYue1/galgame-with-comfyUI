@@ -243,3 +243,49 @@ test('an encounter occupying a complete future day keeps valid, nonempty time sl
   manager.invalidateCache(id);
   assert.equal(manager.getCurrentActivity(id).activity, '上课');
 });
+
+const schedule = [{ startTime: '00:00', endTime: '24:00', activity: '工作', replyDelay: 0 }];
+const dates = ['2000-02-27', '2000-02-28', '2000-02-29', '2000-03-02'];
+
+for (const entry of ['snapshot', 'fallback', 'initialize']) {
+  test(`${entry} retains two calendar days and future snapshots using the mocked local date`, t => {
+    // 跨月、闰日和严格小于边界；历史日期也能暴露误用 SQLite 真实墙钟。
+    t.mock.timers.enable({ apis: ['Date'], now: new Date('2000-03-01T00:30:00').getTime() });
+    // initialize 会启动后台同步，本测试不运行定时任务。
+    t.mock.method(globalThis, 'setTimeout', () => ({ unref() {} }));
+    config.dbPath = ':memory:';
+    const db = getDb();
+    t.after(() => { manager.invalidateAllCache(); closeDb(); });
+
+    const insertCharacter = db.prepare(
+      "INSERT INTO characters(name, display_name, base_prompt) VALUES (?, ?, '测试角色')"
+    );
+    const id = Number(insertCharacter.run('retention', '日程保留').lastInsertRowid);
+    const otherId = Number(insertCharacter.run('other', '其他角色').lastInsertRowid);
+    db.prepare('INSERT INTO schedule_templates(character_id, schedule_json) VALUES (?, ?)')
+      .run(id, JSON.stringify(schedule));
+    const insertSnapshot = db.prepare(
+      'INSERT INTO daily_schedules(character_id, schedule_date, schedule_json) VALUES (?, ?, ?)'
+    );
+    for (const date of dates) insertSnapshot.run(id, date, JSON.stringify(schedule));
+    insertSnapshot.run(otherId, dates[0], JSON.stringify(schedule));
+
+    if (entry === 'snapshot') {
+      assert.deepEqual(JSON.parse(snapshotTodaySchedule(id)), schedule);
+    } else if (entry === 'fallback') {
+      assert.equal(manager.getTodaySchedule(id)?.[0].activity, '工作');
+    } else {
+      manager.initialize();
+    }
+
+    const remaining = db.prepare(
+      'SELECT schedule_date FROM daily_schedules WHERE character_id = ? ORDER BY schedule_date'
+    ).all(id).map(row => row.schedule_date);
+    assert.deepEqual(remaining, ['2000-02-28', '2000-02-29', '2000-03-01', '2000-03-02']);
+    assert.deepEqual(JSON.parse(db.prepare(
+      'SELECT schedule_json FROM daily_schedules WHERE character_id = ? AND schedule_date = ?'
+    ).get(id, '2000-03-01').schedule_json), schedule);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM daily_schedules WHERE character_id = ?')
+      .get(otherId).n, entry === 'initialize' ? 0 : 1, '只有启动清理可以影响其他角色');
+  });
+}
