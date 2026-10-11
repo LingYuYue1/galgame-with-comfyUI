@@ -4,6 +4,7 @@
     :title="kind === 'feed' ? '帖子详情' : '报刊阅读'"
     variant="comic"
     wide
+    panel-class="media-reader-panel"
     :transition-ms="300"
     @close="emit('close')"
   >
@@ -183,6 +184,15 @@ function zoom() {
 </script>
 
 <style scoped>
+@media (min-width: 768px) {
+  :global(.linshe-modal-overlay:has(> .media-reader-panel)) {
+    padding-block: 10px;
+  }
+  :global(.media-reader-panel) {
+    height: 100dvh;
+    max-height: 100%;
+  }
+}
 .reader {
   color: var(--text-primary);
   overflow-wrap: anywhere;

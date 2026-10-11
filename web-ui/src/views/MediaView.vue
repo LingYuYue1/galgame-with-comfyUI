@@ -364,7 +364,7 @@
                       <polyline points="20 6 9 17 4 12" />
                     </svg>
                   </span>
-                  <!-- 封面：有图用图，没图用渐变占位（配图由后台补印） -->
+                  <!-- 封面：有图用图，没图用纸面占位（配图由后台补印） -->
                   <div class="post-cover">
                     <img
                       v-if="p.image"
@@ -393,63 +393,12 @@
                       </svg>
                       {{ formatNum(p.likes) }}
                     </span>
-                    <span v-if="p.board_name" class="cover-board">
-                      {{ p.board_name }}
-                    </span>
-                    <!-- 悬浮操作：重新生图 / 删除（@click.stop 防止连带打开详情） -->
-                    <div class="cover-ops">
-                      <button
-                        type="button"
-                        class="cover-op"
-                        title="重新生图"
-                        :disabled="busyPostId !== null"
-                        @click.stop="regenerateImage(p)"
-                      >
-                        <svg
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2.4"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          aria-hidden="true"
-                        >
-                          <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
-                          <path d="M21 3v5h-5" />
-                        </svg>
-                      </button>
-                      <button
-                        type="button"
-                        class="cover-op is-danger"
-                        title="删除"
-                        :disabled="busyPostId !== null"
-                        @click.stop="removePost(p)"
-                      >
-                        <svg
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2.4"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          aria-hidden="true"
-                        >
-                          <polyline points="3 6 5 6 21 6" />
-                          <path
-                            d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
-                          />
-                          <line x1="10" y1="11" x2="10" y2="17" />
-                          <line x1="14" y1="11" x2="14" y2="17" />
-                        </svg>
-                      </button>
-                    </div>
                   </div>
   
                   <div class="post-body">
                     <div class="post-author">
                       <span
                         class="author-avatar"
-                        :class="{ 'is-char': p.author_type === 'character' }"
                       >
                         <img
                           v-if="p.author_avatar"
@@ -463,6 +412,29 @@
                         :class="{ 'is-char': p.author_type === 'character' }"
                       >
                         {{ p.author_name }}
+                      </span>
+                      <span v-if="p.board_name" class="post-board" :title="p.board_name">
+                        <svg
+                          class="post-board-frame"
+                          viewBox="0 0 100 36"
+                          preserveAspectRatio="none"
+                          aria-hidden="true"
+                          focusable="false"
+                        >
+                          <path
+                            d="M12 3 Q51 0 89 3 Q98 4 98 12 L96 21 Q95 27 84 27 L33 28 L19 34 L21 27 L12 28 Q2 27 2 19 L3 11 Q3 4 12 3Z"
+                            vector-effect="non-scaling-stroke"
+                          />
+                        </svg>
+                        <svg
+                          class="post-board-accent"
+                          viewBox="0 0 16 16"
+                          aria-hidden="true"
+                          focusable="false"
+                        >
+                          <path d="M3 7 5 2 M9 10 14 6" />
+                        </svg>
+                        <span class="post-board-label">{{ p.board_name }}</span>
                       </span>
                     </div>
                     <h3 class="post-title">{{ p.title }}</h3>
@@ -2006,25 +1978,28 @@ onUnmounted(() => {
 }
 
 .post-card {
-  border-radius: 14px;
+  position: relative;
+  border-radius: var(--radius-sm);
   overflow: hidden;
-  background: var(--glass-bg-strong);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  border: 1px solid var(--glass-border);
+  background: var(--media-paper);
+  border: 2px solid var(--media-rule);
+  box-shadow: 3px 3px 0 var(--media-ink);
   cursor: pointer;
-  transition:
-    transform 0.2s ease,
-    box-shadow 0.2s ease,
-    border-color 0.2s ease;
+  text-align: left;
+  transition: transform var(--dur-interaction) var(--ease-standard);
 }
-.post-card:hover {
-  transform: translateY(-3px);
-  box-shadow: var(--shadow-md);
+@media (hover: hover) {
+  .post-card:hover {
+    transform: translateY(-3px);
+  }
+}
+.post-card:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 4px;
 }
 /* 角色本人的帖子描一圈主题色，一眼区分 */
 .post-card.is-char {
-  border-color: rgba(var(--accent-rgb), 0.4);
+  border-color: var(--accent);
 }
 
 /* 封面统一 3:2。
@@ -2038,6 +2013,7 @@ onUnmounted(() => {
   aspect-ratio: 3 / 2;
   overflow: hidden;
   background: var(--bg-tertiary);
+  border-bottom: 2px solid var(--media-rule);
 }
 .post-cover img {
   display: block;
@@ -2054,16 +2030,22 @@ onUnmounted(() => {
   justify-content: center;
   gap: 8px;
   padding: 20px 16px;
-  background: linear-gradient(
-    135deg,
-    rgba(var(--accent-rgb), 0.16),
-    rgba(var(--accent-rgb), 0.04)
-  );
+  background-color: var(--bg-sunken);
+  background-image: radial-gradient(var(--dot-color) 0.8px, transparent 0.8px);
+  background-size: 8px 8px;
 }
 .cover-ph-outlet {
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 3px 7px;
+  border-left: 3px solid var(--accent);
+  background: var(--media-paper);
   font-size: 11px;
-  color: var(--accent);
-  font-weight: 600;
+  color: var(--text-primary);
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .cover-ph-title {
   font-size: 15px;
@@ -2078,94 +2060,65 @@ onUnmounted(() => {
 }
 .cover-likes {
   position: absolute;
-  top: 8px;
-  left: 8px;
+  top: 10px;
+  left: 0;
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 3px 8px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.55);
-  color: #fff;
+  gap: 5px;
+  padding: 5px 10px 5px 8px;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--media-ink);
+  color: var(--media-light);
   font-size: 11px;
   font-weight: 700;
-  backdrop-filter: blur(4px);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
-.cover-board {
+.cover-likes svg {
+  color: var(--accent-light);
+}
+.post-board {
+  position: relative;
+  margin-left: auto;
+  flex-shrink: 0;
+  max-width: 48%;
+  padding: 6px 12px;
+  color: var(--media-ink);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+}
+.post-board-frame {
   position: absolute;
-  right: 8px;
-  bottom: 8px;
-  padding: 2px 8px;
-  border-radius: 6px;
-  background: rgba(0, 0, 0, 0.5);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 600;
-  backdrop-filter: blur(4px);
+  top: -1px;
+  left: 0;
+  width: 100%;
+  height: calc(100% + 6px);
+  fill: var(--media-light);
+  stroke: var(--media-ink);
+  stroke-width: 1.8px;
+  stroke-linejoin: round;
+  pointer-events: none;
 }
-
-/* ── 卡片悬浮操作（重新生图 / 删除）── */
-.cover-ops {
+.post-board-accent {
   position: absolute;
-  top: 8px;
-  right: 8px;
-  display: flex;
-  gap: 5px;
-  opacity: 0;
-  transform: translateY(-4px);
-  transition:
-    opacity 0.18s ease,
-    transform 0.18s ease;
+  top: -5px;
+  right: -4px;
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.5px;
+  stroke-linecap: round;
+  pointer-events: none;
 }
-.post-card:hover .cover-ops,
-.post-card:focus-within .cover-ops {
-  opacity: 1;
-  transform: translateY(0);
-}
-/* 触屏没有 hover → 常显，否则按不到 */
-@media (hover: none) {
-  .cover-ops {
-    opacity: 1;
-    transform: none;
-  }
-}
-.cover-op {
-  width: 30px;
-  height: 30px;
-  /* ★ 必须显式清掉全局 `button { padding: 7px 14px }`（styles/base.css）。
-     配合 `* { box-sizing: border-box }`，26px 宽的按钮减去左右各 14px 内边距后
-     内容宽度正好是 0 —— 图标会被压成 0 宽彻底看不见，只剩一个空白方块。 */
-  padding: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: 9px;
-  background: rgba(0, 0, 0, 0.6);
-  color: #fff;
-  cursor: pointer;
-  backdrop-filter: blur(4px);
-  transition:
-    background 0.15s,
-    transform 0.15s;
-  -webkit-tap-highlight-color: transparent;
-}
-/* 图标给足尺寸并禁止收缩：flex 容器里 svg 默认 flex-shrink:1，容器一紧就被压扁 */
-.cover-op svg {
-  width: 17px;
-  height: 17px;
-  flex: none;
-}
-.cover-op:hover:not(:disabled) {
-  background: rgba(0, 0, 0, 0.8);
-  transform: scale(1.08);
-}
-.cover-op.is-danger:hover:not(:disabled) {
-  background: rgba(198, 52, 52, 0.95);
-}
-.cover-op:disabled {
-  opacity: 0.45;
-  cursor: default;
+.post-board-label {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ── 卡片勾选框（批量模式） ── */
@@ -2193,10 +2146,18 @@ onUnmounted(() => {
   top: 8px;
   left: 8px;
   z-index: 3;
+  border-color: var(--media-ink);
+  background: var(--media-light);
+  color: var(--media-ink);
+  box-shadow: 2px 2px 0 var(--media-ink);
+  backdrop-filter: none;
 }
-/* 批量模式下卡片右上角的单条操作藏起来，避免与批量操作混淆 */
-.post-card.is-selecting .cover-ops {
-  display: none;
+.post-card .pick-box.on {
+  background: var(--accent);
+}
+.post-card.is-selecting .cover-likes {
+  left: 36px;
+  border-radius: var(--radius-sm);
 }
 .post-card.is-selecting {
   cursor: pointer;
@@ -2281,54 +2242,52 @@ onUnmounted(() => {
   max-width: none;
 }
 .post-body {
-  padding: 10px 12px 12px;
+  padding: 12px 12px 13px;
 }
 .post-author {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 6px;
+  gap: 8px;
+  margin-bottom: 9px;
 }
 .author-avatar {
-  width: 26px;
-  height: 26px;
+  width: 36.8px;
+  height: 36.8px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
   flex-shrink: 0;
-  background: var(--accent);
-  color: #fff;
-  font-size: 11px;
+  background: var(--media-light);
+  color: var(--media-ink);
+  font-size: 13px;
   font-weight: 700;
 }
 .author-avatar img {
   width: 100%;
   height: 100%;
+  border-radius: 50%;
   object-fit: cover;
   object-position: top;
 }
-.author-avatar.is-char {
-  box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.35);
-}
 .author-name {
-  font-size: 12px;
-  color: var(--text-secondary);
-  font-weight: 500;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-primary);
+  font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .author-name.is-char {
-  color: var(--accent);
-  font-weight: 600;
+  color: color-mix(in srgb, var(--accent) 72%, var(--text-bright));
 }
 
 .post-title {
   margin: 0 0 5px;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 800;
   color: var(--text-bright);
   line-height: 1.45;
 }
@@ -2361,9 +2320,10 @@ onUnmounted(() => {
   display: flex;
   gap: 12px;
   margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border-strong);
   font-size: 11px;
   color: var(--text-secondary);
-  opacity: 0.75;
 }
 .foot-item {
   display: inline-flex;
