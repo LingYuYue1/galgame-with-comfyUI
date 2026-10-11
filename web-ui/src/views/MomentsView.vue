@@ -4,8 +4,8 @@
     <div class="moments-header" :class="{ 'header-hidden': isMobile && !headerVisible }">
       <span class="moments-title" @click="isMobile && toggleMobileSidebar()" :class="{ 'is-clickable': isMobile }">朋友圈</span>
       <div class="topbar-actions">
-        <div class="btn-post" role="button" tabindex="0" :class="{ 'is-disabled': backfillRunning || backfillSubmitting }" :aria-disabled="backfillRunning || backfillSubmitting" @click.stop="startBackfill" @keydown.enter.prevent.stop="startBackfill" @keydown.space.prevent.stop="startBackfill">{{ backfillRunning || backfillSubmitting ? '补发中' : '补发动态' }}</div>
         <div class="lib-gear" role="button" tabindex="0" @keydown.enter.prevent="libraryOpen = true" @keydown.space.prevent="libraryOpen = true" @click="libraryOpen = true" title="话题库管理"><gear-icon :size="18" /></div>
+        <div class="btn-post" role="button" tabindex="0" :class="{ 'is-disabled': backfillRunning || backfillSubmitting }" :aria-disabled="backfillRunning || backfillSubmitting" @click.stop="startBackfill" @keydown.enter.prevent.stop="startBackfill" @keydown.space.prevent.stop="startBackfill">{{ backfillRunning || backfillSubmitting ? '补发中' : '补发动态' }}</div>
         <div class="btn-post" role="button" tabindex="0" :class="{ 'is-disabled': genPending }" :aria-disabled="genPending" @click.stop="!genPending && (showPicker = !showPicker)" @keydown.enter.prevent.stop="!genPending && (showPicker = !showPicker)" @keydown.space.prevent.stop="!genPending && (showPicker = !showPicker)">
           {{ genPending ? '扰动中' : '🎬 扰动世界线' }}
         </div>

@@ -33,7 +33,7 @@ export function createMediaAvatarLibrary({
     const db = database();
     try {
       const opts = { ...snapshot(), artist, globalLoraSnapshot: [], width: 1024, height: 1024,
-        scene: 'avatar', imageProvider: 'comfyui', alreadyPrepared: true, disableRAG: true };
+        scene: 'avatar', priority: 'high', imageProvider: 'comfyui', alreadyPrepared: true, disableRAG: true };
       const previous = [];
       for (let offset = 0; offset < count; offset += AVATAR_PROMPT_BATCH_SIZE) {
         const batchSize = Math.min(AVATAR_PROMPT_BATCH_SIZE, count - offset);

@@ -206,7 +206,7 @@ router.post('/refresh', (req, res) => {
     const count = req.body?.count ? Number(req.body.count) : DEFAULT_BATCH_SIZE;
     if (outletId && !getOutlet(outletId)) return res.status(404).json({ error: '媒体不存在' });
     // 不 await：LLM 生成要几十秒，占着请求会让前端转圈超时
-    generateMediaBatch({ outletId, count: Math.min(count, MAX_BATCH_SIZE) })
+    generateMediaBatch({ outletId, count: Math.min(count, MAX_BATCH_SIZE), manual: true })
       .then(r => console.log(`[media] refresh done: +${r.inserted}`))
       .catch(err => console.error('[media] refresh failed:', err.message));
     res.json({ started: true, outletId, count });
