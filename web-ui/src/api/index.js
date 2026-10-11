@@ -873,13 +873,32 @@ export async function updateUserConfig(data) {
 
 // ── 测试画风（固定提示词，不存 DB；mode: 'chat' | 'moments'；prompt 可选覆盖默认；
 // sceneDesc 可选自由画面描述 → LLM 完善；reuseSceneLoras 复用上次自由画面测试匹配到的角色 lora）──
-export async function testStyle({ artist, width, height, mode = 'chat', prompt = '', sceneDesc = '', reuseSceneLoras = false, alreadyPrepared = false } = {}) {
+export async function testStyle({ artist, width, height, mode = 'chat', prompt = '', sceneDesc = '', reuseSceneLoras = false, alreadyPrepared = false } = {}, { onPrompt } = {}) {
   const body = { artist, width, height, mode };
   if (prompt) body.prompt = prompt;
   if (sceneDesc) body.sceneDesc = sceneDesc;
   if (reuseSceneLoras) body.reuseSceneLoras = true;
   if (alreadyPrepared) body.alreadyPrepared = true;
-  return request(`/images/test-style`, { method: 'POST', body: body })
+  if (!onPrompt) return request('/images/test-style', { method: 'POST', body })
+  const res = await fetch(`${BASE}/images/test-style`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...body, stream: true }),
+  })
+  // 兼容尚未重启的旧后端，以及鉴权等中间件返回的 JSON 错误。
+  if (!res.ok || !res.headers.get('content-type')?.includes('text/event-stream')) {
+    const result = await res.json()
+    if (!res.ok) throw new Error(result.error || `请求失败 (${res.status})`)
+    return result
+  }
+  let result
+  await consumeSSE(res, (event, data) => {
+    if (!data) return
+    if (event === 'prompt') onPrompt(data)
+    else if (event === 'result') result = data
+  })
+  if (!result) throw new Error('生成连接已中断，请重试')
+  return result
 }
 
 /** 测试细化（最近一张图，HiresFix 参数流程，不落盘，返回原图+细化图） */
