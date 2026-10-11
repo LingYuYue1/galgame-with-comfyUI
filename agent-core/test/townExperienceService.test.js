@@ -89,7 +89,8 @@ test('encounter events settle into both participants and skip memory for pure to
   assert.equal(db.prepare(`SELECT count(*) n FROM town_experiences WHERE event_id = ?`).get(`encounter:${encId}:bad`).n, 0);
 });
 
-test('encounter events write character memory when a resident character took part', async t => {
+for (const resultCode of [null, 'silent_pass', 'brief_chat', 'chat', 'interrupted']) {
+test(`encounter ${resultCode || 'legacy'} keeps resident experiences without writing character memory`, async t => {
   const db = getDb();
   t.after(() => closeDb());
   const registry = createTownActorRegistry(db);
@@ -111,13 +112,19 @@ test('encounter events write character memory when a resident character took par
     .run(-npc.id, charId, '老周和林小姐在门口聊了几句天气');
   const encId = Number(enc.lastInsertRowid);
 
+  const outcome = resultCode ? {
+    interactionType: resultCode === 'silent_pass' ? 'pass_by' : 'chat',
+    resultCode, ruleVersion: 1, settledAtUtcMs: Date.now(),
+  } : null;
+  if (outcome) db.prepare('UPDATE town_encounters SET outcome_json = ? WHERE id = ?').run(JSON.stringify(outcome), encId);
+
   const events = makeEventService(db, registry);
   events.append({
     eventId: `encounter:${encId}`, ...scope,
     type: 'town.encounter.happened', occurredAt: Date.now(),
     actorIds: [actorNpc.actorId, actorChar.actorId], locationKey: null,
     source: { system: 'town.encounters', entityId: `encounter:${encId}` },
-    payload: { encounterId: encId, summary: '老周和林小姐在门口聊了几句天气' },
+    payload: { encounterId: encId, summary: '老周和林小姐在门口聊了几句天气', ...(outcome || {}) },
   }, [TOWN_EXPERIENCE_CONSUMER]);
 
   const memoryCalls = [];
@@ -128,12 +135,15 @@ test('encounter events write character memory when a resident character took par
   });
   experience.drain(scope);
 
-  const rows = db.prepare(`SELECT actor_id, character_id FROM town_experiences WHERE event_id = ?`).all(`encounter:${encId}`);
+  const rows = db.prepare(`SELECT actor_id, character_id, memory_ids FROM town_experiences WHERE event_id = ?`).all(`encounter:${encId}`);
   assert.equal(rows.length, 2);
   const charRow = rows.find(r => r.actor_id === actorChar.actorId);
   assert.equal(charRow.character_id, charId);
-  // 角色参与 → 记忆回写被调用，写入 char_{id} 会话
-  assert.equal(memoryCalls.length, 1);
-  assert.equal(memoryCalls[0].conversationId, `char_${charId}`);
-  assert.ok(memoryCalls[0].actions[0].memory.judgment.includes('老周'));
+  // 即使记忆总开关开启且有角色卡，也只保留小镇经历。
+  assert.equal(memoryCalls.length, 0);
+  assert.ok(rows.every(row => row.memory_ids === '[]'));
+  experience.drain(scope);
+  assert.equal(db.prepare('SELECT count(*) n FROM town_experiences WHERE event_id = ?').get(`encounter:${encId}`).n, 2);
+  assert.equal(memoryCalls.length, 0);
 });
+}
