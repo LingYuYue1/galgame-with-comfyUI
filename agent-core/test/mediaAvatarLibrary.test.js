@@ -72,6 +72,7 @@ test('calls ComfyUI once per prompt, keeps successful images, and stores no task
     generate: async (prompt, opts) => {
       seen.push(prompt);
       assert.equal(opts.imageProvider, 'comfyui');
+      assert.equal(opts.priority, 'high');
       assert.equal(opts.alreadyPrepared, true);
       assert.equal(opts.width, opts.height);
       assert.equal(opts.artist, '@custom_artist');

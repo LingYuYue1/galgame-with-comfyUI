@@ -1232,6 +1232,7 @@ ${buildCharacterPersona(char, { variant: 'full' })}
     const avatarArtist = charArtistOverride(char);
     const result = await generateImageRaw(promptText, {
       promptScene: 'avatar',
+      priority: 'high',
       disableRAG: true,
       ragTimeoutMs: RAG_TIMEOUT_FAST_MS,
       artist: avatarArtist !== null ? avatarArtist : config.comfyui.momentsArtist,
