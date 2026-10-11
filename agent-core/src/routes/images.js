@@ -249,7 +249,8 @@ router.post('/test-style', async (req, res) => {
 
   const isMoments = mode === 'moments';
   const isEvent = mode === 'event';
-  const finalArtist = artist || (isEvent ? config.comfyui.eventArtist : (isMoments ? config.comfyui.momentsArtist : config.comfyui.artist));
+  // 测试时显式留空也要生效，与正式生图的空画师串语义一致。
+  const finalArtist = artist ?? (isEvent ? config.comfyui.eventArtist : (isMoments ? config.comfyui.momentsArtist : config.comfyui.artist));
   const finalWidth = width || (isEvent ? config.comfyui.eventWidth : (isMoments ? config.comfyui.momentsWidth : config.comfyui.width));
   const finalHeight = height || (isEvent ? config.comfyui.eventHeight : (isMoments ? config.comfyui.momentsHeight : config.comfyui.height));
 
