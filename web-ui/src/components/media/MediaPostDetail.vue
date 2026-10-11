@@ -249,7 +249,7 @@ function zoom() {
   place-items: center;
   flex-shrink: 0;
   border: 2px solid var(--media-ink);
-  border-radius: 2px;
+  border-radius: var(--radius-full);
   background: var(--media-light);
   color: var(--media-ink);
   box-shadow: 3px 3px 0 var(--media-ink);
