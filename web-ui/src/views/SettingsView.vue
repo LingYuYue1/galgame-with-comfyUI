@@ -150,24 +150,29 @@
           </Transition>
         </div>
 
-        <div
-          v-if="generatedPrompt && !promptEditing"
-          class="generated-prompt-box editable"
-          title="点击编辑提示词"
-          @click="startPromptEdit"
-        >
+        <Transition name="prompt-reveal">
+          <div v-if="promptRevealed || generatedPrompt">
+            <div
+              v-if="generatedPrompt && !promptEditing"
+              class="generated-prompt-box editable"
+              title="点击编辑提示词"
+              @click="startPromptEdit"
+            >
 {{ generatedPrompt }}
-</div>
-        <linshe-auto-textarea
-          v-else-if="generatedPrompt"
-          ref="promptEditRef"
-          v-model="generatedPrompt"
-          class="generated-prompt-box generated-prompt-editor"
-          placeholder=""
-          @blur="promptEditing = false"
-          @enter="submitOnEnter($event, runGeneratedPromptTest)"
-          @escape="promptEditing = false"
-        />
+            </div>
+            <linshe-auto-textarea
+              v-else
+              ref="promptEditRef"
+              v-model="generatedPrompt"
+              class="generated-prompt-box generated-prompt-editor"
+              placeholder="直接输入或粘贴生图提示词，留空使用默认提示词"
+              @focus="promptEditing = true"
+              @blur="promptEditing = false"
+              @enter="submitOnEnter($event, runGeneratedPromptTest)"
+              @escape="promptEditing = false"
+            />
+          </div>
+        </Transition>
         <div v-if="styleError" class="style-error">{{ styleError }}</div>
 
         <div v-if="styleTesting" class="style-loading">
@@ -632,7 +637,7 @@ type="range" min="1" max="10" step="1"
         <div class="toggle-row freq-row">
           <div>
             <div class="tl">主动聊天频率</div>
-            <div class="td">0 关闭，越大越频繁。</div>
+            <div class="td">{{ freqSlider <= 0 ? '关闭主动聊天。' : `频率触发间隔约 ${chatFreqLabel}，实际时间会有浮动。` }}</div>
           </div>
           <div class="freq-control">
             <input
@@ -640,14 +645,14 @@ type="range" min="0" max="1" step="0.1"
               v-model.number="freqSlider"
               @change="onFreqChange"
             />
-            <span class="freq-val">{{ freqSlider.toFixed(1) }}</span>
+            <span class="freq-val">{{ chatFreqLabel }}</span>
           </div>
         </div>
 
         <div class="toggle-row freq-row">
           <div>
             <div class="tl">奇遇触发频率</div>
-            <div class="td">0 关闭自动触发，1 为默认频率（约 30 分钟一次）。</div>
+            <div class="td">{{ eventFreqSlider <= 0 ? '关闭自动触发。' : `约每 ${eventFreqLabel} 检查一次，满足条件时触发奇遇。` }}</div>
           </div>
           <div class="freq-control">
             <input
@@ -655,7 +660,22 @@ type="range" min="0" max="1" step="0.1"
               v-model.number="eventFreqSlider"
               @change="onEventFreqChange"
             />
-            <span class="freq-val">{{ eventFreqSlider.toFixed(1) }}</span>
+            <span class="freq-val">{{ eventFreqLabel }}</span>
+          </div>
+        </div>
+
+        <div class="toggle-row freq-row">
+          <div>
+            <div class="tl">朋友圈发帖频率</div>
+            <div class="td">{{ momentFreqHint }}</div>
+          </div>
+          <div class="freq-control">
+            <input
+type="range" min="0" :max="MOMENT_FREQ_STEPS.length - 1" step="1"
+              v-model.number="momentFreqStepIdx"
+              @change="onMomentFreqChange"
+            />
+            <span class="freq-val">{{ momentFreqLabel }}</span>
           </div>
         </div>
 
@@ -1198,7 +1218,7 @@ base
 <script setup>
 import { ref, reactive, computed, onMounted, inject, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import { getConfig, updateComfyConfig, updateLlmConfig, testLlmConnection, setLlmFreeEgg, fetchLlmModels, fetchLlmApiKey, updateFeatureFlag, imageProviderHealth, testStyle, testHires, updateProactiveFreq, updateEventFreq, updateMomentFreq, updateBackgroundConcurrency, updateDisturbMode, updateDisturbSettings, updateWeatherCity, getArtistFavorites, addArtistFavorite, deleteArtistFavorite, listCharacters, restoreWorkflow, getWorkflows, updateWorkflowMode, updateWorkflowScene, getLlmProfiles, addLlmProfile, deleteLlmProfile, activateLlmProfile, syncActiveLlmProfile, getMediaAuto, setMediaAuto } from '../api/index.js'
+import { getConfig, updateComfyConfig, updateLlmConfig, testLlmConnection, setLlmFreeEgg, fetchLlmModels, fetchLlmApiKey, updateFeatureFlag, imageProviderHealth, testStyle, testHires, updateProactiveFreq, updateEventFreq, updateMomentFreq, updateBackgroundConcurrency, updateDisturbMode, updateDisturbSettings, updateWeatherCity, getArtistFavorites, addArtistFavorite, deleteArtistFavorite, listCharacters, restoreWorkflow, getWorkflows, updateWorkflowMode, updateWorkflowScene, getLlmProfiles, addLlmProfile, deleteLlmProfile, activateLlmProfile, syncActiveLlmProfile } from '../api/index.js'
 import { useSettingsStore } from '../stores/settings.js'
 import ImageLightbox from '../components/ImageLightbox.vue'
 import LinsheModal from '../components/ui/LinsheModal.vue'
@@ -1361,9 +1381,17 @@ const connSaved = ref(false)
 const features = reactive({ emotion: false, memory: false, replyGuesses: false, realtimeAffinityDisplay: false, serializeBackgroundLLM: false, backgroundLLMMaxConcurrency: 3, mergeMessages: false, weather: true })
 const freqSlider = ref(0.5)
 const eventFreqSlider = ref(1)
+// 仅换算显示，保留原有 0~1 参数；公式对应两个 scheduler 的现有间隔。
+function frequencyTimeLabel(minutes) {
+  return minutes % 60 === 0 ? `${minutes / 60} 小时` : `${minutes} 分钟`
+}
+const chatFreqLabel = computed(() => freqSlider.value <= 0
+  ? '关闭' : frequencyTimeLabel(Math.round(8 + (1 - freqSlider.value) / 0.9 * 112)))
+const eventFreqLabel = computed(() => eventFreqSlider.value <= 0
+  ? '关闭' : frequencyTimeLabel(Math.round(30 / eventFreqSlider.value)))
 // 朋友圈发帖频率档位：value 是 momentFreq（周期 = 基准 2~8 小时 / value）。
 // 用档位而不是连续滑块：周期跨度从 5 分钟到 32 小时，连续拖动既拖不准也说不清。
-// 顺序按「越往右越频繁」，与「频率」的直觉一致。
+// 时间档从慢到快排列，最右侧额外提供沿用原有频率的「默认」档。
 const MOMENT_FREQ_STEPS = [
   { value: 0,    label: '关闭',    hint: '关闭自动发帖（仍可手动发）。' },
   { value: 0.25, label: '8 小时',  hint: '每个角色约 8~32 小时一条。' },
@@ -1373,16 +1401,16 @@ const MOMENT_FREQ_STEPS = [
   { value: 4,    label: '30 分钟', hint: '每个角色约 30 分钟~2 小时一条。' },
   { value: 8,    label: '15 分钟', hint: '每个角色约 15~60 分钟一条。' },
   { value: 24,   label: '5 分钟',  hint: '每个角色约 5~20 分钟一条，LLM 与生图消耗很高。' },
+  { value: 1,    label: '默认',    hint: '沿用原有频率：每个角色约 2~8 小时一条，首次等待 1~4 小时。' },
 ]
-// 默认档位 = 关闭（value 0），与后端 config.features.momentFreq 的默认值保持一致 ——
-// 否则「库里还没有这个键」的新装用户，界面会显示「2 小时」而后台实际是关闭，对不上。
-const DEFAULT_MOMENT_STEP = 0   // 对应 value=0（关闭）
+const DEFAULT_MOMENT_STEP = MOMENT_FREQ_STEPS.length - 1
 const momentFreqStepIdx = ref(DEFAULT_MOMENT_STEP)
 const momentFreqHint = computed(() => MOMENT_FREQ_STEPS[momentFreqStepIdx.value]?.hint || '')
 const momentFreqLabel = computed(() => MOMENT_FREQ_STEPS[momentFreqStepIdx.value]?.label || '')
 /** 库里存的 momentFreq → 最接近的档位下标（老值可能是任意数） */
 function momentStepFromValue(v) {
   if (v == null) return DEFAULT_MOMENT_STEP
+  if (Number(v) === 1) return DEFAULT_MOMENT_STEP
   let best = 0
   let bestDiff = Infinity
   MOMENT_FREQ_STEPS.forEach((s, i) => {
@@ -2097,8 +2125,6 @@ onMounted(async () => {
     freqSlider.value = features.proactiveChatFreq ?? 0.5
     eventFreqSlider.value = features.eventFreq ?? 1
     momentFreqStepIdx.value = momentStepFromValue(features.momentFreq)
-    // 传媒自动抓帖状态（档位表 + 排期）——单独一个接口，失败不阻断设置页其余部分
-    loadMediaAuto()
     backgroundConcurrency.value = features.backgroundLLMMaxConcurrency ?? 3
     // 防打扰模式
     if (data.disturb) {
@@ -2570,8 +2596,15 @@ const styleElapsed = ref(null)  // ms
 const styleTiming = ref(null)  // { comfyui_ms, download_ms, overhead_ms }
 const freeSceneDesc = ref('')  // 自由画面描述（LLM 完善提示词）
 const generatedPrompt = ref('')  // RAG 召回合并后的最终 prompt 展示
+const promptRevealed = ref(false)  // 点击自由描述框后保持提示词区域展开
 const promptEditing = ref(false)  // prompt 展示框的点击编辑态
 const promptEditRef = ref(null)
+
+// 切换参数组后重新使用对应的默认提示词，避免沿用上一组的编辑结果。
+watch(testMode, () => {
+  generatedPrompt.value = ''
+  promptEditing.value = false
+})
 
 function submitOnEnter(event, action) {
   if (event.isComposing || event.keyCode === 229) return
@@ -2595,6 +2628,7 @@ function focusSceneDesc() {
 }
 function onSceneDescFocus() {
   sceneDescFocused.value = true
+  promptRevealed.value = true
 }
 
 // 失焦后组件自动回到单行
@@ -2764,9 +2798,10 @@ async function executeStyleTest({ prompt = '', sceneDesc = '', reuseSceneLoras =
 }
 
 function runStyleTest() {
-  // textarea 有内容且已生成过提示词 → 直接复用（含匹配角色 lora），不再走 LLM
-  if (freeSceneDesc.value.trim() && generatedPrompt.value) {
-    return executeStyleTest({ prompt: generatedPrompt.value, reuseSceneLoras: true })
+  if (styleTesting.value) return
+  // 中间的最终提示词优先；与编辑框回车共用入口，不依赖上方自由描述是否为空。
+  if (generatedPrompt.value.trim()) {
+    return runGeneratedPromptTest()
   }
   generatedPrompt.value = ''
   return executeStyleTest({ prompt: testPrompts.value[testMode.value] || '' })
@@ -2780,7 +2815,7 @@ function runFreeSceneTest() {
   return executeStyleTest({ sceneDesc: desc })
 }
 
-// 最终 prompt 已包含 RAG 合并结果；回车重生成时跳过重复合并
+// 最终 prompt 已包含 RAG 合并结果；按钮或回车重生成时跳过重复合并
 function runGeneratedPromptTest() {
   const prompt = generatedPrompt.value.trim()
   if (!prompt || styleTesting.value) return
@@ -3573,6 +3608,8 @@ function resetTestPrompts() {
 /* 生成提示词按钮：随输入内容渐入渐出 */
 .gen-btn-fade-enter-active, .gen-btn-fade-leave-active { transition: opacity 0.25s ease; }
 .gen-btn-fade-enter-from, .gen-btn-fade-leave-to { opacity: 0; }
+.prompt-reveal-enter-active, .prompt-reveal-leave-active { transition: opacity 0.3s var(--ease-standard); }
+.prompt-reveal-enter-from, .prompt-reveal-leave-to { opacity: 0; }
 .generated-prompt-box {
   padding: 10px 14px; margin-bottom: 12px; border-radius: 12px;
   background: var(--glass-bg-strong); border: 1px solid var(--glass-border);

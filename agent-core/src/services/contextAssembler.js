@@ -81,18 +81,7 @@ function messageWithImages(message, maxImages = MAX_MESSAGE_IMAGES) {
 export function buildChatContext({ stableBlocks = [], preSummarySystem = null, summaryBlock = null, preHistoryMessages = [], history = [], dynamicBlocks = [] } = {}) {
   const stableMessages = stableBlocks.filter(Boolean).map(content => ({ role: 'system', content: String(content) }));
 
-  // 只给最近几条带图消息附上图片：从后往前扫，额度用尽后其余一律按纯文本处理
-  let imageQuota = MAX_HISTORY_IMAGE_MESSAGES;
-  const historyMessages = [];
-  for (let i = history.length - 1; i >= 0; i--) {
-    const m = history[i];
-    if (imageQuota > 0 && parseImageList(m?.images).length > 0) {
-      imageQuota--;
-      historyMessages.unshift(messageWithImages(m));
-    } else {
-      historyMessages.unshift(cloneMessage(m));
-    }
-  }
+  const historyMessages = history.map(cloneMessage);
 
   // 摘要前 system：多条按空行拼成一条（空段自动省略）
   const preSummaryContent = (Array.isArray(preSummarySystem) ? preSummarySystem : [preSummarySystem])

@@ -46,13 +46,6 @@ const routes = [
   { path: '/worldmap', component: WorldMapView },
   { path: '/schedule', component: ScheduleView },
   { path: '/gallery', component: GalleryView },
-  { path: '/draw', component: DrawView },
-  // 「故事」（T2）：跨天演进的剧情线。⚠ 与 /events（奇遇，一次性事件）是两层东西。
-  // ★ 2026-10-08：改为路由级懒加载。该页的「节点图」标签页依赖 @vue-flow/core，
-  //   它又是低频页面（需进「故事」页再切到「节点图」）→ 拆成独立异步 chunk，仅在访问时下载。
-  //   ⚠ 注意：@vue-flow 同时被关系图组件（关系图/用户关系图）引用，那些是常驻页面，
-  //     因此 vue-flow 本体仍会留在主 chunk；本改动拆出的是 StoryView 自身与其样式。
-  { path: '/story', component: () => import('./views/StoryView.vue') },
   { path: '/media', component: MediaView },
   { path: '/tavern', component: TavernView },
   { path: '/mailbox', component: MailboxView },

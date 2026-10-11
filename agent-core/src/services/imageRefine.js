@@ -71,7 +71,7 @@ function loadSourceWorkflow({ sourceMode, customWorkflow, scene } = {}) {
     // （全局 custom 模式下 image_tasks.workflow_template 原样记录了文件名）
     resolvedMode = (sourceMode === 'base' || sourceMode === 'turbo')
       ? sourceMode
-      : (resolveCustomWorkflowPath(sourceMode) || fallbackModeForScene(scene));
+      : (resolveCustomWorkflowPath(sourceMode) ? sourceMode : fallbackModeForScene(scene));
     p = pathForModeValue(resolvedMode);
   }
   if (!fs.existsSync(p)) return { wf: null, resolvedMode };
@@ -92,7 +92,7 @@ function loadSourceWorkflow({ sourceMode, customWorkflow, scene } = {}) {
  * @param {string} [overrides.artist]         - 画师串
  * @param {Array}  [overrides.loras]          - 角色 LoRA [{path, weight, triggerWord}]
  * @param {string} [overrides.customWorkflow] - 原图使用的自定义工作流文件名
- * @param {string} [overrides.sourceMode]     - 原图工作流模式 'turbo' | 'base'（image_tasks.workflow_template）
+ * @param {string} [overrides.sourceMode]     - 原图工作流模式 'turbo' | 'base' 或自定义文件名（image_tasks.workflow_template）
  * @param {string} [overrides.scene]          - 全局 LoRA 场景过滤 + 无模式记录时的工作流兜底
  * @param {string|null} [overrides.workflowScene] - hybrid 模式下单独用于选择源工作流；
  *        显式传 null 表示不按场景兜底，与 scene 解耦

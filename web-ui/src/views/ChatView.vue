@@ -1848,8 +1848,7 @@ async function undoLastRound() {
 async function send() {
   if (sendDisabled.value) return
   const text = inputText.value.trim()
-  const imgs = pendingChatImages.value.length ? [...pendingChatImages.value] : null
-  if (!text && !imgs) return
+  if (!text) return
   inputText.value = ''
   pendingChatImages.value = []
   userScrolledUp = false  // 用户主动发送 → 强制跟随

@@ -248,7 +248,7 @@ router.post('/topics', (req, res) => {
   if (!name) return res.status(400).json({ error: 'invalid_name', message: 'name 不能为空' });
 
   const db = getDb();
-  const exists = db.prepare(`SELECT id FROM moment_topics WHERE name = ?`).get(name);
+  const exists = db.prepare(`SELECT id FROM moment_topics WHERE source = 'custom' AND name = ?`).get(name);
   if (exists) return res.status(409).json({ error: 'duplicate_name', message: `话题「${name}」已存在` });
 
   const desc = toStringVal(req.body?.desc);
@@ -276,7 +276,7 @@ router.put('/topics/:id', (req, res) => {
 
   if (!name) return res.status(400).json({ error: 'invalid_name', message: 'name 不能为空' });
 
-  const dup = db.prepare(`SELECT id FROM moment_topics WHERE name = ? AND id != ?`).get(name, row.id);
+  const dup = db.prepare(`SELECT id FROM moment_topics WHERE source = ? AND name = ? AND id != ?`).get(row.source, name, row.id);
   if (dup) return res.status(409).json({ error: 'duplicate_name', message: `话题「${name}」已被其他条目使用` });
 
   db.prepare(
@@ -319,7 +319,7 @@ router.post('/topics/save-batch', (req, res) => {
   );
 
   const used = new Set(
-    db.prepare(`SELECT name FROM moment_topics`).all().map(r => r.name)
+    db.prepare(`SELECT name FROM moment_topics WHERE source = 'custom'`).all().map(r => r.name)
   );
   const saved = [];
   const errors = [];

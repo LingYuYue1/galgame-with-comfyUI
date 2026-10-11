@@ -12,6 +12,7 @@ const originalConfig = structuredClone(config.comfyui);
 afterEach(() => { mock.restoreAll(); Object.assign(config.comfyui, structuredClone(originalConfig)); });
 
 function build({ globals = [], chars = [], hires = [], legacy = false, scale = 1, blend = 0.2,
+  sourceMode = 'base', customWorkflow,
   workflowMode = 'advanced', upscaleModel = '', samplingMode = 'source', sourceSamplers = [[0, 'fixed', 12, 1, 'euler', 'simple', 1]] } = {}) {
   Object.assign(config.comfyui, { globalLora: globals, hiresLora: hires, hiresSteps: 35,
     hiresCfg: 5, hiresDenoise: 0.3, hiresMaxSize: 2000, hiresArtistMode: 'empty',
@@ -27,14 +28,34 @@ function build({ globals = [], chars = [], hires = [], legacy = false, scale = 1
       { type: 'UNETLoader', widgets_values: ['customer-renamed-model.safetensors', 'default'] },
       ...sourceSamplers.map(widgets_values => ({ type: 'KSampler', widgets_values })),
     ] });
+    if (String(file).endsWith('custom-source.json')) return JSON.stringify({ nodes: [
+      { type: 'UNETLoader', widgets_values: ['custom-source-model.safetensors', 'default'] },
+      { type: 'CLIPLoader', widgets_values: ['custom-clip.safetensors', 'stable_diffusion', 'default'] },
+      { type: 'VAELoader', widgets_values: ['custom-vae.safetensors'] },
+      { type: 'KSampler', widgets_values: [0, 'fixed', 28, 3.5, 'dpmpp_2m', 'karras', 1] },
+    ] });
     return read.call(fs, file, ...args);
   });
   const exists = fs.existsSync;
-  mock.method(fs, 'existsSync', file => /工作流.*\.json$/.test(String(file)) || exists.call(fs, file));
-  return buildHiresWorkflow('a character in a library', { sourceMode: 'base', scene: 'moments', loras: chars }).wf;
+  mock.method(fs, 'existsSync', file => String(file).endsWith('custom-source.json') || /工作流.*\.json$/.test(String(file)) || exists.call(fs, file));
+  return buildHiresWorkflow('a character in a library', { sourceMode, customWorkflow, scene: 'moments', loras: chars }).wf;
 }
 const sampler = wf => wf.nodes.find(n => ['KSampler', 'UltimateSDUpscaleNoUpscale'].includes(n.type)).widgets_values;
 const loras = wf => wf.nodes.filter(n => n.type === 'LoraLoaderModelOnly').map(n => n.widgets_values);
+
+for (const overrides of [{ sourceMode: 'custom-source.json' }, { sourceMode: 'base', customWorkflow: 'custom-source.json' }]) {
+  test('自定义源工作流继承模型、编码器和采样参数：' + JSON.stringify(overrides), () => {
+    const wf = build(overrides);
+    for (const [type, expected] of [
+      ['UNETLoader', 'custom-source-model.safetensors'],
+      ['CLIPLoader', 'custom-clip.safetensors'],
+      ['VAELoader', 'custom-vae.safetensors'],
+    ]) {
+      assert.equal(wf.nodes.find(n => n.type === type).widgets_values[0], expected);
+    }
+    assert.deepEqual(sampler(wf).slice(2, 7), [28, 3.5, 'dpmpp_2m', 'karras', 0.3]);
+  });
+}
 
 test('显式关闭超分后无模型依赖，跟随源采样器且独立控制重绘和原图融合', () => {
   const wf = build();

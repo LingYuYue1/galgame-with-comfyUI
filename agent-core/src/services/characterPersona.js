@@ -18,7 +18,6 @@
 
 import { getActiveOutfits } from './outfitService.js';
 import { getSceneOutfitForNow, asPersonaOutfits } from './outfitScene.js';
-import { buildBodySizeLine } from './characterBuild.js';
 import { config } from '../config.js';
 
 export const APPEARANCE_HEADING_RE = /##\s*你的外观/;

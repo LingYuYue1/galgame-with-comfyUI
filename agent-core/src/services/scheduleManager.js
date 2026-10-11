@@ -83,20 +83,12 @@ export function initialize() {
   //   ★ 同一处口径在 `scheduleGenerator.js:1265` 早已修正，这里当时漏了 —— 现补齐。
   db.prepare(`DELETE FROM daily_schedules WHERE schedule_date < ?`).run(shiftDateKey(today, -2));
 
-  /*
-   * 检查所有角色：日程数据的存废由 daily_schedules 自身决定，**不看 schedule_enabled**。
-   * 后者只用来控制「要不要花 token 重新生成日程」（见 replyQueueScheduler），
-   * 关掉它的角色仍应继续按已生成的日程作息，否则日程页显示在梦乡、实际却能回消息。
-   * 没有日程的角色会在下面的 getTodayScheduleRaw 处直接跳过。
-   *
-   * ★ 但**归档角色例外** —— 归档 = 不参与任何主动行为，日程也在其列。
-   *   早先这里是全量 `SELECT id, display_name FROM characters`，配合下面
-   *   `getTodayScheduleRaw` 里"查不到就插一条"的 fallback，导致归档角色
-   *   **每天启动都被重建一遍今日快照**（实测 51 个归档角色 10-05 仍有 51 条
-   *   当天快照，而它们的模板早在 10-03 就停止更新了）。日程页/概览也照旧列着它们。
-   */
+  // 检查所有角色：日程数据的存废由 daily_schedules 自身决定，不看 schedule_enabled。
+  // 后者只用来控制「要不要花 token 重新生成日程」（见 replyQueueScheduler），
+  // 关掉它的角色仍应继续按已生成的日程作息，否则日程页显示在梦乡、实际却能回消息。
+  // 没有日程的角色会在下面的 getTodayScheduleRaw 处直接跳过。
   const chars = db.prepare(`
-    SELECT id, display_name FROM characters WHERE COALESCE(archived, 0) = 0
+    SELECT id, display_name FROM characters
   `).all();
 
   let sleepers = 0;

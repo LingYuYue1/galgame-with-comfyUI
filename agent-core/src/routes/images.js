@@ -291,7 +291,8 @@ router.post('/test-style', async (req, res) => {
       artist: finalArtist,
       width: finalWidth,
       height: finalHeight,
-      scene: mode,
+      // 实验室沿用 event 模式名；LoRA 过滤与工作流配置使用 events 场景。
+      scene: isEvent ? 'events' : mode,
       persistPreparation: false,
       ...(sceneLoras.length > 0 ? { loras: sceneLoras } : {}),
       onProgress: (p) => {
@@ -432,7 +433,7 @@ router.post('/test-hires', async (req, res) => {
       refineOpts.artist = source.artist;
       refineOpts.loras = [];
       refineOpts.sourceMode = source.wfMode;
-      refineOpts.scene = source.mode;
+      refineOpts.scene = source.mode === 'event' ? 'events' : source.mode;
       refineOpts.ext = path.extname(img.filename || '') || '.png';
     } else {
       const cleanUrl = source.url.replace(/\?.*$/, '');
@@ -813,7 +814,7 @@ function resolveImageTarget(cleanUrl) {
  *
  * ★ 两个曾经的坑（都表现为「删除失败: file not found」，且图片怎么点都删不掉）：
  *   1. **百分号编码**：表情包等中文文件名可能以 `%E5%93%AD` 形态传来。原实现直接把它当
- *      文件名去 existsSync，必然找不到 —— 而 imageUrlExists / imageUrlToDataUri 都会
+ *      文件名去 existsSync，必然找不到 —— 而 imageUrlExists 会
  *      decodeURIComponent，只有删图这一条链路漏了。现在原样 + 解码后各试一次。
  *   2. **AVIF 孪生**：图片压缩会把原 PNG 换成同名 .avif。按 .png URL 删除时磁盘上已经没有
  *      该文件，原实现直接 404；deleteImageFileByUrl 里有孪生回退，这里漏了。

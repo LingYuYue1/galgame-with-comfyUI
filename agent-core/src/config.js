@@ -145,51 +145,21 @@ defaultTimeoutMs: parseInt(process.env.VECTOR_DEFAULT_TIMEOUT_MS, 10) || 120000,
     proactiveChatFreq: parseFloat(process.env.PROACTIVE_CHAT_FREQ) || 0.5, // 主动聊天频率 0~1
     events: process.env.FEATURE_EVENTS !== 'false', // 默认开：奇遇系统
     eventFreq: parseFloat(process.env.EVENT_FREQ) || 1, // 奇遇触发频率 0~1，0=关闭自动触发
-    /**
-     * 剧情大纲（「面」）注入：把「当前节点 + 隐约方向」注入聊天 prompt。
-     *
-     * ★ 默认**关**（红线 4）。理由：它会改聊天提示词的内容，
-     *   而"长驻功能默认关"是本项目既定做法 —— 用户想看效果再开。
-     * ⚠ 生成大纲本身不受此开关限制（那是用户显式点按钮触发的），
-     *   本开关只管**是否自动注入**。
-     */
-    storyOutline: process.env.FEATURE_STORY_OUTLINE === 'true',
-    /**
-     * 事件线（「线」）注入：把**该角色牵涉其中**的剧情线状态注入聊天 prompt。
-     *
-     * ★ 与 `storyOutline`（「面」）是两层、开关也**各自独立**：
-     *   用户可能只想让 AI 知道"具体哪条线在推进"，而不想给它整篇大纲。
-     * ★ 默认**关**（红线 4）：它会改聊天提示词内容 —— "长驻功能默认关"是本项目既定做法。
-     * ⚠ 生成/编辑线本身不受此开关限制；本开关只管**是否自动注入**。
-     */
-    storyLines: process.env.FEATURE_STORY_LINES === 'true',
     // 朋友圈发帖频率 0~24：1=基准（角色 2~8 小时一条），越大越快，24=最快（5~20 分钟）。
-    // **默认 0 = 关闭**：自动发帖要调 LLM + 生图，属于「用户想看时才看」的内容，
-    // 默认开启会在后台持续消耗额度与显卡。想自动补内容可在设置页「朋友圈发帖频率」里开启。
+    // 默认 1：沿用新增频率设置前的周期（首次 1~4 小时，之后 2~8 小时）。
     // 用 IIFE 而不是 `|| 1`：`parseFloat('0') || 1` 会把显式的 0 兜成 1，
     // env 里写 MOMENT_FREQ=0 就永远关不掉（这个坑 mediaAutoMinutes 已经踩过一次）。
     momentFreq: (() => {
       const v = parseFloat(process.env.MOMENT_FREQ);
-      return Number.isFinite(v) ? Math.max(0, Math.min(24, v)) : 0;
+      return Number.isFinite(v) ? Math.max(0, Math.min(24, v)) : 1;
     })(),
-    /*
-     * 传媒自动抓帖：**每晚几批**（0 = 关闭）。
-     *
-     * ★ 2026-10-05 由「固定间隔（分钟）」改成「夜间窗口内错峰随机」：
-     *   旧模型是"每 N 分钟无条件抓一批（每批 3 条）"——24 小时均匀铺开，
-     *   既不符合"论坛/社交平台是有人白天在看的社区"这个直觉，也是全天持续烧 token。
-     *   新模型与**朋友圈发帖频率**同一取向：
-     *     · 只在**夜间窗口**内（20:00 → 次日 02:00）动手，白天不产生新内容；
-     *     · 窗口按「今晚几批」等分成若干时段，**在时段内随机**取时刻 → 错峰、不扎堆；
-     *     · **一批只出 1 条**（见 mediaService.AUTO_BATCH_SIZE），细水长流。
-     *   「几批」而不是「几分钟」：用户关心的是"一晚上大概看到几条新内容"。
-     *
-     * **默认 0 = 关闭**：传媒属于「想看时才看」的内容，默认自动抓帖会持续调 LLM。
-     * 开关在**设置 → 功能开关**（不在传媒页顶栏，避免把常驻配置塞进内容页）。
-     */
-    mediaAutoPerNight: (() => {
-      const v = parseInt(process.env.MEDIA_AUTO_PER_NIGHT, 10);
-      return Number.isFinite(v) ? Math.max(0, v) : 0;
+    // 传媒内容页自动抓帖间隔（分钟）。
+    // **默认 0 = 关闭**：传媒属于「用户想看时才看」的内容，
+    // 默认自动抓帖会在后台持续调 LLM，与"按需生成"的取向不符。
+    // 想要自动补内容可在传媒页的「自动」档位里开启。
+    mediaAutoMinutes: (() => {
+      const v = parseInt(process.env.MEDIA_AUTO_MINUTES, 10);
+      return Number.isFinite(v) ? v : 0;
     })(),
     disturbMode: process.env.FEATURE_DISTURB_MODE === 'true', // 默认关：防打扰模式
     schedule: process.env.FEATURE_SCHEDULE !== 'false', // 默认开：日程系统
@@ -206,6 +176,17 @@ defaultTimeoutMs: parseInt(process.env.VECTOR_DEFAULT_TIMEOUT_MS, 10) || 120000,
     townAutoLLM: process.env.FEATURE_TOWN_AUTO_LLM !== 'false', // 默认开：小镇「自动/定时」LLM 事件（tick 驱动的相遇对话+摘要、批量状态气泡）；关闭只影响后台自动生成，玩家主动发起的 NPC/工坊对话仍走模型
     townBuildingFeatures: process.env.FEATURE_TOWN_BUILDING_FEATURES !== 'false', // 默认开：小镇特殊建筑「描述驱动的可执行玩法」（关闭后隐藏新入口、拒绝新生成/新操作）
     bgmMuted: false, // 默认关：小镇 BGM 静音（世界页顶栏音符钮切换）
+    soul: true, // 默认开启：灵魂系统（不再提供设置页开关，见 services/soulEngine.js）
+  },
+  // 灵魂系统（角色自我认知状态层）。开关是 features.soul；此处只放可配的回归中心 mid。
+  // min/max 硬编码在 soulEngine，刻意不暴露（源插件那四个属性无消费方，是死配置）。
+  soul: {
+    mids: {
+      RecallDepth: parseFloat(process.env.SOUL_RECALL_DEPTH_MID) || 7,
+      ImpressionDepth: parseFloat(process.env.SOUL_IMPRESSION_DEPTH_MID) || 3,
+      ExpressionDesire: Number.isFinite(parseFloat(process.env.SOUL_EXPRESSION_DESIRE_MID)) ? parseFloat(process.env.SOUL_EXPRESSION_DESIRE_MID) : 0.5,
+      Creativity: Number.isFinite(parseFloat(process.env.SOUL_CREATIVITY_MID)) ? parseFloat(process.env.SOUL_CREATIVITY_MID) : 0.7,
+    },
   },
   town: {
     timeZone: process.env.TOWN_TIME_ZONE || 'Asia/Shanghai',
@@ -675,24 +656,13 @@ export function updateMomentFreq(value) {
  * @param {number|string} value
  * @returns {number} 实际生效的分钟数
  */
-/**
- * 设置传媒自动抓帖的「每晚几批」（0 = 关闭）。
- *
- * 可选值必须在 `mediaService.MEDIA_AUTO_STEPS` 里（前端滑块就是从那里渲染的）；
- * 传入非法值时钳到最近的合法档，避免库里存进一个界面无法表示的值。
- *
- * @param {number|string} value
- * @returns {number}
- */
-export function updateMediaAutoPerNight(value) {
+export function updateMediaAutoMinutes(value) {
   const raw = parseInt(value, 10);
-  let n = Number.isFinite(raw) ? raw : 0;
-  if (n < 0) n = 0;
-  // 上限与 MEDIA_AUTO_STEPS 的最快档一致；再往上密集到没有"错峰"的意义了
-  if (n > 0) n = Math.max(1, Math.min(16, n));
-  config.features.mediaAutoPerNight = n;
-  persistSettingSync('feature_mediaAutoPerNight', String(n));
-  console.log(`[config] mediaAutoPerNight = ${n}${n === 0 ? '（已关闭自动抓帖）' : `（每晚 ${n} 批）`}`);
+  let n = Number.isFinite(raw) ? raw : 20;
+  if (n !== 0) n = Math.max(5, Math.min(720, n));
+  config.features.mediaAutoMinutes = n;
+  persistSettingSync('feature_mediaAutoMinutes', String(n));
+  console.log(`[config] mediaAutoMinutes = ${n}${n === 0 ? '（已关闭自动）' : ''}`);
   return n;
 }
 

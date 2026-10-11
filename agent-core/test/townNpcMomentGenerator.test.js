@@ -15,6 +15,9 @@ test('town npc moments post with npc authorship, day facts in the prompt, and de
   const db = getDb();
   t.after(() => closeDb());
 
+  const world = '## 基本规则\n居民使用魔法。\n## 人们的行为\n夜间禁止出门，茶摊只在白天营业。';
+  db.prepare('UPDATE world_settings SET content = ? WHERE is_active = 1').run(world);
+
   db.prepare(`INSERT INTO town_maps (name, grid_cols, grid_rows) VALUES ('m', 10, 10)`).run();
   db.prepare(`INSERT INTO town_locations (map_id, key, name, kind, grid_x, grid_y)
     VALUES (1, 'tea', '茶摊', 'place', 5, 5)`).run();
@@ -45,14 +48,11 @@ test('town npc moments post with npc authorship, day facts in the prompt, and de
 
   // prompt 带上了今天的真实相遇素材与人设
   const promptText = seen.map(msgs => msgs.map(m => m.content).join('\n')).join('\n');
+  assert.ok(promptText.includes(`<world_setting>\n${world}\n</world_setting>`), 'world rules and closing tag must reach the model unchanged');
   assert.ok(promptText.includes('阿圆和路过的货郎在茶摊聊起了南边的新鲜货'), 'encounter summary should feed the prompt');
   assert.ok(promptText.includes('茶摊主'), 'job persona should be injected');
   assert.ok(promptText.includes('禁止否认或编造更大的事'), 'facts must not be contradicted or inflated');
-  // ⚠ 这条断言原为整句 `单中心（最高优先级）`，但上游提交 901dc0e 已把
-  //   MOMENT_SINGLE_FOCUS_RULE 第 1 条改写为「单中心、日程优先（最高优先级）」，
-  //   却漏改这里 → 测试常年红。锁"单中心 + 最高优先级"两个语义片段，
-  //   既保住"提示词强制单一叙事中心"的意图，又不会因中间修饰语变动再次碎掉。
-  assert.ok(promptText.includes('单中心') && promptText.includes('最高优先级'), 'moments prompt should enforce a single narrative center');
+  assert.ok(promptText.includes('单中心、日程优先（最高优先级）'), 'moments prompt should enforce a single narrative center');
   assert.ok(promptText.includes('只从中选一件最想分享的事'), 'npc day facts should be framed as candidates for one main thread');
   assert.ok(promptText.includes('只围绕一个具体中心'), 'json text example should mirror the single-center rule');
 

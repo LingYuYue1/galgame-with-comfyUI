@@ -66,39 +66,6 @@
               @pin="toggleCharPin(c)"
             />
 
-            <!-- 归档角色分类栏：默认折叠，不占屏；搜索时自动展开 -->
-            <div v-if="archivedChars.length" class="archive-bar" :class="{ collapsed: !archiveGroupOpen }">
-              <span class="archive-bar-line" aria-hidden="true"></span>
-              <div
-                class="archive-bar-label"
-                role="button"
-                tabindex="0"
-                :aria-expanded="archiveGroupOpen"
-                :title="archiveGroupOpen ? '收起归档角色' : '展开归档角色'"
-                @click="toggleArchiveGroup"
-                @keydown.enter.prevent="toggleArchiveGroup"
-                @keydown.space.prevent="toggleArchiveGroup"
-              >
-                <svg class="archive-bar-arrow" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <polyline points="6,9 12,15 18,9" />
-                </svg>
-                <span>归档角色</span>
-                <span class="archive-bar-count">{{ archivedChars.length }}</span>
-              </div>
-              <span class="archive-bar-line" aria-hidden="true"></span>
-            </div>
-
-            <template v-if="archiveGroupOpen">
-              <CharacterStatusCard
-                v-for="c in archivedChars"
-                :key="c.id"
-                :char="c"
-                @select="onSelectChar(c.id)"
-                @peek="onCardPeek(c.id)"
-                @wake="onCardWake(c.id)"
-                @pin="toggleCharPin(c)"
-              />
-            </template>
           </div>
         </template>
 
@@ -400,193 +367,17 @@
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
               </linshe-button>
             </div>
-
-            <div class="regen-body">
-              <div class="reset-dialog-desc">
-                <p>定向规划{{ detailChar?.display_name || '...' }}今天的行程。留空则正常随机规划。</p>
-                <linshe-input
-                  type="textarea"
-                  v-model="regenerateDirection"
-                  class="regenerate-textarea"
-                  placeholder="例如：今天做一场深夜直播、去市中心摆摊接客、宅在宿舍打一天游戏、去地下赌场押注..."
-                  rows="3"
-                  ref="regenerateTextareaRef"
-                  @keydown.enter.exact="confirmRegenerateWithDirection"
-                />
-              </div>
-
-              <!-- ── 主要活动区域（与地图联动）── -->
-              <section class="regen-sec">
-                <div class="regen-sec-head">
-                  <span class="regen-sec-title">主要活动区域</span>
-                  <span class="regen-sec-note">{{ regenAreaHint }}</span>
-                  <button
-                    v-if="regenAreas.length" type="button" class="regen-link"
-                    @click="regenAreas = []"
-                  >清空</button>
-                </div>
-
-                <p v-if="regenOptionsLoading" class="regen-sec-empty">正在读取世界地图…</p>
-                <p v-else-if="!regenAreaGroups.length" class="regen-sec-empty">世界地图里还没有可用区域</p>
-                <div v-else class="regen-area-groups">
-                  <div v-for="g in regenAreaGroups" :key="g.region" class="regen-area-group">
-                    <span class="regen-area-region">{{ g.region }}</span>
-                    <div class="regen-chips">
-                      <button
-                        v-for="a in g.areas" :key="a.name" type="button"
-                        class="regen-chip" :class="{ on: regenAreas.includes(a.name) }"
-                        :title="a.places?.length ? `选中后可展开，逐个划掉不想去的地点（共 ${a.places.length} 个）` : '该区域暂时没有场景'"
-                        @click="toggleArea(a.name)"
-                      >{{ a.name }}</button>
-                      <!-- 展开按钮：只对已选中的区域显示（未选中的区域展示地点没有意义） -->
-                      <button
-                        v-for="a in g.areas.filter((x: any) => regenAreas.includes(x.name) && x.places?.length)"
-                        :key="`ex-${a.name}`" type="button"
-                        class="regen-chip regen-chip-sub"
-                        :class="{ on: regenExpandedArea === a.name }"
-                        :title="`展开「${a.name}」的地点清单，逐个划掉不想去的`"
-                        @click="toggleAreaExpand(a.name)"
-                      >{{ regenExpandedArea === a.name ? '收起' : '地点' }} <span class="regen-chip-n">{{ a.places.length }}</span></button>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- ── 地点级：展开后默认全勾，取消勾选 = 排除 ── -->
-                <div v-if="regenExpandedAreaObj" class="regen-places">
-                  <p class="regen-places-hint">
-                    <b>{{ regenExpandedAreaObj.name }}</b> 的地点（默认可去；<b>点一下划掉</b>不想让角色去的地方）
-                  </p>
-                  <div class="regen-place-list">
-                    <label
-                      v-for="p in (regenExpandedAreaObj.places || [])"
-                      :key="p.name" class="regen-place"
-                      :class="{ off: !placeChecked(regenExpandedAreaObj, p) }"
-                    >
-                      <input
-                        type="checkbox"
-                        :checked="placeChecked(regenExpandedAreaObj, p)"
-                        @change="togglePlace(regenExpandedAreaObj, p)"
-                      >
-                      <span class="regen-place-name">{{ p.name }}</span>
-                      <span v-if="p.category" class="regen-place-tag">{{ p.category }}</span>
-                      <!-- 受限地点：灰显 + 写明原因（不是"莫名其妙不见了"） -->
-                      <span v-if="p.reason" class="regen-place-reason">{{ p.reason }}</span>
-                      <span v-else-if="p.zone === 'residence'" class="regen-place-tag is-zone">居住</span>
-                    </label>
-                  </div>
-                </div>
-
-                <label v-if="regenAreas.length" class="regen-strict">
-                  <linshe-switch v-model="regenAreaStrict" size="sm" />
-                  <span>硬约束 —— 每个时段的地点都不得跑出所选区域</span>
-                </label>
-              </section>
-
-              <!-- ── NSFW 强度 ── -->
-              <section class="regen-sec">
-                <div class="regen-sec-head">
-                  <span class="regen-sec-title">NSFW 强度</span>
-                  <span class="regen-sec-note">{{ regenNsfwBand.label }} · 性时段 {{ regenNsfwCount }}</span>
-                  <button
-                    v-if="regenNsfw !== regenDefaults.nsfwRatio" type="button" class="regen-link"
-                    @click="regenNsfw = regenDefaults.nsfwRatio"
-                  >复位</button>
-                </div>
-                <linshe-slider v-model="regenNsfw" :min="0" :max="100" :step="25" />
-                <div class="regen-scale">
-                  <span
-                    v-for="b in regenNsfwBands" :key="b.at"
-                    :class="{ on: regenNsfw === b.at }"
-                    @click="regenNsfw = b.at"
-                  >{{ b.label }}</span>
-                </div>
-                <!-- ★ 实质行为数量：这是用户口径里的核心指标（0 / 0~1 / 0~2 / 1~3 / 2~5），
-                     此前只显示了"性时段"数，用户看不到自己调的到底是哪一档，以为没生效。 -->
-                <p class="regen-sec-note regen-nsfw-detail">
-                  实质行为 <b>{{ regenExplicitText }}</b>
-                  <span class="regen-nsfw-sub">（房事／口交／自慰到出／多人——角色亲自参与的那种）</span>
-                </p>
-                <p class="regen-sec-note">{{ regenNsfwBand.hint }}</p>
-              </section>
-
-              <!-- ── 睡眠类型 ── -->
-              <section class="regen-sec">
-                <div class="regen-sec-head">
-                  <span class="regen-sec-title">睡眠类型</span>
-                  <span class="regen-sec-note">不选「自动」即固定作息</span>
-                </div>
-                <linshe-select v-model="regenSleepType" :options="regenSleepOptions" size="sm" />
-              </section>
-
-              <!-- ── 日子类型（工作日 / 休息日）──
-                   用户需求（2026-10-07）：1 周 7 天要有工作日与休息日的差异。
-                   只能选一个：一次生成一套。选了就会**覆盖**那一套（旧的会被替换）。
-                   不选 = 不写日型，仍是原来的"一套日程铺给每一天"。
-                   ⚠ 档位列表来自后端 regenerate-options（单一真源），前端不另抄。 -->
-              <section class="regen-sec">
-                <div class="regen-sec-head">
-                  <span class="regen-sec-title">日子类型</span>
-                  <span class="regen-sec-note">
-                    {{ regenDayType ? `本次按「${dayTypeLabel(regenDayType)}」生成，会覆盖该套` : '不选 = 每天一样' }}
-                  </span>
-                </div>
-                <linshe-select
-                  v-model="regenDayType" size="sm" clearable
-                  :options="[{ label: '（不区分）', value: '' }, ...regenDayTypeOptions]"
-                />
-                <p v-if="regenDayPlans.length" class="regen-sec-note">
-                  已配：{{ regenDayPlans.map(p => dayTypeLabel(p.dayType)).join('、') }}
-                  （未配的日子类型会用「默认日程」）
-                </p>
-              </section>
-
-              <!-- ── 移动方式（超能力移动豁免）──
-                   有角色在设定上会瞬移/飞行，通勤表对ta不构成限制。默认「普通」=
-                   受通勤约束，与改动前行为一致；选其他档位即豁免换场校验与台账告警。
-                   档位列表来自后端 regenerate-options（单一真源），前端不另抄。 -->
-              <section class="regen-sec">
-                <div class="regen-sec-head">
-                  <span class="regen-sec-title">移动方式</span>
-                  <span class="regen-sec-note">超能力移动可豁免通勤约束</span>
-                </div>
-                <linshe-select v-model="regenTransitMode" :options="regenTransitOptions" size="sm" />
-                <p class="regen-sec-note regen-cadence-hint" v-if="regenTransitExempt">
-                  该角色将**不受通勤表限制**：跨区换场可压缩甚至瞬时完成，但生成时仍会要求交代"怎么到的"，
-                  不会写成凭空出现。该选择会保存到角色资料，之后自动生成也沿用。
-                </p>
-              </section>
-
-              <!-- ── 固定居家 / 睡眠地点（人类侧指定）── -->
-              <section class="regen-sec">
-                <div class="regen-sec-head">
-                  <span class="regen-sec-title">固定住处</span>
-                  <span class="regen-sec-note">钉死"回家/睡觉"的落点，避免模型每次换地方</span>
-                </div>
-                <div class="regen-cadence">
-                  <!-- ★ 2026-10-07 用户口径：原来的单层搜索下拉"难以查找地点"（115 条平铺、
-                       只有名字没有归属），改为**多级级联**、层级按地图自动匹配。
-                       层级不写死：选项自带 region/area，组件只做分组收敛。 -->
-                  <div class="regen-cadence-col">
-                    <span class="regen-cadence-label is-block">居家地点</span>
-                    <PlaceCascadeSelect
-                      v-model="regenHomePlace"
-                      :options="regenCadenceOptions"
-                    />
-                  </div>
-                  <div class="regen-cadence-col">
-                    <span class="regen-cadence-label is-block">睡眠地点<span class="regen-sec-note">（不选则睡在居家地点）</span></span>
-                    <PlaceCascadeSelect
-                      v-model="regenSleepPlace"
-                      :options="regenCadenceOptions"
-                    />
-                  </div>
-                  <p v-if="regenHomePlace" class="regen-sec-note regen-cadence-hint">
-                    已指定：日程里的起床 / 回家 / 换装 / 就寝等锚点时段将固定落在
-                    <b>{{ regenHomeArea ? regenHomeArea + ' · ' : '' }}{{ regenHomePlace }}</b>。
-                    该选择会一并保存到角色资料，之后自动生成也沿用。
-                  </p>
-                </div>
-              </section>
+            <div class="reset-dialog-desc">
+              <p>定向规划{{ detailChar?.display_name || '...' }}今天的行程。留空则正常随机规划。</p>
+              <linshe-input
+                type="textarea"
+                v-model="regenerateDirection"
+                class="regenerate-textarea"
+                placeholder="例如：今天做一场深夜直播、去鸽川区摆摊接客、宅在宿舍打一天游戏、去幻月游戏押注..."
+                rows="3"
+                ref="regenerateTextareaRef"
+                @keydown.enter.exact="confirmRegenerateWithDirection"
+              />
             </div>
 
             <div class="reset-dialog-actions">
@@ -719,10 +510,7 @@ import { emitCharacterPinEnabled } from '../utils/characterReactionProducers.js'
 import LinsheInput from '../components/ui/LinsheInput.vue'
 import LinsheModal from '../components/ui/LinsheModal.vue'
 import LinsheSlider from '../components/ui/LinsheSlider.vue'
-import LinsheSelect from '../components/ui/LinsheSelect.vue'
 import LinsheSwitch from '../components/ui/LinsheSwitch.vue'
-// 固定住处的多级级联选择（大地区 → 子地区 → 地点）。层级按地图自动匹配，本文件不写死。
-import PlaceCascadeSelect from '../components/ui/PlaceCascadeSelect.vue'
 
 const store = useScheduleStore()
 const diaryStore = useDiaryStore()
@@ -2216,51 +2004,6 @@ function finishReset() {
   align-content: start;
 }
 
-/* ── 归档角色分类栏：横跨整行，可点击折叠 ── */
-.archive-bar {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 6px 0 2px;
-}
-.archive-bar-line {
-  flex: 1;
-  height: 1px;
-  background: var(--glass-border);
-}
-.archive-bar-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 12px;
-  border-radius: var(--radius-full);
-  border: 1px solid var(--glass-border);
-  background: var(--glass-bg);
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  user-select: none;
-  transition: all var(--dur-fast) ease;
-}
-.archive-bar-label:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-.archive-bar-arrow {
-  flex-shrink: 0;
-  transition: transform var(--dur-fast) var(--ease-standard);
-}
-.archive-bar.collapsed .archive-bar-arrow { transform: rotate(-90deg); }
-.archive-bar-count {
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1.6;
-  padding: 0 6px;
-  border-radius: var(--radius-full);
-  background: var(--tint-subtle);
-}
 
 /* ── Placeholder ── */
 .sched-placeholder {

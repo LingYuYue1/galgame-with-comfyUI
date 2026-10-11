@@ -8,14 +8,6 @@ const BASE = '/api'
  *   而不是我们约定的 JSON `{ error }`。这类 404 极容易被误当成功能 bug。
  *   这里统一识别并补一句人话提示，省得每个调用点各写一遍
  *   （已踩三次：日报删除 / 传媒批量操作 / 外观扩写）。
- *
- * ⚠⚠ **测试契约**：本函数读的是 `res.text()`（不是 `res.json()`），因为要拿原始文本
- *   才能分辨「合法 JSON 错误」与「Express 默认 HTML 错误页」。凡是用
- *   `t.mock.method(globalThis, 'fetch', ...)` 伪造响应的测试，**必须同时给出 `text()`**；
- *   只给 `json()` 的旧写法会抛 `res.text is not a function`，测试全红（2026-10-07 已
- *   修 4 个文件：characterPinSort / groupLastSeen / newspaperUnread / githubUpdate）。
- *   注意本文件另有一个专供 AI 小镇链路、仍用 `res.json()` 的 `jsonRequest()`——
- *   两套基元不要搞混。
  */
 async function request(path, { method = 'GET', body, headers, signal } = {}) {
   const res = await fetch(`${BASE}${path}`, {
@@ -111,27 +103,6 @@ export async function setAllCharactersScheduleEnabled(enabled) {
   return request('/characters/schedule-enabled-all', { method: 'POST', body: { enabled } })
 }
 
-// 归档 / 取消归档：归档后该角色不再参与任何主动行为（主动聊天、朋友圈、奇遇、
-// 日程刷新、自己拉群、小镇奇遇），仅保留角色卡数据与「你主动找它时仍会回复」
-export async function setCharacterArchived(characterId, archived) {
-  return request(`/characters/${characterId}/archived`, { method: 'PUT', body: { archived } })
-}
-
-// 批量归档 / 取消归档全体角色
-/**
- * 批量归档 / 取消归档。
- *
- * ★ 2026-10-07：新增 `scope` —— 「全部不参与活动 / 全部恢复」的作用域应当是**当前分类**，
- *   而不是全库所有角色（否则按文件夹批量调整时会把别组一起带上，批量操作就失去意义）。
- *   scope 形态：`{type:'folder',id}` | `{type:'uncategorized'}` | `{type:'ids',ids:[]}`；
- *   **不传 = 全库**（保持旧行为）。
- */
-export async function setAllCharactersArchived(archived, scope = null) {
-  const body = { archived }
-  if (scope) body.scope = scope
-  return request('/characters/archived-all', { method: 'POST', body })
-}
-
 // ── 角色文件夹（单层分类）──
 export function listCharacterFolders() {
   return request('/characters/folders')
@@ -189,40 +160,19 @@ export function getCurrentSceneOutfit(characterId) {
 }
 
 /**
- * 用 LLM 生成/补全场景外观；save=true 时直接落库。
+ * 用 LLM 生成场景服装；save=true 时直接落库。
  * @param {object} [extra]
- * @param {Array<{scene,name,body,description}>} [extra.seeds] **已填好的分项**，作为反推锚点；
- *   本次只补未填的那些（身体取自锚点，只生成该套衣服）
- * @param {string[]} [extra.scenes] 只补这几套；不传则由后端挑未填的
- * @param {string} [extra.baseAppearance] 没有任何 seed 时的身体来源兜底（如角色卡外观段）
+ * @param {string} [extra.baseAppearance] 常态外观（工装描述）：传了就**以它为基准**只换衣服，身体特征不变
+ * @param {string[]} [extra.scenes] 只生成这几套（如 ['casual','home','sleep']）；不传则四套都出
+ * @param {boolean} [extra.generateImages] 在后台设计、保存并生成对应形象，返回 task_id
  */
 export function generateSceneOutfits(characterId, save = false, extra = {}) {
   return request(`/characters/${characterId}/outfits/generate`, { method: 'POST', body: { save, ...extra } })
 }
 
-/**
- * 「外观特化」选择器的标签目录（section → group → tag + 中文标签）。
- *
- * @param {'body'|'draw'} [mode]
- *   · `body`（默认）＝只给**角色常驻身体特征**（种族/机械义体/体型/生理），供角色形象弹窗点选；
- *   · `draw` ＝给**全量词库**，供「绘图」页自由组合（动作、表情、瞬时状态都在里面）。
- *   分家判定收口在服务端唯一真源 `appearanceTagPartition.js`，前端**不另抄名单**。
- */
-export function getAppearanceTraitCatalog(mode) {
-  const q = mode === 'draw' ? '?mode=draw' : ''
-  return request(`/characters/appearance-trait-catalog${q}`)
-}
-
-/**
- * 批量保存五套场景外观（同场景已存在则更新）。
- * @param {Array<{scene,name,description}>} outfits description 只填"这一套的衣服"
- * @param {string} [body] 身体描述 —— 单一真源，后端会同步写进该角色全部服装行
- */
-export function saveSceneOutfits(characterId, outfits, body) {
-  return request(`/characters/${characterId}/outfits/scene`, {
-    method: 'PUT',
-    body: body != null ? { outfits, body } : { outfits },
-  })
+/** 批量保存四套场景服装（同场景已存在则更新描述） */
+export function saveSceneOutfits(characterId, outfits) {
+  return request(`/characters/${characterId}/outfits/scene`, { method: 'PUT', body: { outfits } })
 }
 
 // ── 场景立绘（工装/私服/居家/睡衣四套形象，详情页左右切换）──
@@ -413,21 +363,6 @@ export function expandAppearanceDraft({ brief, basePrompt, displayName, sceneLab
   return request('/characters/expand-appearance-draft', {
     method: 'POST',
     body: { brief, base_prompt: basePrompt, display_name: displayName, scene_label: sceneLabel },
-  })
-}
-
-/**
- * 人设润色：让邻舍改写人格提示词（外观段原样保留），只出草稿不落库，由父级决定是否保存。
- * @param {object} p
- * @param {string} p.basePrompt 整卡正文
- * @param {string} [p.displayName] 角色名
- * @param {string} [p.mode] 可选预设（polish/enrich/concise）；留空表示只用自定义指令
- * @param {string} [p.instruction] 用户**手写的自定义润色要求**（可空）
- */
-export function refinePersonaDraft({ basePrompt, displayName, mode, instruction }) {
-  return request('/characters/refine-persona-draft', {
-    method: 'POST',
-    body: { base_prompt: basePrompt, display_name: displayName, mode, instruction },
   })
 }
 
@@ -2288,7 +2223,7 @@ export const updateExpressionStandingPrompt = (id, slot, prompt, generation) => 
 export const editExpressionStanding = (id, slot, action, body = {}) => request(expressionStandingPath(id, slot) + '/' + action, { method: 'POST', body })
 export const deleteExpressionStanding = (id, slot) => request(expressionStandingPath(id, slot), { method: 'DELETE' })
 export const getStandingDisplayState = () => request('/standing-display/state')
-export const getStandingInteraction = id => request(`/characters/${id}/standing-interaction`)
+export const getStandingInteraction = (id, { signal } = {}) => request(`/characters/${id}/standing-interaction`, { signal })
 export const getStandingTouchLines = id => request(`/characters/${id}/expression-standings/touch-lines`)
 export const saveStandingTouchLines = (id, body) => request(`/characters/${id}/expression-standings/touch-lines`, {method:'PUT',body})
 export const generateStandingTouchLines = (id, expectedVersion) => request(`/characters/${id}/expression-standings/touch-lines/generate`, {method:'POST',body:{expectedVersion}})
@@ -2307,26 +2242,12 @@ export function listMediaOutlets() {
   return request('/media/outlets')
 }
 
-/** 可选的媒体形态（社交平台 / 数字报刊）—— 两者产物格式差别很大，新建时必须选 */
-export function listMediaLayouts() {
-  return request('/media/layouts')
-}
-
-/** 某刊的期简目（往期导航用，最新在前） */
-export function listMediaIssues(outletId) {
-  return request(`/media/outlets/${outletId}/issues`)
-}
-
-/**
- * 出一刊（数字报刊形态专用）。
- * @param {boolean} [force] false 时「当天已出过」会直接返回那一期；true 则强制再出一期（加刊）
- */
-export function publishMediaIssue(outletId, force = false) {
-  return request(`/media/outlets/${outletId}/issue`, { method: 'POST', body: { force } })
-}
-
 export function createMediaOutlet(body) {
   return request('/media/outlets', { method: 'POST', body })
+}
+
+export function generateMediaOutletDraft(body, signal) {
+  return request('/media/outlets/draft', { method: 'POST', body, signal })
 }
 
 export function updateMediaOutlet(id, body) {
@@ -2354,6 +2275,12 @@ export function deleteMediaBoard(boardId) {
   return request(`/media/boards/${boardId}`, { method: 'DELETE' })
 }
 
+/** 轻量未读计数，沿用媒体页的设备级已读游标。 */
+export function getMediaUnread(seen = {}) {
+  const query = new URLSearchParams({ digital: seen.digital || 0, social: seen.social || 0 })
+  return request(`/media/unread-count?${query}`)
+}
+
 /** 帖子分页（不传 outlet 则跨媒体） */
 export function listMediaPosts({ outlet = null, board = null, category = null, limit = 40, offset = 0 } = {}) {
   let path = `/media/posts?limit=${limit}&offset=${offset}`
@@ -2379,59 +2306,11 @@ export function getMediaAuto() {
   return request('/media/auto')
 }
 
-/**
- * 改传媒自动抓帖频率：`perNight` = **每晚几批**（0 = 关闭，只手动刷新）。
- *
- * ★ 2026-10-05 语义变更：由「固定间隔（分钟）」改成「每晚几批」。
- *   自动抓帖只在**夜间窗口**（20:00→次日 02:00）内**错峰随机**执行，白天不产新内容；
- *   每批只出 1 条（`mediaService.AUTO_BATCH_SIZE`）。
- *   可用档位由 `GET /media/auto` 的 `steps` 下发，界面上就是一个滑块。
- */
-export function setMediaAuto(perNight) {
-  return request('/media/auto', { method: 'PUT', body: { perNight } })
+/** 改传媒自动抓帖频率；minutes=0 关闭自动（只手动刷新） */
+export function setMediaAuto(minutes) {
+  return request('/media/auto', { method: 'PUT', body: { minutes } })
 }
 
-/** 清理未被引用的孤儿配图（重复生图的历史遗留）+ 重置卡住的生成状态 */
-export function cleanupMediaImages() {
-  return request('/media/cleanup-images', { method: 'POST' })
-}
-
-/**
- * 媒体操作日志（T5/T7）—— 删除/创建/批量类的审计流水。
- * 用途：查「某条内容/某个媒体是什么时候没的」，弥补"删了查无实据"的空白。
- */
-export function listMediaOpLog({ limit = 100, targetType = '', opType = '' } = {}) {
-  const q = new URLSearchParams()
-  q.set('limit', String(limit))
-  if (targetType) q.set('targetType', targetType)
-  if (opType) q.set('opType', opType)
-  return request(`/media/op-log?${q.toString()}`)
-}
-
-// ── 数据清理（按时间清理图片与内容记录）──
-
-/** 可清理项定义（界面据此渲染分组与说明） */
-export function getCleanupTargets() {
-  return request('/cleanup/targets')
-}
-
-/** 预览：指定天数前，各项会删多少行/多少文件/多少字节（不删任何东西） */
-export function surveyCleanup(days = 7) {
-  return request(`/cleanup/survey?days=${encodeURIComponent(days)}`)
-}
-
-/**
- * 执行清理。**必须显式传 targets**；执行前会自动备份数据库（路径随响应返回）。
- * @param {{days:number, targets:string[]}} body
- */
-export function purgeCleanup(body) {
-  return request('/cleanup/purge', { method: 'POST', body })
-}
-
-/** 已有的清理前备份 */
-export function listCleanupBackups() {
-  return request('/cleanup/backups')
-}
 
 /** 为某条媒体内容重新生成配图（周刊/海报会连同小图一起重出） */
 export function regenerateMediaPostImage(postId) {
@@ -2459,160 +2338,4 @@ export function regenerateMediaPostImages(ids) {
  */
 export function generateMediaSection(postId, sectionKey) {
   return request(`/media/posts/${postId}/sections/${encodeURIComponent(sectionKey)}`, { method: 'POST' })
-}
-
-// ── 地图页（世界地图骨架 = 叙事地理，非游戏网格图）──
-
-/** 层级标签与 POI 类型（口径在后端，前端不写死） */
-export function getWorldMapMeta() {
-  return request('/worldmap/meta')
-}
-
-export function listWorldMaps() {
-  return request('/worldmap/maps')
-}
-
-export function createWorldMap({ name, worldSettingId = null, note = '' } = {}) {
-  return request('/worldmap/maps', { method: 'POST', body: { name, worldSettingId, note } })
-}
-
-export function getWorldMap(mapId) {
-  return request(`/worldmap/maps/${mapId}`)
-}
-
-export function updateWorldMap(mapId, patch = {}) {
-  return request(`/worldmap/maps/${mapId}`, { method: 'PUT', body: patch })
-}
-
-export function deleteWorldMap(mapId) {
-  return request(`/worldmap/maps/${mapId}`, { method: 'DELETE' })
-}
-
-/** 复制一张地图（整棵子树）为新地图 —— 用作「新建时套模板」 */
-export function duplicateWorldMap(mapId, name = '') {
-  return request(`/worldmap/maps/${mapId}/duplicate`, { method: 'POST', body: { name } })
-}
-
-/** ① 生成骨架（L1 大地区 + L2 子地区，1 次短 LLM） */
-export function generateWorldMapSkeleton(mapId, { brief = '', regionCount, districtPerRegion } = {}) {
-  return request(`/worldmap/maps/${mapId}/generate`, {
-    method: 'POST', body: { brief, regionCount, districtPerRegion },
-  })
-}
-
-/** 导出 Markdown（贴回知识库用） */
-export function exportWorldMapMarkdown(mapId) {
-  return request(`/worldmap/maps/${mapId}/export`)
-}
-
-export function addWorldMapPlace(mapId, place) {
-  return request(`/worldmap/maps/${mapId}/places`, { method: 'POST', body: place })
-}
-
-export function updateWorldMapPlace(placeId, patch) {
-  return request(`/worldmap/places/${placeId}`, { method: 'PUT', body: patch })
-}
-
-export function deleteWorldMapPlace(placeId) {
-  return request(`/worldmap/places/${placeId}`, { method: 'DELETE' })
-}
-
-/** ② 逐区展开（L3 场景 + 每场景 POI；重复调用 = 换一批） */
-export function expandWorldMapPlace(placeId) {
-  return request(`/worldmap/places/${placeId}/expand`, { method: 'POST' })
-}
-
-/**
- * 依据「名称 / 类型 / 一句话简介」让 AI 生成一条英文画面描述（scene_prompt）。
- * **不落库** —— 只返回预览，用户可改可重掷，确认后随 updateWorldMapPlace 保存。
- */
-export function generateWorldMapScenePrompt(input) {
-  return request('/worldmap/places/scene-prompt', { method: 'POST', body: input })
-}
-
-/**
- * ★ AI **追加**生活地点（不落库）—— 给这个地点补几个店/设施，**不建新的一级**。
- *
- * 与 `expandWorldMapPlace` 的区别：那个会删掉该地点下全部子节点后整体替换，
- * 这个只往当前节点的 POI 里追加，不碰任何子节点。
- * 生成器出口已有两道闸门（与已有条目去重 / 全重复时抛错而非返回空），
- * 所以这里**不需要**前端再去重。
- *
- * @param {object} p
- * @param {number|string} p.placeId
- * @param {number} [p.count] 想要几条（服务端夹 1~8）
- * @param {string} [p.hint]  特别要求，如「多来点深夜路边摊」
- * @param {string[]} [p.excludeNames] 当前表单里已有的 POI 名（**含未保存的手改条目**）——
- *   只查库会漏掉用户刚打完还没保存的名字，去重会失败。
- */
-export function expandWorldMapPois({ placeId, count, hint, excludeNames }) {
-  return request(`/worldmap/places/${placeId}/poi-draft`, {
-    method: 'POST',
-    body: { count, hint, excludeNames },
-  })
-}
-
-/**
- * 修正地点（不落库）——照「角色 → 修正外观」的同一套契约做。
- * `mode: 'image'` 传 `image`（dataURL）；`mode: 'text'` 传 `brief`（要点）。
- * 产出 `{kind, summary, scenePrompt}` 草稿，由前端填进编辑表单，用户可再手改。
- */
-export function refineWorldMapPlaceDraft({ placeId, mode = 'image', image = '', brief = '', hints = '' }) {
-  return request(`/worldmap/places/${placeId}/refine-draft`, {
-    method: 'POST',
-    body: { mode, image, brief, hints },
-  })
-}
-
-// ── 派系与组织（酒馆页第三块，2026-10-07）──────────────────────
-// 词表（类型/关系/职务建议）也由后端给，前端不写死（红线 8）。
-
-export function getFactionMeta() {
-  return request('/factions/types')
-}
-
-export function listFactions() {
-  return request('/factions')
-}
-
-export function getFaction(id) {
-  return request(`/factions/${id}`)
-}
-
-export function createFaction(payload) {
-  return request('/factions', { method: 'POST', body: payload })
-}
-
-export function updateFaction(id, payload) {
-  return request(`/factions/${id}`, { method: 'PUT', body: payload })
-}
-
-export function deleteFaction(id) {
-  return request(`/factions/${id}`, { method: 'DELETE' })
-}
-
-export function addFactionMember(factionId, payload) {
-  return request(`/factions/${factionId}/members`, { method: 'POST', body: payload })
-}
-
-export function updateFactionMember(factionId, memberId, payload) {
-  return request(`/factions/${factionId}/members/${memberId}`, { method: 'PUT', body: payload })
-}
-
-export function removeFactionMember(factionId, memberId) {
-  return request(`/factions/${factionId}/members/${memberId}`, { method: 'DELETE' })
-}
-
-export function upsertFactionRelation(payload) {
-  return request('/factions/relations', { method: 'POST', body: payload })
-}
-
-export function removeFactionRelation(relationId) {
-  return request(`/factions/relations/${relationId}`, { method: 'DELETE' })
-}
-
-/** 预览「势力态势」提示词块（供创意写作参考；空 = 还没登记派系） */
-export function getFactionPromptBlock(params = {}) {
-  const q = params.onlyWithGoal ? '?onlyWithGoal=1' : ''
-  return request(`/factions/prompt-block${q}`)
 }

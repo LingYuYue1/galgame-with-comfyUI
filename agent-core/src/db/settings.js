@@ -80,6 +80,8 @@ export const SETTING_TO_CONFIG = {
   comfy_quality_prompt:    { obj: 'comfyui',   key: 'qualityPrompt',   type: 'string'  },
   comfy_negative_prompt:   { obj: 'comfyui',   key: 'negativePrompt',  type: 'string'  },
   feature_emotion:               { obj: 'features', key: 'emotion',          type: 'bool' },
+  feature_soul:                  { obj: 'features', key: 'soul',             type: 'bool' },
+  soul_mids:                     { obj: 'soul',     key: 'mids',             type: 'json' },
   feature_memory:                { obj: 'features', key: 'memory',           type: 'bool' },
   feature_replyGuesses:          { obj: 'features', key: 'replyGuesses',     type: 'bool' },
   feature_forceImageGen:               { obj: 'features', key: 'forceImageGen',            type: 'bool' },
@@ -90,7 +92,7 @@ export const SETTING_TO_CONFIG = {
   feature_eventFreq:                 { obj: 'features', key: 'eventFreq',          type: 'float' },
   feature_momentFreq:                { obj: 'features', key: 'momentFreq',         type: 'float' },
   // 传媒内容页自动抓帖的间隔（分钟）；0 = 关闭自动、只手动刷新
-  feature_mediaAutoPerNight:         { obj: 'features', key: 'mediaAutoPerNight',  type: 'int' },
+  feature_mediaAutoMinutes:          { obj: 'features', key: 'mediaAutoMinutes',    type: 'int' },
   feature_disturbMode:              { obj: 'features', key: 'disturbMode',         type: 'bool' },
   feature_schedule:                 { obj: 'features', key: 'schedule',             type: 'bool' },
   feature_scheduleRefreshDays:      { obj: 'features', key: 'scheduleRefreshDays',  type: 'int' },

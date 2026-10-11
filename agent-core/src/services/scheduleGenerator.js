@@ -18,72 +18,7 @@ import { normalizeActivityTitle } from '../utils/activityTitle.js';
 import { isTransitExempt, transitModeLabel } from './characterTransitMode.js';
 import { getWorldIntegrationRule } from '../builtinRules.js';
 import { reapplyActiveEventSchedule } from './eventSchedule.js';
-import { buildOutfitAnnotateLayer, ensureOutfitAnnotations } from './outfitScene.js';
-import { buildPromptBlock as buildFactionPromptBlock, isFactionPromptEnabled } from './factionService.js';
-import { normalizeDayType, dayTypeOf, dayTypeLabel as dayTypeLabelFrom } from '../utils/scheduleDayType.js';
-
-/**
- * 该角色有没有配过「按日子类型」的日程方案。
- * ⚠ 这是"功能是否启用"的开关：没配过的角色，提示词与从前逐字节一致（红线 4）。
- */
-function hasDayPlans(db, characterId) {
-  try {
-    return !!db.prepare('SELECT 1 FROM schedule_day_plans WHERE character_id = ? LIMIT 1').get(characterId);
-  } catch {
-    return false;   // 迁移还没跑到的老库：当作没配（不阻断生成）
-  }
-}
-
-/**
- * 写「默认日历」（`schedule_templates`）—— 抽出成函数，供两条路径共用：
- * ① 不传 dayType 的普通生成；② 传了 dayType 时**同时**升级默认日历，
- * 免得未配日型的历史日期突然无日程可回落。
- */
-function upsertDefaultTemplate(db, characterId, json, displayName = '') {
-  const existing = db.prepare('SELECT id, version FROM schedule_templates WHERE character_id = ?').get(characterId);
-  if (existing) {
-    db.prepare(`
-      UPDATE schedule_templates
-      SET schedule_json = ?, version = version + 1, generated_at = CURRENT_TIMESTAMP
-      WHERE character_id = ?
-    `).run(json, characterId);
-    console.log(`[scheduleGen] Updated template for ${displayName} v${existing.version + 1}`);
-  } else {
-    db.prepare(`
-      INSERT INTO schedule_templates (character_id, schedule_json, version)
-      VALUES (?, ?, 1)
-    `).run(characterId, json);
-    console.log(`[scheduleGen] Created template for ${displayName}`);
-  }
-  return { schedule_json: json, version: (existing?.version || 0) + 1 };
-}
-
-/**
- * 该角色是否**禁止日程**。
- *
- * 归档 = 不参与任何主动行为（主动聊天 / 朋友圈 / 奇遇 / 拉群 / 小镇奇遇），
- * **日程也在其列** —— 归档角色不该再花 token 生成或重建日程。
- *
- * ── 为什么需要一个独立判据（而不是让调用方各自叠加 SQL 条件）──
- * 拒绝改写 `schedule_enabled` 是有道理的（见 routes/characters.js 的归档注释：
- * 不改四个细分开关，否则"归档再取消"会把用户单独设过的偏好一起抹掉）。
- * 代价是各处选人要**自己**叠加 `archived = 0`，结果就漏了 —— 实测现状：
- *   · replyQueueScheduler 的选人查询有过滤 ✅
- *   · POST /schedule/regenerate-all 有过滤 ✅
- *   · ★ 但 `snapshotTodaySchedule()` 与 `getTodayScheduleRaw()` 的 fallback **完全没有**
- *     → 归档角色 51 个，`daily_schedules` 每天仍被重建 51 条（实测 10-05 仍有 51 条，
- *       而它们的模板早在 10-03 就停止更新了 —— 说明"钱没再花在生成上，
- *       但快照仍在被无意义地重建"，日程页/概览里也照旧列着它们）。
- *
- * 所以判据收口到这里一处，两个入口统一调用。查库失败时返回 false（不拦），
- * 避免一次瞬时读失败就把角色永久挡在日程之外。
- */
-export function isScheduleForbidden(characterId) {
-  try {
-    const row = getDb().prepare('SELECT COALESCE(archived, 0) AS archived FROM characters WHERE id = ?').get(characterId);
-    return !!row?.archived;
-  } catch { return false; }
-}
+import { buildOutfitAnnotateLayer } from './outfitScene.js';
 
 /**
  * 截取角色人格 prompt：从开头到 "##你的外观" 之前
@@ -780,33 +715,6 @@ async function generateScheduleImpl(character, direction, options = {}) {
 - 可以写成动宾短语（「深夜散步」「夜间值班」「给熟客调酒」）、
   带修饰的名词短语（「泡面加蛋的午饭」）。**就是不要「A——B」这种解说式标题。**
 
-## description 必须写成一个小场景（20~45 字，宁短勿长）
-每条 description 只写**看得见的东西**：谁在做什么 + 身体/对象/环境的具体描写 + 角色的态度（不躲、不赶、自己坐下去）。
-- 「火花裹在给一个付了钱的粉丝做口交。」
-- 「火花蹲坐在一个男人的阴茎上，嘴里给左边的男人口交，右手在给右边的男人手淫，身上都是粘稠的精液。」
-- 「爻光自己把裙摆撩到腰上，坐上去，包厢门口半开着，走廊上有人探头看，她也不赶。」
-- 「火花坐在舞台上，举起一个装满精液的大啤酒杯就往嘴里灌，周围的男人往她脸上射精。」
-- 日常时段同样具体：「在厨房煎蛋，香气飘满房间」
-**禁止**：
-- 心理活动、回忆、感慨、总结（如「自己也数不清」「把那点成就感收好」「想着明天会怎样」）——一个字都不要
-- 只写氛围（如「度过了一段平静时光」）
-- 把角色撇开的旁观视角（她自己必须在这条日程里真的做了那件事）
-- 华丽的比喻和抒情修饰；用直白的动作词，和<world_setting>的用词一致
-- **照抄 <world_setting> 的例句或人格卡里的句子**（见上文第 1 条）；
-  也不用那些标志性台词（「射进来才算钱」「报数」）和人格卡的金句（「极轻地笑一下」）
-
-完整 JSON 结构示例（示例仅 3 个活动，实际必须输出 8~15 个活动；下例里的「角色名」请替换成当前角色的名字）：
-{"activities":[{"startTime":"00:00","endTime":"02:30","activity":"露台深夜直播","location":"<区域>·<具体地点>","replyDelay":0,"tags":["直播","露骨"],"description":"角色名坐在舞台中央，台下的人往她脸上射精。"},{"startTime":"12:00","endTime":"13:00","activity":"街边午饭","location":"<区域>·<具体地点>","replyDelay":0,"tags":["进食","日常"],"description":"角色名端着碗坐在路边吃，顺手把今天的事说给摊主听。"},{"startTime":"03:00","endTime":"11:00","activity":"补觉安眠","location":"<区域>·<具体地点>","replyDelay":-1,"tags":["睡眠"],"description":"角色名裹着被子沉进睡眠，窗帘拉严，呼吸逐渐平稳。"}]}
-
-## 交付前自检（五项，缺一不可，不合格就改完再交）
-1. **性时段 ≥ 3 个**，其中角色**亲自参与**的实质行为（性交／口交／自慰到出／多人）**≥ 2 个**。
-   不够就往独处时段里补（洗澡、睡前、起床后、午休），改写一个就行。
-2. **没有任何一句能在 <world_setting> 的氛围例句或角色人格卡里找到原句**（换个角色名就能放回原处 = 照抄）。
-3. **没有任何「别人在做、她只是看着」的句子**；每个性时段都能说清「她为什么此刻在这里做这件事」。
-4. **逐条检查 activity：没有一条包含「——」**，也没有冒号/括号挂解释，最长不超过 14 字。
-   扫一眼全部 activity 名列出来应该像一张清爽的目录；细节全在 description 里。
-5. **<world_setting> 里的"特色事物"最多出现 1 次**（0 次也可以）；同一个反应词不许重复出现。
-
 只输出 JSON 对象，不要输出任何解释、Markdown 代码块或 JSON 以外的文字。activities 数组必须按时间顺序排列，startTime 和 endTime 必须是 HH:MM 格式、24 小时制，数组里每个对象都必须严格包含上述全部字段（若上方系统消息另有额外字段要求，一并按那里的说明输出）。`;
 
   // ── 用户指定的日程方向 ──
@@ -830,29 +738,8 @@ ${direction}**
   // msgs[3.5]: 着装标注（仅当角色配了 ≥2 套场景服装时才有；没配则完全不加，原提示词不变）
   //   放在这里而非 scheduleInst：scheduleInst 是跨角色共享常量（吃 LLM 前缀缓存），
   //   服装列表每个角色都不同，塞进去会让缓存全部失效。
-  const outfitLayer = buildOutfitAnnotateLayer(character.id, buildOutfitZoneHints(options));
+  const outfitLayer = buildOutfitAnnotateLayer(character.id);
   if (outfitLayer) msgs.push({ role: 'system', content: outfitLayer });
-  // msgs[3.7]: 本次编排约束（区域 / NSFW 强度 / 睡眠类型 / 移动方式）——不传选项时整层不出现
-  // ★ 移动方式必须**从角色行读**而不是只认 options：自动生成路径（调度器/新建角色）
-  //   不带 options，若只认 options 就会静默丢掉豁免，超能力角色又被按普通口径判瞬移。
-  //   与 home_place 的兜底读取同理（见上方 options.homePlace === undefined 那段）。
-  const transitMode = options?.transitMode !== undefined
-    ? options.transitMode
-    : character?.transit_mode;
-  // ★ 日子类型：**显式传的优先**；没传则**只有该角色配过日型方案时**才按"今天"自动判定。
-  //   ⚠ 这个"配过才启用"的条件是刻意的（红线 4：长驻功能默认关闭）——
-  //     没有任何日型方案的角色，约束层与从前**逐字节一致**，不会因为加了功能就多一段提示词。
-  //   好处：配过方案的角色，连自动派单（调度器没有交互式选项）也会按当天是工作日/休息日来编排。
-  const explicitDayType = options?.dayType ? normalizeDayType(options.dayType) : '';
-  const dayTypeForPrompt = explicitDayType
-    || (hasDayPlans(db, character.id) ? dayTypeOf(new Date()) : '');
-  const constraintLayer = buildScheduleConstraintBlock({
-    ...options,
-    dayType: dayTypeForPrompt,
-    transitMode,
-    characterName: character.display_name || character.name || '',
-  });
-  if (constraintLayer) msgs.push({ role: 'system', content: constraintLayer });
   // msgs[4]: 触发消息（融合用户指定的日程方向）
   let triggerContent = worldSetting
     ? `请遵循<world_setting>来安排日程，角色设定如果和<world_setting>有冲突，则以<world_setting>最高优先级，角色设定会因为<world_setting>改变,日程内容必须体现<world_setting>的设定。

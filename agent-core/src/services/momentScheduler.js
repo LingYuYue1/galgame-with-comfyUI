@@ -182,7 +182,7 @@ async function tick() {
       } else {
         console.log('[momentScheduler] No active characters or all have NULL next_moment_at — initializing...');
         // 首次启动：给所有角色设定首次发帖时间（基准 1~4 小时，按 momentFreq 缩放）
-        const chars = db.prepare('SELECT id FROM characters WHERE moments_disabled = 0 AND COALESCE(archived, 0) = 0 AND next_moment_at IS NULL').all();
+        const chars = db.prepare('SELECT id FROM characters WHERE moments_disabled = 0 AND next_moment_at IS NULL').all();
         for (const c of chars) {
           const delay = (1 * 3600_000 + Math.random() * 3 * 3600_000) / Math.max(0.01, momentFreq);
           const nextAt = new Date(Date.now() + delay).toISOString();

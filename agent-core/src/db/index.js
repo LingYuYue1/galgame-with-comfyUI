@@ -391,7 +391,7 @@ function initSchema(db) {
 
     -- ── 传媒 / 数字媒体（媒体内容页）──────────────────────────────
     -- 一个「媒体」= 一个内容源（论坛 / 报纸 / 匿名职场社区 / 暗网 …），自带一份生成提示词。
-    -- 用户可自行增删改；默认种入若干内置媒体。
+    -- 用户可自行增删改；默认种入二相乐园的 5 个媒体。
     -- prompt 存的是该媒体的「角色设定 + 规则 + 写作要求」，生成帖子时原样作为 system 注入。
     CREATE TABLE IF NOT EXISTS media_outlets (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1014,6 +1014,9 @@ function initSchema(db) {
   // 迁移: 记忆 v3 —— 多重表示 + 双时态演化 + 实体/三元组索引层（见 docs/memory-upgrade-plan.md）
   migrateChatMemoryV3Schema(db);
 
+  // 迁移: 灵魂系统 —— soul_states 表 + memory_fragments.soul_snapshot 列（见 services/soulEngine.js）
+  migrateSoulSchema(db);
+
   // 迁移: 记忆整理记账表（防同一批候选被反复送进 LLM）+ 整理/审计表维护索引
   migrateMemoryConsolidationMarks(db);
 
@@ -1083,20 +1086,7 @@ function initSchema(db) {
   // 迁移: 角色文件夹 — character_folders 表 + characters.folder_id 列
   migrateCharacterFolderSchema(db);
 
-  // 迁移: 角色归档 — characters 表新增 archived 列
-  migrateCharacterArchiveSchema(db);
 
-  // 迁移: 角色固定居家/睡眠地点（人类侧指定，空=未指定=不改行为）
-  migrateCharacterCadenceSchema(db);
-
-  // 迁移: 角色论坛马甲 — characters 表新增 forum_alias / forum_persona 列
-  migrateCharacterForumAlias(db);
-
-  // 迁移（一次性）: 场景套「裸体」改名「全身」（套名 + 两张日程表的 outfit 标注）
-  migrateOutfitNudeRename(db);
-
-  // 迁移: 我的表情库 — user_emojis 表
-  migrateUserEmojiSchema(db);
 
   // 迁移: 朋友圈话题可勾选 — moment_topics 加 checked 列
   migrateMomentTopicCheckedSchema(db);
@@ -1170,33 +1160,11 @@ function initSchema(db) {
   // 迁移: 角色日记（每角色每日一篇，同日覆盖、历史保留）
   migrateCharacterDiarySchema(db);
 
-  // 迁移: 宝箱橱窗（loot_catalog 商品清单 + loot_offers 当前橱窗）
-  migrateLootCatalogSchema(db);
-
-  // 迁移: 角色间关系的亲密度分级（决定朋友圈多人场景的概率与画面尺度）
-  migrateRelationshipIntimacy(db);
-
   // 迁移: 角色服装的场景标记（工装/外出/居家/睡眠，由日程决定穿哪套）
   migrateCharacterOutfitScene(db);
 
   // 迁移 + 种子: 媒体内容页（传媒 / 板块 / 帖子）
   migrateMediaSchema(db);
-  // 迁移: 媒体操作日志（删除/创建类的审计痕迹；T5 —— 曾有一条真实产物消失无法追溯）
-  migrateMediaOpLog(db);
-  // 媒体迁移之后再跑：论坛去图要用到 media_outlets 的 layout 列
-  migrateForumPostsPlainText(db);
-
-  // 迁移: 世界地图骨架（独立于游戏小镇的 town_maps —— 那是可行走的网格图，本表是叙事地理）
-  migrateWorldMapSchema(db);
-
-  // 迁移: 归档角色禁止日程（一次性清理存量）
-  migrateArchivedScheduleCleanup(db);
-
-  // 迁移: 日程活动名去「——」八股（一次性清理存量；提示词已于同日修正）
-  migrateScheduleActivityTitleDedash(db);
-
-  // 迁移: 角色工作地回填 —— **已搬到 src/db/migrations/001_character_workplace_seed.migration.js**
-  // （可插拔迁移注册表在 app.js 启动阶段调度；此处不再调用，实现只留一份）
 
   // 种子: 奇遇事件类型库 + 朋友圈话题库（INSERT OR IGNORE，仅插入缺失的系统条目，不覆盖用户编辑）
   seedEventLibraries(db);
@@ -1808,186 +1776,6 @@ function migrateMomentTopicCheckedSchema(db) {
     }
   } catch (err) {
     console.log('[db] migrateMomentTopicCheckedSchema error:', err.message);
-  }
-}
-
-/**
- * 迁移: 我的表情库 — user_emojis 表
- *
- * 用户自己的表情包，跨角色通用（与角色的 character_emojis 分开存）。
- * 不复用 character_emojis 的原因：那张表的 character_id 是 NOT NULL 外键到 characters(id)，
- * 借一个特殊 id 代表「用户」既违反外键约束，语义上也说不通；这里也不分 set（用户只有一套）。
- */
-function migrateUserEmojiSchema(db) {
-  try {
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS user_emojis (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        emoji_key TEXT NOT NULL UNIQUE,
-        prompt TEXT NOT NULL DEFAULT '',
-        image_path TEXT,
-        style TEXT,
-        status TEXT NOT NULL DEFAULT 'done'
-          CHECK(status IN ('pending','prompt_ready','generating','done','failed')),
-        error_message TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-  } catch (err) {
-    console.log('[db] migrateUserEmojiSchema error:', err.message);
-  }
-}
-
-/**
- * 迁移: 角色归档 — characters 表新增 archived 列
- *
- * 归档 = 该角色不再参与任何主动行为（主动聊天 / 朋友圈 / 奇遇 / 日程刷新 / 拉群），
- * 仅保留角色卡数据与「你主动找它时仍会回复」的能力。
- *
- * 刻意做成独立的拦截层，而不是去改动 moments_disabled / proactive_disabled /
- * events_disabled / schedule_enabled 这四个开关 —— 否则归档再取消会把用户单独设过的
- * 偏好一起抹掉。各调度器的选人查询统一叠加 `COALESCE(archived, 0) = 0`。
- */
-function migrateCharacterArchiveSchema(db) {
-  try {
-    const cols = db.prepare(`PRAGMA table_info(characters)`).all();
-    if (!cols.find(c => c.name === 'archived')) {
-      db.exec(`ALTER TABLE characters ADD COLUMN archived INTEGER DEFAULT 0`);
-      console.log('[db] Added characters.archived column (default 0)');
-    }
-  } catch (err) {
-    console.log('[db] migrateCharacterArchiveSchema error:', err.message);
-  }
-}
-
-/**
- * 迁移: 角色的**固定居家/睡眠地点**（人类侧指定）。
- *
- * ── 为什么需要（2026-10-06，用户提出）──────────────────
- * 日程里"角色住哪、在哪睡"过去完全靠模型自由发挥 —— 于是同一角色这周住宿舍、
- * 下周住酒店，甚至睡在街上。用户希望能**像选衣服一样，在地图上替角色指定一个
- * 固定落点**，让日程的"回家/睡觉"有稳定锚点。
- *
- * 存的是**地点名**（而非 id）：日程提示词、换装标注、生图场景都按名字匹配，
- * 存名字才能直接注入；且用户若重命名地点，可在地图侧一并处理（与套名同源约束）。
- *
- * `home_place`      —— 固定居家地点（对应地图 zone=residence 的具体地点名）
- * `sleep_place`     —— 固定睡眠地点。空 = 跟随居家地点（多数角色居家即睡处；
- *                      分开是为了支持"住校但睡不同楼/房"这类情形）。
- * `home_area`       —— 所属子区名（可选，便于注入时交代"在哪个区"）。
- *
- * ⚠ 一律留空 = 未指定 = 行为与上线前**逐字节一致**（不注入任何相关段落）。
- *   这是「默认不改行为」的落实点：迁移只加列，不回填。
- */
-function migrateCharacterCadenceSchema(db) {
-  try {
-    const cols = new Set(db.prepare(`PRAGMA table_info(characters)`).all().map(c => c.name));
-    const add = (name, ddl) => { if (!cols.has(name)) db.exec(`ALTER TABLE characters ADD COLUMN ${ddl}`); };
-    add('home_place', `home_place TEXT`);
-    add('sleep_place', `sleep_place TEXT`);
-    add('home_area', `home_area TEXT`);
-    // ★ 移动方式（超能力移动豁免）：默认 NULL = `normal`，即"受通勤表约束"。
-    //   不写 DEFAULT，让存量行保持 NULL —— 与「不选该字段 = 上线前行为」一致。
-    add('transit_mode', `transit_mode TEXT`);
-    // ★ 工作地（台账豁免）：角色的常驻办公处。地图常把这类地点标成 private
-    //   （「谢绝外人」说的是别人进不去，本人在自己的办公室当然不算闯入）。
-    //   与 home_place 平行 —— 不加这个字段，"在自家办公室办公"会天天被报受限闯入。
-    add('work_place', `work_place TEXT`);
-  } catch (err) {
-    console.log('[db] migrateCharacterCadenceSchema error:', err.message);
-  }
-}
-
-/**
- * 迁移（一次性）: 场景套「裸体」改名「全身」—— 三处数据必须一起改。
- *
- * ── 为什么不能只改常量 ──────────────────────────────
- * 套的 `name` 是**日程标注的匹配键**：日程 JSON 里存着 `"outfit":"裸体"`，
- * `getSceneOutfitForNow` 按名称回查 `character_outfits.name`。
- * 只改常量（`NUDE_NAME`）会让老数据与新常量并存：
- *   · 老角色的行仍叫「裸体」（`upsertSceneOutfits` 会保留已有名字）；
- *   · 新生成的日程按新常量标「全身」→ **匹配不上** →
- *     角色静默回退成默认服装（洗浴时穿上街装）。
- * 这正是「改套名 ⇒ 旧日程必须一起迁」那条硬约束的实例，所以三处同步：
- *   ① `character_outfits.name`（12 行量级）
- *   ② `daily_schedules.schedule_json` 的 outfit 标注
- *   ③ `schedule_templates.schedule_json` 的 outfit 标注
- *
- * ── 为什么是一次性的（once 标记）────────────────────
- * 匹配的是旧值「裸体」，跑过一次后就没有可匹配的行（天然幂等）；
- * 但每次都全表扫描两个大 JSON 列是纯浪费，故按项目惯例打一次性标记。
- * ⚠ 若日后又要改套名，请新开一个迁移键，不要复用这个。
- */
-function migrateOutfitNudeRename(db) {
-  try {
-    const marker = db.prepare(
-      `SELECT setting_value FROM system_settings WHERE setting_key = 'outfit_nude_renamed_fullbody'`
-    ).get();
-    if (marker) return;
-
-    // 表还没建就先不迁，且**不写标记**，留给下次启动（否则会永久跳过）
-    const hasOutfits = db.prepare(
-      `SELECT name FROM sqlite_master WHERE type='table' AND name='character_outfits'`
-    ).get();
-    if (!hasOutfits) return;
-
-    const OLD = '裸体';
-    const NEW = '全身';
-
-    // ① 套名（只动 scene='nude' 的行，别误伤用户给其它套起的别名）
-    const renamed = db.prepare(
-      `UPDATE character_outfits SET name = ? WHERE scene = 'nude' AND name = ?`
-    ).run(NEW, OLD).changes;
-
-    // ②③ 日程标注：JSON 是紧凑存储（`"outfit":"裸体"`），但也防一手带空格的写法
-    const PATTERNS = [
-      [`"outfit":"${OLD}"`, `"outfit":"${NEW}"`],
-      [`"outfit": "${OLD}"`, `"outfit": "${NEW}"`],
-    ];
-    let scheduleChanges = 0;
-    for (const table of ['daily_schedules', 'schedule_templates']) {
-      const exists = db.prepare(
-        `SELECT name FROM sqlite_master WHERE type='table' AND name=?`
-      ).get(table);
-      if (!exists) continue;
-      for (const [from, to] of PATTERNS) {
-        scheduleChanges += db.prepare(
-          `UPDATE ${table} SET schedule_json = REPLACE(schedule_json, ?, ?) WHERE schedule_json LIKE ?`
-        ).run(from, to, `%${from}%`).changes;
-      }
-    }
-
-    db.prepare(
-      `INSERT OR REPLACE INTO system_settings (setting_key, setting_value) VALUES ('outfit_nude_renamed_fullbody', '1')`
-    ).run();
-    console.log(`[db] 场景套改名 裸体→全身：套名 ${renamed} 行、日程标注 ${scheduleChanges} 行（一次性）`);
-  } catch (err) {
-    console.log('[db] migrateOutfitNudeRename error:', err.message);
-  }
-}
-
-/**
- * 迁移: 角色「论坛马甲」—— characters 表新增 forum_alias / forum_persona。
- *
- * 为什么马甲要存成角色属性、而不是生成时现编：
- *   网名必须**稳定**。同一个角色每次发帖都换个名字，读者就认不出是谁，
- *   "马甲"也就没意义了。要稳定就只能落在档案里（与「外观」同理）。
- *   两者都可空 —— 没填的角色在论坛里退回用真名，不影响既有数据。
- */
-function migrateCharacterForumAlias(db) {
-  try {
-    const cols = db.prepare(`PRAGMA table_info(characters)`).all();
-    if (!cols.find(c => c.name === 'forum_alias')) {
-      db.exec(`ALTER TABLE characters ADD COLUMN forum_alias TEXT`);
-      console.log('[db] Added characters.forum_alias column');
-    }
-    if (!cols.find(c => c.name === 'forum_persona')) {
-      db.exec(`ALTER TABLE characters ADD COLUMN forum_persona TEXT`);
-      console.log('[db] Added characters.forum_persona column');
-    }
-  } catch (err) {
-    console.log('[db] migrateCharacterForumAlias error:', err.message);
   }
 }
 
@@ -2932,6 +2720,133 @@ function migrateChatBgSchema(db) {
     }
   } catch (err) {
     console.log('[db] migrateChatBgSchema error:', err.message);
+  }
+}
+
+/** 一次性升级旧报刊；后续启动尊重用户选择的媒体类型。 */
+export function migrateMediaOutletLayouts(db) {
+  const migrated = db.prepare(`SELECT 1 FROM system_settings WHERE setting_key = 'media_layout_editable_migrated'`).get();
+  if (migrated) return;
+  db.transaction(() => {
+    db.prepare(`UPDATE media_outlets SET layout = 'portal' WHERE name IN ('狸狸通讯社','狸狸八卦') AND layout != 'portal'`).run();
+    db.prepare(`INSERT INTO system_settings (setting_key, setting_value) VALUES ('media_layout_editable_migrated', '1')`).run();
+  })();
+}
+
+/**
+ * 迁移: 媒体内容页 —— media_outlets / media_boards / media_posts 建表 + 默认媒体种子
+ *
+ * 表本身在启动建表块里 CREATE IF NOT EXISTS；这里只负责**种入默认媒体与板块**。
+ * 用 INSERT OR IGNORE：用户改过的媒体/板块不会被后续启动覆盖；
+ * 用户删掉的默认媒体也不会被"复活"（因为按 name 判重，用户删了就再插一次？——
+ * 会复活。所以额外记一个 system_settings 标记，播过一次就不再播）。
+ */
+function migrateMediaSchema(db) {
+  try {
+    // ── 结构升级（独立于种子开关，老库也要加上）──
+    // layout：媒体形态，决定前端用哪套版式渲染
+    //   'feed'   = 帖子瀑布流（网络热门 / 公司脉脉 / 幻月暗所…）
+    //   'portal' = 门户（数字报刊·两层生成）：横版卡片网格 + 点开板块才生成正文。
+    //              出刊只跑一次短 LLM（立刻可读），配图与正文都按需补。
+    //   'weekly' = 周刊版式（**旧形态**：狸狸通讯社原样，已被 portal 取代，保留以渲染老帖）
+    //   'poster' = 海报版式（**旧形态**：狸狸八卦原样，同上）
+    const oCols = db.prepare(`PRAGMA table_info(media_outlets)`).all();
+    if (!oCols.find(c => c.name === 'layout')) {
+      db.exec(`ALTER TABLE media_outlets ADD COLUMN layout TEXT NOT NULL DEFAULT 'feed'`);
+      console.log('[db] Added media_outlets.layout column');
+    }
+    // payload_json：周刊/海报的结构化正文（feed 形态不用，内容仍在 content）
+    const pCols = db.prepare(`PRAGMA table_info(media_posts)`).all();
+    if (!pCols.find(c => c.name === 'published_seq')) {
+      // 0 保留旧帖可见性及原 id 已读游标；新生成的草稿显式写 NULL，图齐后再发布。
+      db.exec(`ALTER TABLE media_posts ADD COLUMN published_seq INTEGER DEFAULT 0`);
+    }
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_media_posts_publication
+      ON media_posts(COALESCE(NULLIF(published_seq, 0), id) DESC)
+      WHERE published_seq IS NOT NULL`);
+    if (!pCols.find(c => c.name === 'payload_json')) {
+      db.exec(`ALTER TABLE media_posts ADD COLUMN payload_json TEXT`);
+      console.log('[db] Added media_posts.payload_json column');
+    }
+
+    // ── 一次性形态回填（后续保留用户选择）──
+    try {
+      // 两个报刊升级为「门户」：原来的 weekly/poster 是「一次长 LLM + N 张图」全量产出，
+      // 在电脑宽屏上还只是 880px 居中单列、两侧各空 520px。门户把它拆成两层
+      //（出刊只出骨架 → 立即可读；图后台串行补；正文点开才生成）。
+      // 老帖仍按 payload 形态渲染（MediaWeekly / MediaPoster 保留），不会白丢内容。
+      migrateMediaOutletLayouts(db);
+    } catch { /* ignore */ }
+
+    const seeded = db.prepare(
+      `SELECT setting_value FROM system_settings WHERE setting_key = 'media_outlets_seeded'`
+    ).get();
+    if (seeded?.setting_value === '1') {
+      // 种子已播过，但可能还没有「狸狸八卦」（本次新增）—— 单独补种
+      try {
+        const has = db.prepare(`SELECT id FROM media_outlets WHERE name = '狸狸八卦'`).get();
+        if (!has) {
+          const ins = db.prepare(`INSERT INTO media_outlets (name, tagline, prompt, icon, sort_order, enabled, layout)
+            VALUES (?, ?, ?, ?, ?, 1, ?)`);
+          const ghost = DEFAULT_MEDIA_OUTLETS.find(o => o.name === '狸狸八卦');
+          if (ghost) {
+            const maxOrder = db.prepare('SELECT COALESCE(MAX(sort_order), -1) AS m FROM media_outlets').get().m;
+            ins.run(ghost.name, ghost.tagline || '', ghost.prompt || '', ghost.icon || '', maxOrder + 1, 'poster');
+            console.log('[db] media seed: 补种「狸狸八卦」');
+          }
+        }
+      } catch { /* ignore */ }
+      return;
+    }
+
+    const insOutlet = db.prepare(`
+      INSERT OR IGNORE INTO media_outlets (name, tagline, prompt, icon, sort_order, enabled, layout)
+      VALUES (?, ?, ?, ?, ?, 1, ?)
+    `);
+    const insBoard = db.prepare(`
+      INSERT OR IGNORE INTO media_boards (outlet_id, name, desc, sort_order) VALUES (?, ?, '', ?)
+    `);
+    let outlets = 0, boards = 0;
+    const tx = db.transaction(() => {
+      DEFAULT_MEDIA_OUTLETS.forEach((o, i) => {
+        const r = insOutlet.run(o.name, o.tagline || '', o.prompt || '', o.icon || '', i, o.layout || 'feed');
+        if (r.changes > 0) outlets++;
+        const row = db.prepare('SELECT id FROM media_outlets WHERE name = ?').get(o.name);
+        if (!row) return;
+        (o.boards || []).forEach((b, bi) => {
+          if (insBoard.run(row.id, b, bi).changes > 0) boards++;
+        });
+      });
+    });
+    tx();
+
+    db.prepare(`INSERT OR REPLACE INTO system_settings (setting_key, setting_value)
+      VALUES ('media_outlets_seeded', '1')`).run();
+    if (outlets || boards) console.log(`[db] media seed: ${outlets} outlets / ${boards} boards`);
+  } catch (err) {
+    console.log('[db] migrateMediaSchema error:', err.message);
+  }
+}
+
+/**
+ * 迁移: 角色服装的场景标记 — character_outfits 加 scene 列
+ *
+ * 用途：角色可同时拥有多套「场景服装」（工装 work / 外出 casual / 居家 home / 睡眠 sleep），
+ * 由日程决定当前穿哪套。取值见 services/outfitScene.js 的 OUTFIT_SCENES。
+ *
+ * **刻意不复用 `enabled`**：现有的 `enabled` 承载「同时只启用一套」的互斥语义
+ * （道具变身/临时形态靠它，见 getActiveOutfits 的 LIMIT 1）。场景服装改用
+ * `scene IS NOT NULL` 标记，两条通道互不干扰。
+ */
+function migrateCharacterOutfitScene(db) {
+  try {
+    const cols = db.prepare(`PRAGMA table_info(character_outfits)`).all();
+    if (!cols.find(c => c.name === 'scene')) {
+      db.exec(`ALTER TABLE character_outfits ADD COLUMN scene TEXT`);
+      console.log('[db] Added character_outfits.scene column');
+    }
+  } catch (err) {
+    console.log('[db] migrateCharacterOutfitScene error:', err.message);
   }
 }
 
@@ -4170,6 +4085,41 @@ export function migrateChatMemoryV3Schema(db) {
     upgradeMemoryFtsToV3(db);
   } catch (err) {
     console.error('[db] migrateChatMemoryV3Schema error:', err.message);
+    throw err;
+  }
+}
+
+// 迁移: 灵魂系统（角色的自我认知状态层，见 services/soulEngine.js）。
+//   - soul_states：四维能量槽按 character_id 键控落库，跨会话/跨重启延续
+//   - memory_fragments.soul_snapshot：记忆落库那一刻的四维 energy 快照，供召回时反向共鸣
+// 默认开启（config.features.soul）；移除设置页开关后，一次性将旧安装的关闭值迁移为开启。
+// 设计依据 .pai/plan/memory/20261010_灵魂系统最小迁移到邻舍.md。
+export function migrateSoulSchema(db) {
+  try {
+    db.transaction(() => {
+      const migrated = db.prepare("SELECT 1 FROM system_settings WHERE setting_key = 'soul_default_enabled_migrated'").get();
+      if (migrated) return;
+      db.prepare("INSERT OR REPLACE INTO system_settings (setting_key, setting_value, updated_at) VALUES ('feature_soul', 'true', CURRENT_TIMESTAMP)").run();
+      db.prepare("INSERT INTO system_settings (setting_key, setting_value) VALUES ('soul_default_enabled_migrated', '1')").run();
+    })();
+
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS soul_states (
+        character_id TEXT PRIMARY KEY,
+        recall_depth REAL NOT NULL DEFAULT 0,
+        impression_depth REAL NOT NULL DEFAULT 0,
+        expression_desire REAL NOT NULL DEFAULT 0,
+        creativity REAL NOT NULL DEFAULT 0,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `).run();
+
+    const columns = new Set(db.prepare(`PRAGMA table_info(memory_fragments)`).all().map(c => c.name));
+    if (!columns.has('soul_snapshot')) {
+      db.prepare(`ALTER TABLE memory_fragments ADD COLUMN soul_snapshot TEXT NOT NULL DEFAULT ''`).run();
+    }
+  } catch (err) {
+    console.error('[db] migrateSoulSchema error:', err.message);
     throw err;
   }
 }
