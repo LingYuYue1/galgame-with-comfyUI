@@ -392,11 +392,11 @@ export function parseEmojiPromptJson(raw, char, keys = DEFAULT_EMOJI_KEYS, fixed
 function buildEmojiImageRule(styleMode) {
   const chibi = styleMode === EMOJI_STYLE_MODES.CHIBI_HEAD;
   const anchors = chibi
-    ? '发型、发色、瞳色、瞳孔/眼球特征、嘴巴、表情、头部配饰等至少 3 项'
-    : '发型、发色、瞳色、标志性服装（上半身）、头部配饰、辨识特征等至少 6 项；不要写鞋袜、腿部、体型（如 shoes, boots, stockings, tall figure，会拖成全身构图）';
+    ? '发型、发色、瞳色、瞳孔/眼球特征、嘴巴、表情、头部配饰等可见辨识特征'
+    : '发型、发色、瞳色、标志性服装（上半身）、头部配饰等可见辨识特征；不要写鞋袜、腿部、体型（如 shoes, boots, stockings, tall figure，会拖成全身构图）';
   const example = chibi
-    ? "'Furina \\(Genshin Impact\\) \\(white hair with blue streaks, blue eyes, star-shaped pupils, gold hair ornament\\) happy grin, smile'"
-    : "'Furina \\(Genshin Impact\\) \\(white hair with blue streaks, blue eyes, blue top hat, lace gloves\\) happy grin, smile'";
+    ? "'Furina \\(Genshin Impact\\) has white hair with blue streaks, blue eyes, star-shaped pupils, and a gold hair ornament. She grins happily.'"
+    : "'Furina \\(Genshin Impact\\) has white hair with blue streaks and blue eyes. She wears a blue top hat and lace gloves. She grins happily.'";
   const modeRule = chibi
     ? '猪鼻大头风格只保留大头与表情, 角色必须转成 Q版大头。允许项：发型、发色、瞳色、眼球/瞳孔特征、眉毛、嘴巴、表情、脸型、头部配饰。禁止项：任何服装、衣着、脖颈以下身体、胸部、腹部、腰部、臀部、腿部、鞋袜、choker/项链；禁止词包括但不限于 suit, midriff, exposed midriff, build, figure, chest, breast, waist, hips, legs, boots, stockings, skirt, pants, shorts, shoes, choker, necklace, torso, clothing, outfit。'
     : styleMode === EMOJI_STYLE_MODES.HALF_BODY_CHIBI
@@ -404,7 +404,7 @@ function buildEmojiImageRule(styleMode) {
       : '半身构图LINE风格表情包（构图由系统前置 tag 固定：half body, upper body, close-up），只描写表情、头部与肩臂/手的动作；禁止描写腿部、站姿、奔跑、跳跃、转身等全身或下半身动作，避免构图被拖成全身；不要写 chibi character、big head 等 Q版描述，半身模式保持角色原有头身比例；角色服装保持原设定即可，无需为场景换装。';
   return [
     '本任务生成 SDXL 表情包提示词，适用以下专用生图规则（替代通用生图规则）：',
-    `1. 角色写法（核心）：每个 prompt 中的角色一律写成 'Name \\(Series\\)'，作品名后用括号注明${anchors}，随后接角色在该表情下的表情与肢体动作。示例：${example}。`,
+    `1. 角色写法（核心）：每个 prompt 中的角色一律以 'Name \\(Series\\)' 开头，保留角色标签及作品名的转义括号，随后用自然语言完整句子描述${anchors}，再描述该表情下的表情与肢体动作。外观不另加括号，不设特征数量下限，不为凑数编造特征。示例：${example}。`,
     `2. ${modeRule}`,
     '3. 全英文，不出现中文；不使用未转义的双引号，需要引用时一律用单引号。',
   ].join('\n');
@@ -435,7 +435,7 @@ export async function generateEmojiPrompts(char, style = '', keys = null) {
   requirements.push(`不要写背景、画风、构图类描述（${tagsText}）。这些固定 tag 由系统在生成后自动前置到每条 prompt 开头，你重复输出只会浪费 token。`);
   requirements.push('输出严格 JSON object：键是上面的中文表情名，值是对应 prompt 字符串。不要 Markdown 代码块，不要解释。');
   // 输出示例演示双重转义：JSON 源码里的 \\( 解析后即生图规则要求的 \(；单个 \( 是非法 JSON 转义
-  const outputExample = '{"开心": "Name \\\\(Series\\\\) \\\\(hair color, eye color, signature outfit\\\\) happy grin, smile", "难过": "Name \\\\(Series\\\\) \\\\(hair color, eye color, signature outfit\\\\) teary eyes, sad frown"}';
+  const outputExample = '{"开心": "Name \\\\(Series\\\\) has white hair and blue eyes. She grins happily.", "难过": "Name \\\\(Series\\\\) has white hair and blue eyes. She frowns with teary eyes."}';
   const system2 = `你是 LINE 表情包提示词生成助手。
 请为角色生成 ${emojiKeys.length} 种表情的 SDXL 英文提示词。
 
