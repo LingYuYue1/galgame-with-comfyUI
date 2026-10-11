@@ -1301,7 +1301,7 @@ const showPersonaRefineModal = ref(false)
 // 于是后端重写出来的外观段就是这一套，应用时写回同一套。
 const refineSceneIdx = ref(0)
 const refineSceneOutfit = computed(() => detail.sceneOutfits[refineSceneIdx.value] || null)
-const refineSceneLabel = computed(() => refineSceneOutfit.value?.sceneLabel || '外观')
+const refineSceneLabel = computed(() => refineSceneOutfit.value?.scene === 'work' ? '默认' : (refineSceneOutfit.value?.sceneLabel || '外观'))
 /**
  * 交给「修正外观」弹窗的整卡。
  *
@@ -1320,19 +1320,6 @@ const refineBasePrompt = computed(() => {
     : composeOutfitText(detail.body, o.description)
   if (!text) return fullPrompt.value
   return composePersona(detail.editPersona, text, detail.appearanceTail)
-})
-
-// ── 修正外观：跟随「外观服装」当前选中的那一套（工装/私服/居家/睡衣）──
-// 打开时记下场景索引（弹窗期间主弹窗关闭、标签页切不了，取快照即可）；
-// 传给弹窗的是「人设 + 该场景描述放在外观段位置」的整卡，
-// 于是后端重写出来的外观段就是这一套，应用时写回同一套。
-const refineSceneIdx = ref(0)
-const refineSceneOutfit = computed(() => detail.sceneOutfits[refineSceneIdx.value] || null)
-const refineSceneLabel = computed(() => refineSceneOutfit.value?.scene === 'work' ? '默认' : (refineSceneOutfit.value?.sceneLabel || '外观'))
-const refineBasePrompt = computed(() => {
-  const desc = String(refineSceneOutfit.value?.description || '').trim()
-  if (!desc) return fullPrompt.value
-  return composePersona(detail.editPersona, desc, detail.appearanceTail)
 })
 
 function openRefineModal() {
