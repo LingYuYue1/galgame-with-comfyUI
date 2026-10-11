@@ -51,3 +51,4 @@ HyperFrames/
 krea2-posters/
 
 # Isolated M1 UI build (screenshots and verification report remain reviewable)
+agent-core/test/

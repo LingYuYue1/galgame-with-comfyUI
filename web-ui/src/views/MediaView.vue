@@ -642,7 +642,7 @@ import { bustUrlIfOverwritten } from '../utils/imageUrlRefresh.js'
 import { onEvent } from '../stores/unifiedStream.js'
 import { applyMediaImageUpdate, applyMediaPortalReady } from '../utils/mediaImageUpdates.js'
 import { scrollHorizontalOnWheel as scrollChannelTabs } from '../utils/horizontalScroll.js'
-import { chooseMediaCategory } from '../utils/mediaCategoryEntry.js'
+import { chooseMediaCategory, chooseMediaRefreshCategory } from '../utils/mediaCategoryEntry.js'
 import { useMediaStore } from '../stores/media.js'
 import NewspaperFeed from '../components/media/NewspaperFeed.vue'
 import { useNewspaperStore } from '../stores/newspaper.js'
@@ -1323,16 +1323,21 @@ async function reloadAll() {
   await loadPage(0)
 }
 
-// 同路由再次点击导航：保留当前分类/筛选，重载已发布内容并回到顶部。
+// 同路由再次点击导航：优先前往其他有更新的分类，否则保留当前分类/筛选刷新。
 let navRefreshing = false
 watch(() => mediaStore.refreshSignal, async () => {
   if (navRefreshing || disposed) return
   navRefreshing = true
   try {
     if (batchMode.value) exitBatchMode()
-    await Promise.all([reloadAll(), refreshMediaUnread(), loadAuto(), newspaperStore.fetchToday()])
+    // 先取最新未读状态，再决定加载哪个分类，避免先加载当前列表而消费其更新。
+    await Promise.all([reloadOutlets(), refreshMediaUnread(), loadAuto(), newspaperStore.fetchToday()])
     if (disposed) return
+    const category = chooseMediaRefreshCategory(CATEGORIES.map(c => c.key), categoryUnread.value, activeCategory.value)
     newspaperRefreshKey.value++
+    if (category !== activeCategory.value) await onCategoryChange(category)
+    else await loadPage(0)
+    if (disposed) return
     scrollContainer.value?.scrollTo({ top: 0, behavior: 'smooth' })
   } finally {
     navRefreshing = false

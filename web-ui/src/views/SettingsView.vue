@@ -150,24 +150,29 @@
           </Transition>
         </div>
 
-        <div
-          v-if="generatedPrompt && !promptEditing"
-          class="generated-prompt-box editable"
-          title="点击编辑提示词"
-          @click="startPromptEdit"
-        >
+        <Transition name="prompt-reveal">
+          <div v-if="promptRevealed || generatedPrompt">
+            <div
+              v-if="generatedPrompt && !promptEditing"
+              class="generated-prompt-box editable"
+              title="点击编辑提示词"
+              @click="startPromptEdit"
+            >
 {{ generatedPrompt }}
-</div>
-        <linshe-auto-textarea
-          v-else-if="generatedPrompt"
-          ref="promptEditRef"
-          v-model="generatedPrompt"
-          class="generated-prompt-box generated-prompt-editor"
-          placeholder=""
-          @blur="promptEditing = false"
-          @enter="submitOnEnter($event, runGeneratedPromptTest)"
-          @escape="promptEditing = false"
-        />
+            </div>
+            <linshe-auto-textarea
+              v-else
+              ref="promptEditRef"
+              v-model="generatedPrompt"
+              class="generated-prompt-box generated-prompt-editor"
+              placeholder="直接输入或粘贴生图提示词，留空使用默认提示词"
+              @focus="promptEditing = true"
+              @blur="promptEditing = false"
+              @enter="submitOnEnter($event, runGeneratedPromptTest)"
+              @escape="promptEditing = false"
+            />
+          </div>
+        </Transition>
         <div v-if="styleError" class="style-error">{{ styleError }}</div>
 
         <div v-if="styleTesting" class="style-loading">
@@ -2449,8 +2454,15 @@ const styleElapsed = ref(null)  // ms
 const styleTiming = ref(null)  // { comfyui_ms, download_ms, overhead_ms }
 const freeSceneDesc = ref('')  // 自由画面描述（LLM 完善提示词）
 const generatedPrompt = ref('')  // RAG 召回合并后的最终 prompt 展示
+const promptRevealed = ref(false)  // 点击自由描述框后保持提示词区域展开
 const promptEditing = ref(false)  // prompt 展示框的点击编辑态
 const promptEditRef = ref(null)
+
+// 切换参数组后重新使用对应的默认提示词，避免沿用上一组的编辑结果。
+watch(testMode, () => {
+  generatedPrompt.value = ''
+  promptEditing.value = false
+})
 
 function submitOnEnter(event, action) {
   if (event.isComposing || event.keyCode === 229) return
@@ -2474,6 +2486,7 @@ function focusSceneDesc() {
 }
 function onSceneDescFocus() {
   sceneDescFocused.value = true
+  promptRevealed.value = true
 }
 
 // 失焦后组件自动回到单行
@@ -2643,9 +2656,10 @@ async function executeStyleTest({ prompt = '', sceneDesc = '', reuseSceneLoras =
 }
 
 function runStyleTest() {
-  // textarea 有内容且已生成过提示词 → 直接复用（含匹配角色 lora），不再走 LLM
-  if (freeSceneDesc.value.trim() && generatedPrompt.value) {
-    return executeStyleTest({ prompt: generatedPrompt.value, reuseSceneLoras: true })
+  if (styleTesting.value) return
+  // 中间的最终提示词优先；与编辑框回车共用入口，不依赖上方自由描述是否为空。
+  if (generatedPrompt.value.trim()) {
+    return runGeneratedPromptTest()
   }
   generatedPrompt.value = ''
   return executeStyleTest({ prompt: testPrompts.value[testMode.value] || '' })
@@ -2659,7 +2673,7 @@ function runFreeSceneTest() {
   return executeStyleTest({ sceneDesc: desc })
 }
 
-// 最终 prompt 已包含 RAG 合并结果；回车重生成时跳过重复合并
+// 最终 prompt 已包含 RAG 合并结果；按钮或回车重生成时跳过重复合并
 function runGeneratedPromptTest() {
   const prompt = generatedPrompt.value.trim()
   if (!prompt || styleTesting.value) return
@@ -3452,6 +3466,8 @@ function resetTestPrompts() {
 /* 生成提示词按钮：随输入内容渐入渐出 */
 .gen-btn-fade-enter-active, .gen-btn-fade-leave-active { transition: opacity 0.25s ease; }
 .gen-btn-fade-enter-from, .gen-btn-fade-leave-to { opacity: 0; }
+.prompt-reveal-enter-active, .prompt-reveal-leave-active { transition: opacity 0.3s var(--ease-standard); }
+.prompt-reveal-enter-from, .prompt-reveal-leave-to { opacity: 0; }
 .generated-prompt-box {
   padding: 10px 14px; margin-bottom: 12px; border-radius: 12px;
   background: var(--glass-bg-strong); border: 1px solid var(--glass-border);

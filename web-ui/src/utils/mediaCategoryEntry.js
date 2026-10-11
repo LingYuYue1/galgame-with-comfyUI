@@ -35,3 +35,10 @@ export function chooseMediaCategory(categories, unread, random = Math.random) {
   const choices = pending.length ? pending : categories
   return choices[Math.floor(random() * choices.length)]
 }
+
+/** Repeated navigation opens updates elsewhere, or keeps the current view for refresh. */
+export function chooseMediaRefreshCategory(categories, unread, currentCategory, random = Math.random) {
+  const pendingElsewhere = categories.filter(key => key !== currentCategory && unread[key])
+  if (pendingElsewhere.length) return chooseMediaCategory(pendingElsewhere, unread, random)
+  return currentCategory || chooseMediaCategory(categories, unread, random)
+}
