@@ -51,4 +51,7 @@ HyperFrames/
 krea2-posters/
 
 # Isolated M1 UI build (screenshots and verification report remain reviewable)
-agent-core/test/
+agent-core/test/*
+!agent-core/test/dialogueTranscript.test.js
+!agent-core/test/characterBackgrounds.test.js
+!agent-core/test/chatModePrompt.test.js

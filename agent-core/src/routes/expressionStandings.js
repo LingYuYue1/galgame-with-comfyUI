@@ -38,6 +38,10 @@ for (const action of ['upload', 'image', 'crop', 'hires']) {
 }
 router.delete(`${base}/:slot`, (req, res) => { deleteStanding(req.params.id, req.params.slot); res.json({ ok: true }); });
 router.get('/standing-display/state', (_req, res) => res.json(getStandingDisplay().snapshot()));
+router.get('/characters/:id/standing-display', (req, res) => {
+  if (!getDb().prepare('SELECT id FROM characters WHERE id=?').get(req.params.id)) return res.status(404).json({ error: '角色不存在' });
+  res.json(getStandingDisplay().characterSnapshot(req.params.id));
+});
 router.put('/standing-display/active', (req, res) => {
   const { characterId, clientId, sequence } = req.body;
   if (!Number.isInteger(Number(characterId)) || !getDb().prepare('SELECT id FROM characters WHERE id=?').get(characterId)) return res.status(404).json({ error: '角色不存在' });

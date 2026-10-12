@@ -15,6 +15,7 @@ import { recordCompletedImageTask } from '../imageTaskRecorder.js';
 import { broadcast as broadcastToUnified } from '../unifiedStreamBus.js';
 import { config } from '../../config.js';
 import { getTimeTag, getLightNoteWithWeather } from '../timeLight.js';
+import { getWorldIntegrationRule } from '../../builtinRules.js';
 import { createTownActorRegistry } from './townActorRegistry.js';
 import { townNpcPortraitUrl } from './townNpcEventGenerator.js';
 import { MOMENT_FORMS, weightedPick, MOMENT_SINGLE_FOCUS_RULE, MOMENT_TONE_RULES, MOMENT_IMAGE_RULES, buildMomentOutputFormat } from '../momentForms.js';
@@ -176,6 +177,7 @@ ${weatherHint}`;
   const personaMsg = `以下是小镇镇民「${npc.display_name}」的资料，发帖时保持这个人设：\n\n${npcPersonaBlock(npc)}`;
 
   const msgs = [{ role: 'system', content: permissionPrompt }];
+  if (worldSetting) msgs.push({ role: 'system', content: getWorldIntegrationRule('moments') });
   msgs.push({ role: 'system', content: formatPrompt });
   msgs.push({ role: 'system', content: personaMsg });
   msgs.push({ role: 'user', content: `${timeTag}${factsBlock}现在发一条朋友圈。` });

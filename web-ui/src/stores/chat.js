@@ -35,6 +35,10 @@ export const useChatStore = defineStore('chat', () => {
   const showTypingDots = ref(false)   // 打字动画：仅在发送后、首个 token 到达前显示一次
   const memoryRecalling = ref(false)  // Memory v3 阶段二：@memory 主动回想进行中（回想状态条）
   const guesses = ref(null)  // { a: string, b: string } | null — 回复候选词
+  const guessSourceRawId = ref(null)
+  const dialogueRevision = ref(0)
+  const responseComplete = ref(false)
+  const lastSendError = ref('')
   const realtimeAffinity = ref(null)  // { affinity, affinityDelta, lastReason } — SSE affinity_update 推送
   const affinityKey = ref(0)          // 仅 SSE 推送时递增，驱动 roll 动画；初始加载/切角色时不递增
   const sidebarScrollSignal = ref(0)  // 主动消息到达时递增，驱动 Sidebar 滚动到顶部
@@ -186,6 +190,9 @@ export const useChatStore = defineStore('chat', () => {
     messages.value = []
     resetToLatest()
     guesses.value = null  // 切角色时清除候选词
+    guessSourceRawId.value = null
+    responseComplete.value = false
+    lastSendError.value = ''
     realtimeAffinity.value = null  // 切角色时清除实时好感度
     // 标记主动消息已读（DB 持久化），Sidebar 的 onCharClick 也会调，这里兜底
     try {
@@ -312,7 +319,7 @@ export const useChatStore = defineStore('chat', () => {
 
   function findGenMsg(genId) { return messages.value.find(m => m.genId === genId) }
 
-  async function sendMessage(content, imageMode = 'smart', deepThink = false, { townContext } = {}) {
+  async function sendMessage(content, imageMode = 'smart', deepThink = false, { townContext, galgameMode = false } = {}) {
     if (streaming.value || !content.trim()) return
     const charId = activeCharId.value
     if (!charId) return
@@ -322,6 +329,9 @@ export const useChatStore = defineStore('chat', () => {
     activeStream = { charId, id: sessionId, abort: () => abort() }
 
     guesses.value = null  // 用户主动发送 → 清除候选词
+    guessSourceRawId.value = null
+    responseComplete.value = false
+    lastSendError.value = ''
     const now = new Date().toISOString()
     // 幂等键：防止重试导致服务端写入重复用户消息
     const clientMsgId = Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8)
@@ -358,6 +368,7 @@ export const useChatStore = defineStore('chat', () => {
       }
       console.warn('[chat] streaming safety timeout — force reset')
       safetyFired = true
+      lastSendError.value = '等待回应超时，请稍后重试'
       abort()
       streaming.value = false
       streamingContent.value = ''
@@ -478,7 +489,7 @@ export const useChatStore = defineStore('chat', () => {
         pendingTextTimers.clear()
       }
 
-      const { stream, abort: streamAbort } = api.chatStream(charId, content, clientMsgId, imageMode, deepThink, townContext)
+      const { stream, abort: streamAbort } = api.chatStream(charId, content, clientMsgId, imageMode, deepThink, townContext, galgameMode)
       abort = streamAbort
       const reader = stream.getReader()
 
@@ -490,6 +501,9 @@ export const useChatStore = defineStore('chat', () => {
           if (value?.type === 'event') lastEvent = value.event
           if (value?.type === 'data') {
             const d = value.data
+            if (lastEvent === 'response_end') responseComplete.value = true
+            if (lastEvent === 'dialogue_saved') { responseComplete.value = true; lastSendError.value = ''; dialogueRevision.value++ }
+            if (lastEvent === 'error') lastSendError.value = d.message || '回应失败，请稍后重试'
              //  token（只有 token 事件才写入回复气泡，避免 msg_saved 等带 content 的事件串入）
              if (lastEvent === 'token' && (d.content || (Array.isArray(d.images) && d.images.length))) {
                if (showTypingDots.value) showTypingDots.value = false
@@ -612,6 +626,7 @@ export const useChatStore = defineStore('chat', () => {
             if (lastEvent === 'generate_done') {
               const gm = findGenMsg(d.taskId)
               if (gm && d.images) { gm.images = d.images; gm.genStatus = 'done' }
+              dialogueRevision.value++
             }
             if (lastEvent === 'generate_retrying') {
               const gm = findGenMsg(d.taskId)
@@ -624,6 +639,7 @@ export const useChatStore = defineStore('chat', () => {
             // ── guesses: 回复候选词 ──
             if (lastEvent === 'guesses' && d.a && d.b) {
               guesses.value = { a: d.a, b: d.b }
+              guessSourceRawId.value = d.source_raw_id || null
             }
             // ── queued: 日程系统延迟回复 ──
             if (lastEvent === 'queued') {
@@ -697,6 +713,7 @@ export const useChatStore = defineStore('chat', () => {
           continue
         }
         // 重试耗尽
+        if (!sawImageGen) lastSendError.value ||= '没有收到完整回应，请稍后重试'
         for (const bid of bubbleIds) {
           let m = messages.value.find(x => x.id === bid)
           if (!m) continue  // 延迟创建未触发，无需填充
@@ -719,6 +736,7 @@ export const useChatStore = defineStore('chat', () => {
 
         // 有完整气泡或服务端已保存 → 不重试，接受已有内容
         if (thisAttemptHadBubble || thisAttemptHadMsgSaved) {
+          lastSendError.value = '连接中断，已保留收到的内容'
           console.warn('[chat] stream interrupted but content already committed, keeping partial content')
           break
         }
@@ -736,6 +754,7 @@ export const useChatStore = defineStore('chat', () => {
         }
 
         // 重试已耗尽，显示错误
+        lastSendError.value = err.message || '连接断开，请重试'
         for (const bid of bubbleIds) {
           let m = messages.value.find(x => x.id === bid)
           if (!m) {
@@ -910,6 +929,6 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  return { characters, activeCharId, messages, queuedReplies, visibleMessages, streaming, streamingContent, showTypingDots, memoryRecalling, hasMoreOlder, guesses, realtimeAffinity, affinityKey, activeChar, sidebarScrollSignal,
+  return { characters, activeCharId, messages, queuedReplies, visibleMessages, streaming, streamingContent, showTypingDots, memoryRecalling, hasMoreOlder, guesses, guessSourceRawId, dialogueRevision, responseComplete, lastSendError, realtimeAffinity, affinityKey, activeChar, sidebarScrollSignal,
     loadCharacters, loadMessages, expandWindow, selectChar, updateActiveCharacter, clearActiveMessages, undoLastRound, generateCharacter, uploadAvatar, getRecentChatImages, deleteActiveCharacter, sendMessage, handleProactiveMessage, handleDelayedReply, bumpImageUrls }
 })

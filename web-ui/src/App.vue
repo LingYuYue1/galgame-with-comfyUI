@@ -5,7 +5,7 @@
     <span class="banner-text">尚未配置 API Key，请前往设置页面填写 DeepSeek（或其他兼容）API Key</span>
     <router-link to="/settings" class="banner-link">前往设置 →</router-link>
   </div>
-  <div class="app-layout" :class="{ 'is-mobile': isMobile, 'sidebar-collapsed': !isMobile && sidebarCollapsed }">
+  <div class="app-layout" :class="{ 'is-mobile': isMobile, 'sidebar-collapsed': !isMobile && sidebarCollapsed, 'immersive-chat': route.path.startsWith('/chat') && route.query.mode === 'galgame' }">
     <!-- 移动端遮罩层：Sidebar 拉出时覆盖聊天区域 -->
     <Transition name="scrim-fade">
       <div v-if="isMobile && mobileSidebarOpen" class="mobile-scrim" @click="closeMobileSidebar"></div>
@@ -396,6 +396,10 @@ onUnmounted(() => {
 /* 折叠后箭头翻向另一边，提示可以再点开 */
 .app-layout.sidebar-collapsed .sidebar-handle svg { transform: rotate(180deg); }
 .page-host { position: relative; flex: 1; min-width: 0; }
+.app-layout.immersive-chat > .nav-bar,
+.app-layout.immersive-chat > .sidebar-viewport,
+.app-layout.immersive-chat > .mobile-scrim { display: none; }
+.app-layout.immersive-chat > .page-host { margin-left: 0; padding-bottom: 0; }
 .page-modal-host { position: absolute; inset: 0; pointer-events: none; }
 .page-modal-host .modal-overlay { pointer-events: auto; }
 #app { position: relative; z-index: 1; }

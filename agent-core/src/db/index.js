@@ -2708,12 +2708,16 @@ function migrateHandwritingFont(db) {
 /**
  * 迁移: 角色聊天背景 — characters 表新增 chat_bg_path 列
  */
-function migrateChatBgSchema(db) {
+export function migrateChatBgSchema(db) {
   try {
     const cols = db.prepare(`PRAGMA table_info(characters)`).all();
     if (!cols.find(c => c.name === 'chat_bg_path')) {
       db.exec(`ALTER TABLE characters ADD COLUMN chat_bg_path TEXT`);
       console.log('[db] Added characters.chat_bg_path column');
+    }
+    if (!cols.find(c => c.name === 'galgame_bg_path')) {
+      db.exec('ALTER TABLE characters ADD COLUMN galgame_bg_path TEXT');
+      console.log('[db] Added characters.galgame_bg_path column');
     }
   } catch (err) {
     console.log('[db] migrateChatBgSchema error:', err.message);

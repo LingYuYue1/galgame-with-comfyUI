@@ -1,5 +1,5 @@
 <template>
-  <linshe-modal v-model="show" title="表情包管理" full panel-class="emoji-manager-modal" body-class="emoji-manager-body" @close="close">
+  <linshe-modal v-model="show" :transition-ms="300" title="表情包管理" full panel-class="emoji-manager-modal" body-class="emoji-manager-body" @close="close">
 
           <div class="emoji-body">
             <!-- 生成 prompt 时的全局扫描遮罩 -->
@@ -466,7 +466,7 @@ function close() {
   batchPaused.value = false
   batchCompleted.value = 0
   stopPolling()
-  setTimeout(() => emit('close'), 180)
+  setTimeout(() => emit('close'), 300)
 }
 
 function charName(id) {
