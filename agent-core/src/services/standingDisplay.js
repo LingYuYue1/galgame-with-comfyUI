@@ -3,12 +3,13 @@ import { getDb } from '../db/index.js';
 import { broadcast } from './unifiedStreamBus.js';
 import { createStandingDisplay } from './standingDisplayState.js';
 import { imageUrlExists } from './imagePaths.js';
+import { withCharacterStandingStates } from './characterStandingDisplay.js';
 
 let display;
 export function getStandingDisplay() {
   if (display) return display;
   const db = getDb();
-  display = createStandingDisplay({
+  const options = {
     epoch: randomUUID(),
     initialCharacter: db.prepare('SELECT character_id FROM standing_display_selection WHERE id=1').get()?.character_id || null,
     persist: id => db.prepare('INSERT INTO standing_display_selection(id,character_id) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET character_id=excluded.character_id').run(id),
@@ -20,6 +21,11 @@ export function getStandingDisplay() {
       const available = new Set(db.prepare('SELECT slot_id,image_url FROM character_expression_standings WHERE character_id=? AND image_url IS NOT NULL').all(id).filter(r => imageUrlExists(r.image_url)).map(r => r.slot_id));
       return { missingCount: slots.filter(key => !available.has(key)).length };
     },
+  };
+  display = withCharacterStandingStates(createStandingDisplay(options), {
+    epoch: options.epoch,
+    resolveImage: options.resolveImage,
+    emit: state => broadcast('character_standing_state', state),
   });
   return display;
 }

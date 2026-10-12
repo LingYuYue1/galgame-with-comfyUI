@@ -73,6 +73,8 @@ export async function listCharacters() {
 export async function getMessages(characterId) {
   return request(`/characters/${characterId}/messages`)
 }
+export const getDialogueTranscript = (id, cursor = {}) => request(`/characters/${id}/dialogue?${new URLSearchParams(cursor)}`)
+export const getCharacterStandingState = id => request(`/characters/${id}/standing-display`)
 
 export async function updateCharacter(id, data) {
   return request(`/characters/${id}`, { method: 'PUT', body: data })
@@ -304,8 +306,12 @@ export function generateAvatar(characterId) {
 }
 
 /** 上传/清除角色聊天背景（base64，空串 = 恢复默认） */
-export async function uploadChatBg(characterId, base64) {
-  return request(`/characters/${characterId}/chat-bg`, { method: 'POST', body: { base64 } })
+export async function uploadChatBg(characterId, base64, target = 'chat') {
+  return request(`/characters/${characterId}/chat-bg`, { method: 'POST', body: { base64, target } })
+}
+
+export function generateChatBg(characterId, requirement = '', target = 'galgame', previewOnly = false) {
+  return request(`/characters/${characterId}/generate-chat-bg`, { method: 'POST', body: { requirement, target, previewOnly } })
 }
 
 /** 生成角色立绘（requirement 为额外立绘需求，可空） */
@@ -407,7 +413,7 @@ export async function deleteUserRelationship(id) {
   return request(`/user-relationships/${id}`, { method: 'DELETE' })
 }
 
-export function chatStream(characterId, message, clientMsgId, imageMode = 'smart', deepThink = false, townContext) {
+export function chatStream(characterId, message, clientMsgId, imageMode = 'smart', deepThink = false, townContext, galgameMode = false) {
   const controller = new AbortController()
   const stream = new ReadableStream({
     async start(outerController) {
@@ -428,7 +434,7 @@ export function chatStream(characterId, message, clientMsgId, imageMode = 'smart
 
           res = await fetch(`${BASE}/characters/${characterId}/chat`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message, client_msg_id: clientMsgId, image_mode: imageMode, force_image_gen: imageMode === 'force', deep_think: !!deepThink, ...(townContext === undefined ? {} : { townContext }) }),
+            body: JSON.stringify({ message, client_msg_id: clientMsgId, image_mode: imageMode, force_image_gen: imageMode === 'force', deep_think: !!deepThink, ...(galgameMode === true ? { galgame_mode: true } : {}), ...(townContext === undefined ? {} : { townContext }) }),
             signal: attemptCtrl.signal,
           })
           if (res.ok) break  // 成功

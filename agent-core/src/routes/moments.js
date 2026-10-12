@@ -15,6 +15,7 @@ import { getCurrentActivity } from '../services/scheduleManager.js';
 import { triggerFriendComments } from '../services/momentInteractionService.js';
 import { publishUserMoment } from '../services/momentUserPostService.js';
 import { handleUserComment } from '../services/momentCommentService.js';
+import { getWorldIntegrationRule } from '../builtinRules.js';
 import { DEFAULT_MOMENT_IMAGE_PROMPT, parseMomentResponse, sanitizeMomentContent } from '../services/momentResponseParser.js';
 import { MOMENT_FORMS, weightedPick, pickMomentImageCount, MOMENT_SINGLE_FOCUS_RULE, MOMENT_TONE_RULES, MOMENT_IMAGE_RULES, buildMomentOutputFormat, buildMomentMotiveDirective, buildMomentScheduleContext, buildMomentMultiImageRule, MOMENT_RECORD_BACKDROP_RULE } from '../services/momentForms.js';
 
@@ -892,8 +893,9 @@ ${dynamicRules}`;
     ? `${timeTag}${scheduleContext}${styleDirective} ${multiPersons.map(p => p.relDesc).join('，')}——和${multiPersons.map(p => p.otherName).join('、')}在一起。同行者只作为同一场景里的互动对象，不要另写人物介绍或关系感想。发一条朋友圈。`
     : `${timeTag}${scheduleContext}${styleDirective} 发一条朋友圈。`;
 
-  // msgs[0] 舞台（含基础世界观）→ msgs[1] 任务 → msgs[2] 角色 → msgs[3] 交互(多人) → user
+  // 舞台（含基础世界观）→ 世界观强化（有世界观时）→ 任务 → 角色 → 交互(多人) → user
   const msgs = [{ role: 'system', content: permissionPrompt }];
+  if (worldSetting) msgs.push({ role: 'system', content: getWorldIntegrationRule('moments') });
   msgs.push({ role: 'system', content: postingTask });
   // 整卡人格（统一入口，含生效外观注入；输出含 imagePrompt，配图需体现当前外观）
   msgs.push({ role: 'system', content: buildCharacterPersona(character, { variant: 'full' }) });
@@ -1129,6 +1131,7 @@ ${weatherHint}`;
 **【本次发朋友圈动因】这是你与${userName}约好的事情——就是上面【此刻正在做】的内容，只围绕它发一条朋友圈。**`;
 
   const msgs = [{ role: 'system', content: permissionPrompt }];
+  if (worldSetting) msgs.push({ role: 'system', content: getWorldIntegrationRule('moments') });
   msgs.push({ role: 'system', content: postingTask });
   msgs.push({ role: 'system', content: buildCharacterPersona(character, { variant: 'full' }) });
   // 约定对象「我」的外观设定：画面必须带上这个人

@@ -1,7 +1,7 @@
 <template>
   <div
     class="vn-choice"
-    :class="{ 'is-primary': primary, 'is-active': active && !primary, 'is-disabled': disabled, 'is-busy': busy }"
+    :class="{ 'is-primary': primary, 'is-active': active && !primary, 'is-disabled': disabled, 'is-busy': busy, 'vn-choice--dialogue': variant === 'dialogue' }"
     role="button"
     :tabindex="disabled || busy ? -1 : 0"
     :aria-disabled="disabled || busy || undefined"
@@ -11,13 +11,17 @@
     @keydown.enter.prevent="select"
     @keydown.space.prevent="select"
   >
+    <GalgameMenuFrame v-if="variant === 'dialogue'" />
     <span class="vn-choice__label"><slot /></span>
     <span v-if="hint" class="vn-choice__hint">{{ hint }}</span>
   </div>
 </template>
 
 <script setup>
+import GalgameMenuFrame from '../chat/GalgameMenuFrame.vue'
+
 const props = defineProps({
+  variant: { type: String, default: 'default' },
   /** 主选项（实心主题糖），一屏最多一个 */
   primary: { type: Boolean, default: false },
   /** 选中态（选项列表里当前选定的一项，与 primary 互斥使用） */
@@ -111,4 +115,27 @@ function select() {
   box-shadow: 0 2px 0 #d8c1a1;
 }
 .vn-choice.is-busy { cursor: progress; opacity: .75; }
+.vn-choice.vn-choice--dialogue {
+  --gal-menu-skew: -5deg;
+  isolation: isolate;
+  border: 0;
+  border-radius: 2px;
+  background: none;
+  color: var(--dialogue-menu-text);
+  box-shadow: none;
+  text-shadow: none;
+  min-height: 46px;
+  padding: 12px 22px 12px 35px;
+  font-weight: 800;
+  line-height: 1.5;
+  transition: color var(--dur-interaction) var(--ease-standard), transform var(--dur-interaction) var(--ease-standard), opacity var(--dur-interaction) var(--ease-standard);
+}
+.vn-choice.vn-choice--dialogue::before { content: '›'; left: 16px; font-size: 22px; font-weight: 800; color: inherit; transition-duration: var(--dur-interaction); }
+.vn-choice--dialogue:hover:not(.is-disabled), .vn-choice--dialogue:focus-visible:not(.is-disabled) { filter: none; box-shadow: none; transform: translateY(-2px); }
+.vn-choice--dialogue:active:not(.is-disabled) { box-shadow: none; transform: translateY(1px); }
+.vn-choice--dialogue.is-active, .vn-choice--dialogue.is-primary { --gal-menu-outline: var(--dialogue-menu-outline); }
+.vn-choice--dialogue:is(:hover, :focus-visible):not(.is-disabled):not(.is-busy) { --dialogue-menu-text: var(--dialogue-menu-hover); --gal-menu-outline: var(--dialogue-menu-hover); }
+.vn-choice--dialogue.is-busy { transform: none; }
+.vn-choice--dialogue:focus-visible { outline: 2px solid var(--dialogue-menu-text); outline-offset: 3px; }
+.vn-choice--dialogue .vn-choice__hint, .vn-choice--dialogue.is-primary .vn-choice__hint { color: var(--dialogue-menu-text); }
 </style>
