@@ -56,3 +56,6 @@ agent-core/test/*
 !agent-core/test/characterBackgrounds.test.js
 !agent-core/test/chatModePrompt.test.js
 !agent-core/test/mediaFavorites.test.js
+!agent-core/test/expressionStandingAppearance.test.js
+!agent-core/test/expressionStandingOutfitBatch.test.js
+!agent-core/test/expressionStandingOutfitPreflight.test.js

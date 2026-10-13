@@ -5,7 +5,7 @@ import sharp from 'sharp';
 import { getDb, getSystemRules, getSystemRulesWithWorld, getWorldSetting } from '../db/index.js';
 import { config } from '../config.js';
 import { chatSync } from '../llm/llm-client.js';
-import { buildCharacterPersona } from './characterPersona.js';
+import { buildStandingPersona, normalizeStandingOutfitScene, hasStandingOutfit, inspectStandingOutfits, validateMissingOutfitPolicy, completeStandingOutfit } from './expressionStandingAppearance.js';
 import { buildStandingPromptMessages } from './expressionStandingPrompt.js';
 import { charArtistOverride } from './characterImageOpts.js';
 import { parseCharacterLoras } from './emojiService.js';
@@ -83,8 +83,22 @@ export function listStandingOverview() {
   });
 }
 
-export function startAllStandingBatches({ mode, requirement = '' } = {}, dependencies) {
+export function previewStandingBatches({ mode, outfitScene = 'work' } = {}) {
   if (!['all', 'missing'].includes(mode)) throw fail('请选择全部重新生成或补齐缺失立绘');
+  const targets = listStandingOverview().filter(row => !row.busy && (mode === 'all' || row.missingSlotIds.length));
+  return inspectStandingOutfits(targets.map(row => character(row.id)), outfitScene);
+}
+
+export function previewCharacterStandingBatch(id, { outfitScene = 'work', reusePrompts = false } = {}) {
+  const char = character(id);
+  return inspectStandingOutfits(reusePrompts || busyCharacters.has(Number(id)) ? [] : [char], outfitScene);
+}
+
+export function startAllStandingBatches({ mode, requirement = '', outfitScene = 'work', missingOutfitPolicy } = {}, dependencies) {
+  const preview = previewStandingBatches({ mode, outfitScene });
+  validateMissingOutfitPolicy(missingOutfitPolicy);
+  if (preview.missingCharacters.length && !missingOutfitPolicy) throw fail('部分角色缺少所选服装，请重新点击生成并确认补全或使用默认外观', 409);
+  normalizeStandingOutfitScene(outfitScene);
   const result = { started: [], skippedBusy: [], skippedComplete: [], failed: [] };
   for (const row of listStandingOverview()) {
     if (row.busy) { result.skippedBusy.push(row.id); continue; }
@@ -92,7 +106,7 @@ export function startAllStandingBatches({ mode, requirement = '' } = {}, depende
     try {
       const task = startStandingBatch(row.id, {
         ...(mode === 'missing' ? { slotIds: row.missingSlotIds } : {}),
-        requirement, reusePrompts: false,
+        requirement, outfitScene, missingOutfitPolicy, reusePrompts: false,
       }, dependencies);
       result.started.push({ characterId: row.id, ...task });
     } catch (error) { result.failed.push({ characterId: row.id, error: error.message }); }
@@ -100,10 +114,11 @@ export function startAllStandingBatches({ mode, requirement = '' } = {}, depende
   return result;
 }
 
-export async function generateStandingPrompts(char, slots, requirement, persona = buildCharacterPersona(char, { variant: 'short', person: char.display_name })) {
+export async function generateStandingPrompts(char, slots, requirement, persona, outfitScene = 'work') {
   const messages = buildStandingPromptMessages({
     systemRules: getWorldSetting() ? getSystemRulesWithWorld({ roleplay: false }) : getSystemRules({ roleplay: false }),
-    slots, persona, requirement,
+    worldRule: getWorldSetting() ? getWorldIntegrationRule('interaction') : '',
+    slots, persona: persona ?? buildStandingPersona(char, outfitScene), requirement, outfitScene,
   });
   const raw = await chatSync(messages, { temperature: 0.7, max_tokens: Math.min(8192, Math.max(2048, slots.length * 512 + 512)), response_format: { type: 'json_object' }, label: '批量立绘提示词' });
   return parseStandingPrompts(raw, slots);
@@ -169,9 +184,14 @@ export function regenerateStandingTouchLines(id, expectedVersion) {
   return readTouchLines(db,char.id);
 }
 
-export function startStandingBatch(id, { slotIds, requirement = '', reusePrompts = false } = {}, { promptGenerator = generateStandingPrompts, imageGenerator = generateImageRaw, touchLinesGenerator = generateStandingTouchLines } = {}) {
+export function startStandingBatch(id, { slotIds, requirement = '', outfitScene = 'work', missingOutfitPolicy, reusePrompts = false } = {}, { promptGenerator = generateStandingPrompts, imageGenerator = generateImageRaw, touchLinesGenerator = generateStandingTouchLines, outfitGenerator, personaSnapshot } = {}) {
+  normalizeStandingOutfitScene(outfitScene);
+  validateMissingOutfitPolicy(missingOutfitPolicy);
   id = Number(id); assertIdle(id);
   const char = character(id);
+  const missingOutfit = !reusePrompts && personaSnapshot == null && !hasStandingOutfit(id, outfitScene);
+  if (missingOutfit && !missingOutfitPolicy) throw fail('角色缺少所选服装，请重新点击生成并确认补全或使用默认外观', 409);
+  if (missingOutfit && missingOutfitPolicy === 'fallback') outfitScene = 'work';
   const all = standingSlots();
   const selected = slotIds === undefined ? all.map(s => s.id) : slotIds;
   if (!Array.isArray(selected) || !selected.length || selected.some(s => !all.some(a => a.id === s))) throw fail('请选择有效立绘槽位');
@@ -180,10 +200,11 @@ export function startStandingBatch(id, { slotIds, requirement = '', reusePrompts
   if (reusePrompts && rows.some(r => !r.prompt.trim())) throw fail('请先生成或保存提示词');
   requirement = String(requirement).trim().slice(0, 2000);
   const generation = snapshotConfig(char);
-  const persona = buildCharacterPersona(char, { variant: 'short', person: char.display_name });
+  let persona = personaSnapshot ?? (missingOutfit && missingOutfitPolicy === 'generate' ? null : buildStandingPersona(char, outfitScene));
   const db = getDb();
   const jobId = randomUUID();
-  db.prepare(`INSERT INTO expression_standing_jobs(id,character_id,slots_json,status,request_json) VALUES(?,?,?,'queued',?)`).run(jobId, id, JSON.stringify(slots.map(s => s.id)), JSON.stringify({ requirement, promptsReady: reusePrompts }));
+  const requestSnapshot = promptsReady => JSON.stringify({ requirement, outfitScene, missingOutfitPolicy, persona, promptsReady });
+  db.prepare(`INSERT INTO expression_standing_jobs(id,character_id,slots_json,status,request_json) VALUES(?,?,?,'queued',?)`).run(jobId, id, JSON.stringify(slots.map(s => s.id)), requestSnapshot(reusePrompts));
   busyCharacters.add(id);
   const control = { jobId, pauseRequested: false, paused: false, cursor: 0, failures: 0, prompts: null, run: null };
   batchControls.set(id, control);
@@ -191,11 +212,22 @@ export function startStandingBatch(id, { slotIds, requirement = '', reusePrompts
   const run = async () => {
     try {
       if (control.pauseRequested) throw PAUSED;
+      if (persona === null) {
+        db.prepare("UPDATE expression_standing_jobs SET status='outfits' WHERE id=?").run(jobId);
+        notify(id);
+        try {
+          await completeStandingOutfit(char, outfitScene, outfitGenerator);
+          character(id); // A character deleted during design must not be regenerated.
+          persona = buildStandingPersona(char, outfitScene);
+          db.prepare('UPDATE expression_standing_jobs SET request_json=? WHERE id=?').run(requestSnapshot(false), jobId);
+        } catch (error) { throw new Error(`自动补全服装失败：${error.message}`); }
+        if (control.pauseRequested) throw PAUSED;
+      }
       db.prepare('UPDATE expression_standing_jobs SET status=? WHERE id=?').run(control.prompts || reusePrompts ? 'generating' : 'prompts', jobId);
       notify(id);
       await runStandingBatch({
         slots: slots.slice(control.cursor),
-        generatePrompts: () => control.prompts || (reusePrompts ? new Map(rows.map(r => [r.slot_id, r.prompt])) : promptGenerator(char, slots, requirement, persona)),
+        generatePrompts: () => control.prompts || (reusePrompts ? new Map(rows.map(r => [r.slot_id, r.prompt])) : promptGenerator(char, slots, requirement, persona, outfitScene)),
         savePrompts: prompts => {
           if (control.prompts) return;
           db.transaction(() => {
@@ -203,7 +235,7 @@ export function startStandingBatch(id, { slotIds, requirement = '', reusePrompts
               const old = rows.find(r => r.slot_id === slot.id);
               db.prepare(`UPDATE character_expression_standings SET prompt=?,requirement=?,config_json=?,status='queued',error=NULL WHERE character_id=? AND slot_id=?`).run(prompts.get(slot.id), reusePrompts ? old.requirement : requirement, reusePrompts && old.config_json !== '{}' ? old.config_json : JSON.stringify(generation), id, slot.id);
             }
-            db.prepare(`UPDATE expression_standing_jobs SET status='generating',request_json=? WHERE id=?`).run(JSON.stringify({ requirement, promptsReady: true }), jobId);
+            db.prepare(`UPDATE expression_standing_jobs SET status='generating',request_json=? WHERE id=?`).run(requestSnapshot(true), jobId);
           })();
           control.prompts = prompts;
           notify(id);
@@ -274,7 +306,7 @@ export function controlStandingBatch(id, jobId, action, dependencies) {
       db.prepare("UPDATE expression_standing_jobs SET status='done',error=NULL WHERE id=?").run(jobId);
       notify(id); return { ok: true, jobId };
     }
-    const result = startStandingBatch(id, { slotIds: remaining, requirement: request.requirement ?? allRows[0]?.requirement ?? '', reusePrompts: ready }, dependencies);
+    const result = startStandingBatch(id, { slotIds: remaining, requirement: request.requirement ?? allRows[0]?.requirement ?? '', outfitScene: request.outfitScene ?? 'work', missingOutfitPolicy: request.missingOutfitPolicy, reusePrompts: ready }, { ...dependencies, personaSnapshot: request.persona });
     db.prepare("UPDATE expression_standing_jobs SET status='resumed',error=NULL WHERE id=?").run(jobId);
     return { ok: true, ...result };
   }
