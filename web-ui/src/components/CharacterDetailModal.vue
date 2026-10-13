@@ -1452,10 +1452,16 @@ function syncPromptFromScene() {
   standingPrompt.value = String(currentStandingScene.value?.prompt_text || '')
 }
 
-function shiftStandingScene(step) {
+function shiftStandingScene(step, existingOnly = false) {
   const n = standingScenes.value.length
   if (n <= 1) return
-  standingSceneIdx.value = (standingSceneIdx.value + step + n) % n
+  let nextIndex = standingSceneIdx.value
+  for (let i = 0; i < n; i++) {
+    nextIndex = (nextIndex + step + n) % n
+    if (!existingOnly || standingScenes.value[nextIndex]?.image_url) break
+  }
+  if (nextIndex === standingSceneIdx.value) return
+  standingSceneIdx.value = nextIndex
   standingLightboxVisible.value = false
   syncPromptFromScene()
 }
@@ -1570,6 +1576,7 @@ async function uploadSceneStandingFile(file) {
 // 面板只负责渲染。reactive 里的 ref 会自动解包，面板侧可以当普通值读写。
 const standingPanel = reactive({
   funcOpen: standingFuncOpen,
+  autoplayEnabled: computed(() => props.visible && !standingLightboxVisible.value),
   requirement: standingRequirement,
   hasPrompt: standingHasPrompt,
   generating: sceneGenerating,
@@ -1597,6 +1604,7 @@ const standingPanel = reactive({
   uploadFile: uploadSceneStandingFile,
   prevScene: prevStandingScene,
   nextScene: nextStandingScene,
+  nextExistingScene: () => shiftStandingScene(1, true),
 })
 
 </script>

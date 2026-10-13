@@ -70,6 +70,7 @@
 import { ref, onMounted, onUnmounted, provide, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { createMobileSidebarBackHandler } from './utils/mobileSidebarBack.js'
+import { observePageZoomHint } from './utils/pageZoomHint.js'
 import { useChatStore } from './stores/chat.js'
 import { useSettingsStore } from './stores/settings.js'
 import { useProactiveStore } from './stores/notifications.js'
@@ -102,6 +103,13 @@ const toastEl = ref(null)
 const guideDialog = ref(null)
 const changelogDialog = ref(null)
 const themeAutoTimer = ref(null)
+let stopPageZoomHint
+
+// 独立于数据加载，首屏及窗口缩放稳定后检查；复用全局暖纸 Toast。
+onMounted(() => {
+  stopPageZoomHint = observePageZoomHint(window, toast)
+})
+onUnmounted(() => stopPageZoomHint?.())
 
 // ── 手机端访问 Toast（启动器打开时通过 ?mobile_ip= 传入）──
 const mobileToast = ref({ visible: false, url: '' })
