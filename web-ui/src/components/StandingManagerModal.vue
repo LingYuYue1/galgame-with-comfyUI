@@ -1,11 +1,7 @@
 <template>
-  <linshe-modal :model-value="open && !detailOpen" title="立绘管理" full :transition-ms="300" @close="$emit('close')">
+  <linshe-modal :model-value="open && !detailOpen && !outfitConfirmation.open" title="立绘管理" full :transition-ms="300" @close="$emit('close')">
     <div class="standing-manager">
-      <div class="standing-direction">
-        <label for="standing-batch-direction">生成方向</label>
-        <linshe-input id="standing-batch-direction" v-model="requirement" :maxlength="2000" :disabled="!!submitting" placeholder="例如统一穿冬装、动作更含蓄、保持相同服装…（可选）" />
-        <p>填写后，本次批量生成的所有角色都会使用这个方向；留空则按各自人设生成。</p>
-      </div>
+      <StandingGenerationDirection v-model="requirement" v-model:outfit-scene="outfitScene" input-id="standing-batch-direction" :disabled="!!submitting" batch />
       <div class="standing-actions">
         <linshe-button variant="primary" :disabled="!canRegenerate" :loading="submitting === 'all'" @click="generate('all')">全部重新生成</linshe-button>
         <linshe-button :disabled="!canFill" :loading="submitting === 'missing'" @click="generate('missing')">补齐缺失立绘</linshe-button>
@@ -53,22 +49,27 @@
       </div>
     </div>
   </linshe-modal>
-  <ExpressionStandingManager :open="open && detailOpen" :character="selectedCharacter" @close="closeDetail" />
+  <ExpressionStandingManager :open="open && detailOpen" :character="selectedCharacter" :initial-outfit-scene="outfitScene" @close="closeDetail" />
+  <StandingOutfitConfirmation :state="outfitConfirmation" @choose="chooseOutfitPolicy" />
 </template>
 
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import LinsheModal from './ui/LinsheModal.vue'
 import LinsheButton from './ui/LinsheButton.vue'
-import LinsheInput from './ui/LinsheInput.vue'
+import StandingGenerationDirection from './standing/StandingGenerationDirection.vue'
+import StandingOutfitConfirmation from './standing/StandingOutfitConfirmation.vue'
+import { useStandingOutfitConfirmation } from '../composables/useStandingOutfitConfirmation.js'
 import ExpressionStandingManager from './ExpressionStandingManager.vue'
-import { getStandingOverview, generateAllExpressionStandings, fillAllStandingTouchLines } from '../api/index.js'
+import { getStandingOverview, generateAllExpressionStandings, fillAllStandingTouchLines, preflightAllExpressionStandings } from '../api/index.js'
 import { onEvent } from '../stores/unifiedStream.js'
 import { standingTaskActivity, standingTaskEndMessage } from '../utils/standingTaskStatus.js'
 
 const props = defineProps({ open: Boolean, characters: { type: Array, default: () => [] } })
 defineEmits(['close'])
+const { outfitConfirmation, confirmStandingOutfits, chooseOutfitPolicy } = useStandingOutfitConfirmation()
 const requirement = ref(''), submitting = ref(''), error = ref(''), message = ref('')
+const outfitScene = ref('work')
 const overview = ref({}), loading = ref(false), loaded = ref(false)
 const selectedCharacter = ref(null), detailOpen = ref(false)
 const rows = computed(() => props.characters.map(c => overview.value[c.id]).filter(Boolean))
@@ -109,6 +110,7 @@ async function refresh() {
   }
 }
 watch(() => props.open, open => {
+  chooseOutfitPolicy()
   clearInterval(timer)
   clearTimeout(eventTimer)
   requestSeq++
@@ -128,13 +130,13 @@ const unsubscribe = onEvent('expression_standings_updated', () => {
 })
 onBeforeUnmount(() => { requestSeq++; clearInterval(timer); clearTimeout(eventTimer); clearTimeout(messageTimer); unsubscribe() })
 
-function openDetail(character) { selectedCharacter.value = character; detailOpen.value = true }
+function openDetail(character) { if (submitting.value) return; selectedCharacter.value = character; detailOpen.value = true }
 function closeDetail() { detailOpen.value = false; refresh() }
 function isFull(row) { return !!row && row.total > 0 && row.count >= row.total }
 function completion(row) { return row?.total > 0 ? Math.max(0, Math.min(1, row.count / row.total)) : 0 }
 function statusText(row) {
   if (!row) return ''
-  if (row.busy) return ({ queued: '排队中', prompts: '生成提示词中', generating: '立绘生成中', stopping: '正在停止', paused: '已暂停' })[row.jobStatus] || '任务进行中'
+  if (row.busy) return ({ queued: '排队中', outfits: '补全服装中', prompts: '生成提示词中', generating: '立绘生成中', stopping: '正在停止', paused: '已暂停' })[row.jobStatus] || '任务进行中'
   if (['failed', 'partial_failed'].includes(row.jobStatus)) return '生成失败'
   return ''
 }
@@ -143,7 +145,10 @@ async function generate(mode) {
   submitting.value = mode
   error.value = ''; message.value = ''
   try {
-    const result = await generateAllExpressionStandings({ mode, requirement: requirement.value.trim() })
+    const body = { mode, requirement: requirement.value.trim(), outfitScene: outfitScene.value }
+    const missingOutfitPolicy = await confirmStandingOutfits(() => preflightAllExpressionStandings(body))
+    if (missingOutfitPolicy === null) return
+    const result = await generateAllExpressionStandings({ ...body, missingOutfitPolicy })
     const parts = [result.started.length ? `已提交 ${result.started.length} 位角色的${mode === 'all' ? '重新生成' : '补齐'}任务` : '没有需要提交的新任务']
     if (result.skippedBusy.length) parts.push(`${result.skippedBusy.length} 位已有任务，已跳过`)
     if (result.skippedComplete.length) parts.push(`${result.skippedComplete.length} 位立绘已齐全`)
@@ -160,9 +165,7 @@ async function generate(mode) {
 
 <style scoped>
 .standing-manager { display: flex; flex-direction: column; gap: 16px; }
-.standing-direction { display: flex; flex-direction: column; gap: 8px; }
-.standing-direction label { color: var(--text-primary); font-size: var(--fs-sm); font-weight: 600; }
-.standing-direction p, .standing-hint { margin: 0; color: var(--text-secondary); font-size: var(--fs-xs); line-height: 1.7; }
+.standing-hint { margin: 0; color: var(--text-secondary); font-size: var(--fs-xs); line-height: 1.7; }
 .standing-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
 .standing-task-notice { display: flex; flex-direction: column; gap: 8px; padding: 12px 16px; border-radius: var(--radius-md); background: var(--bg-sunken); }
 .standing-task-running { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; color: var(--text-secondary); font-size: var(--fs-xs); }
