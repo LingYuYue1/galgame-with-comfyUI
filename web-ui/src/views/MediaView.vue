@@ -41,7 +41,7 @@
                   媒体设置
                 </media-game-button>
                 <media-game-button
-                  v-if="activeCategory !== 'traditional'"
+                  v-if="activeCategory !== 'traditional' && !isFavorites"
                   variant="primary"
                   :loading="refreshing"
                   @click="onRefresh"
@@ -171,7 +171,7 @@
           <div class="toolbar-note">
             <h2 class="toolbar-heading">
               <span aria-hidden="true">✦</span>
-              {{ activeCategory === 'digital' ? '本期刊物' : '街巷热议' }}
+              {{ isFavorites ? '我的收藏' : activeCategory === 'digital' ? '本期刊物' : '街巷热议' }}
             </h2>
             <span v-if="!loading" class="toolbar-count">
               <b>{{ total }}</b>
@@ -308,11 +308,13 @@
                   :openable="!batchMode"
                   @open="openPost(p)"
                   :post="p"
+                  :show-favorite="!batchMode"
+                  :favorite-busy="favoritePending.has(p.id)"
+                  @favorite="toggleFavorite"
                   @zoom="zoomSrc = $event"
                   @section-loaded="onSectionLoaded"
                   @section-error="onSectionError"
                 />
-
               </div>
             </div>
 
@@ -494,7 +496,7 @@
                 <span class="empty-art-sheet" />
                 <span class="empty-symbol">{{ loadError ? '!' : '…' }}</span>
                 <span class="empty-stamp">
-                  {{ loadError ? '收讯中断' : '故事待续' }}
+                  {{ loadError ? '收讯中断' : isFavorites ? '留住精彩' : '故事待续' }}
                 </span>
               </div>
               <div class="empty-copy">
@@ -502,13 +504,14 @@
                   {{
                     loadError
                       ? 'SIGNAL LOST / 收讯异常'
-                      : 'STAY TUNED / 等待新消息'
+                      : isFavorites ? 'SAVED STORIES / 我的收藏' : 'STAY TUNED / 等待新消息'
                   }}
                 </span>
                 <h3 v-if="loadError">
                   内容暂时没有送达
                   <span class="empty-punctuation" aria-hidden="true">!</span>
                 </h3>
+                <h3 v-else-if="isFavorites">还没有收藏</h3>
                 <h3 v-else>
                   新的故事，
                   <br />
@@ -518,7 +521,7 @@
                 <p>
                   {{
                     loadError ||
-                    (refreshing
+                    (isFavorites ? '遇到喜欢的报刊或帖子，点击「收藏」，就能在这里再次阅读。' : refreshing
                       ? '正在收集邻里的新鲜事，稍候就来。'
                       : '这里还没有帖子，刷新内容，收听邻里的新鲜事。')
                   }}
@@ -532,7 +535,7 @@
                   <span aria-hidden="true">↗</span>
                 </media-game-button>
                 <media-game-button
-                  v-else
+                  v-else-if="!isFavorites"
                   size="sm"
                   :loading="refreshing"
                   @click="onRefresh"
@@ -560,6 +563,8 @@
       :kind="postKind(detailPost)"
       :busy="busyPostId !== null"
       :regenerating="!!detailPost && regeneratingId === detailPost.id"
+      :favorite-busy="!!detailPost && favoritePending.has(detailPost.id)"
+      @favorite="toggleFavorite"
       @close="detailVisible = false"
       @delete="removePost"
       @regenerate="regenerateImage"
@@ -570,6 +575,8 @@
         :is="componentFor(detailPost)"
         :key="detailPost.id"
         :post="detailPost"
+        :favorite-busy="favoritePending.has(detailPost.id)"
+        @favorite="toggleFavorite"
         @zoom="zoomSrc = $event"
         @section-loaded="onSectionLoaded"
         @section-error="onSectionError"
@@ -670,8 +677,39 @@ const zoomSrc = ref('')
 const regeneratingId = ref(null)
 /** 有操作在进行中（防止并发点） */
 const busyPostId = ref(null)
+const favoritePending = ref(new Set())
+
+async function toggleFavorite(post) {
+  if (!post || favoritePending.value.has(post.id)) return
+  favoritePending.value.add(post.id)
+  try {
+    const result = await api.setMediaPostFavorite(post.id, !post.is_favorite)
+    for (const item of new Set([post, ...posts.value, detailPost.value])) {
+      if (item?.id === post.id) Object.assign(item, result)
+    }
+    // 让更早发出的列表请求失效，避免旧响应把收藏状态覆盖回来。
+    const needsReload = loading.value || loadingMore.value
+    ++loadSeq
+    loading.value = false
+    if (isFavorites.value && !result.is_favorite) {
+      const wasListed = posts.value.some(item => item.id === post.id)
+      posts.value = posts.value.filter(item => item.id !== post.id)
+      if (wasListed) total.value = Math.max(0, total.value - 1)
+      selectedPostIds.value.delete(post.id)
+    }
+    if (needsReload || (isFavorites.value && (result.is_favorite || (!posts.value.length && total.value > 0)))) {
+      await loadPage(0)
+    }
+    toastFn?.(result.is_favorite ? '已加入我的收藏' : '已取消收藏', 'success')
+  } catch (err) {
+    toastFn?.('收藏操作失败：' + (err?.message || ''), 'error')
+  } finally {
+    favoritePending.value.delete(post.id)
+  }
+}
 
 const activeOutlet = ref(null)
+const isFavorites = computed(() => activeOutlet.value === 'favorites')
 const activeBoard = ref(null)
 
 // ── 顶栏分类分页 ──
@@ -890,6 +928,7 @@ const categoryOptions = computed(() =>
 )
 const outletOptions = computed(() => [
   { value: 'all', label: '全部 · ' + categoryTotal.value },
+  { value: 'favorites', label: '我的收藏', title: activeCategory.value === 'digital' ? '收藏的数字报刊' : '收藏的社交帖子' },
   ...filteredOutlets.value.map((o) => ({
     value: o.id,
     label: (o.icon ? o.icon + ' ' : '') + o.name + ' · ' + (o.post_count || 0),
@@ -934,6 +973,7 @@ function postKind(p) {
 function isSpecialPost(p) {
   return postKind(p) !== 'feed'
 }
+// 收藏只筛选内容，不改变版式：数字报刊仍按整期展示全部板块。
 const feedPosts = computed(() => posts.value.filter((p) => !isSpecialPost(p)))
 
 // 与历史奇遇一致：轮流分配到显式列，避免 CSS 多列平衡后整列留空。
@@ -1164,7 +1204,7 @@ async function reloadOutlets() {
     if (selected) activeCategory.value = isDigitalOutlet(selected) ? 'digital' : 'social'
     // 当前选中的媒体被删了就回到「全部」
     if (
-      activeOutlet.value &&
+      activeOutlet.value && !isFavorites.value &&
       !outlets.value.some((o) => o.id === activeOutlet.value)
     ) {
       activeOutlet.value = null
@@ -1176,7 +1216,7 @@ async function reloadOutlets() {
 }
 
 async function reloadBoards() {
-  if (!activeOutlet.value) {
+  if (!activeOutlet.value || isFavorites.value) {
     boards.value = []
     return
   }
@@ -1204,9 +1244,10 @@ async function loadPage(offset = 0) {
   try {
     // 没选具体媒体时按分类过滤 —— 否则「全部」会把报刊也混进来
     const d = await api.listMediaPosts({
-      outlet: activeOutlet.value,
+      outlet: isFavorites.value ? null : activeOutlet.value,
       board: activeBoard.value,
-      category: activeOutlet.value ? null : activeCategory.value,
+      category: activeOutlet.value && !isFavorites.value ? null : activeCategory.value,
+      favoritesOnly: isFavorites.value,
       limit: PAGE_SIZE,
       offset
     })
@@ -1278,7 +1319,7 @@ async function onBoardChange(id) {
 let refreshTimer = null
 
 async function onRefresh() {
-  if (refreshing.value) return
+  if (refreshing.value || isFavorites.value) return
   refreshing.value = true
   try {
     await api.refreshMediaPosts({ outletId: activeOutlet.value, count: 6 })
@@ -2318,6 +2359,8 @@ onUnmounted(() => {
 }
 .post-foot {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
   margin-top: 9px;
   padding-top: 8px;

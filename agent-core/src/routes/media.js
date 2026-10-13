@@ -20,6 +20,8 @@ import {
 import { config, updateMediaAutoMinutes } from '../config.js';
 import { generateMediaOutletDraft } from '../services/mediaOutletDesigner.js';
 import { mediaAvatarLibrary } from '../services/mediaAvatarLibrary.js';
+import { getDb } from '../db/index.js';
+import { setMediaPostFavorite } from '../db/mediaFavorites.js';
 
 const router = Router();
 
@@ -131,16 +133,22 @@ router.get('/posts', (req, res) => {
   try {
     const outletId = req.query.outlet ? Number(req.query.outlet) : null;
     const boardId = req.query.board ? Number(req.query.board) : null;
-    const category = req.query.category === 'digital' || req.query.category === 'social' ? req.query.category : null;
+    const category = ['digital', 'social'].includes(req.query.category) ? req.query.category : null;
+    const favoritesOnly = req.query.favorites === '1';
     const limit = req.query.limit ? Number(req.query.limit) : 40;
     const offset = req.query.offset ? Number(req.query.offset) : 0;
-    const data = listPosts({ outletId, boardId, category, limit, offset });
+    const data = listPosts({ outletId, boardId, category, favoritesOnly, limit, offset });
     res.json(data);
   } catch (err) { fail(res, err); }
 });
 
-// POST /api/media/posts/:id/regenerate-image — 为这条内容重新生成配图
-// （周刊/海报会连同 payload 里的小图一起清空重出）
+// PUT /api/media/posts/:id/favorite — 收藏 / 取消收藏
+router.put('/posts/:id/favorite', (req, res) => {
+  try {
+    res.json(setMediaPostFavorite(getDb(), Number(req.params.id), req.body?.favorite));
+  } catch (err) { fail(res, err); }
+});
+
 // ── 门户（数字报刊·两层生成）──
 
 // POST /api/media/posts/:id/sections/:key — 生成/读取某个板块的正文（第 2 层）

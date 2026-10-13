@@ -34,6 +34,7 @@ import { migrateStandingInteractions } from './standingInteractionSchema.js';
 import { migrateCharacterReactionPacksSchema } from './characterReactionPackSchema.js';
 import { migrateCharacterDiarySchema } from './diarySchema.js';
 import { migrateMediaAvatarLibrary } from './mediaAvatarSchema.js';
+import { migrateMediaFavorites } from './mediaFavorites.js';
 
 let db;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -2759,6 +2760,7 @@ function migrateMediaSchema(db) {
     }
     // payload_json：周刊/海报的结构化正文（feed 形态不用，内容仍在 content）
     const pCols = db.prepare(`PRAGMA table_info(media_posts)`).all();
+    migrateMediaFavorites(db);
     if (!pCols.find(c => c.name === 'published_seq')) {
       // 0 保留旧帖可见性及原 id 已读游标；新生成的草稿显式写 NULL，图齐后再发布。
       db.exec(`ALTER TABLE media_posts ADD COLUMN published_seq INTEGER DEFAULT 0`);

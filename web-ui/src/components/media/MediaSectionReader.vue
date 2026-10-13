@@ -1,5 +1,8 @@
 <template>
-  <linshe-modal :visible="visible" title="报刊 · 板块阅读" variant="comic" wide :transition-ms="300" @close="emit('close')">
+  <linshe-modal :visible="visible" title="报刊 · 板块阅读" variant="comic" wide panel-class="media-reader-panel" :transition-ms="300" @close="emit('close')">
+    <template #header-extra>
+      <media-favorite-button :post="post" whole-issue :loading="favoriteBusy" @toggle="emit('favorite', $event)" />
+    </template>
     <template #close="{ close }">
       <media-game-button variant="icon" aria-label="关闭板块阅读" @click="close">×</media-game-button>
     </template>
@@ -66,12 +69,15 @@
         <footer class="section-credits"><span v-if="post.payload?.credits?.reporter">记者 / {{ post.payload.credits.reporter }}</span><span v-if="post.payload?.credits?.editor">编辑 / {{ post.payload.credits.editor }}</span></footer>
       </div>
     </article>
-    <template #footer><media-game-button size="sm" variant="primary" @click="emit('close')">返回本期 ↵</media-game-button></template>
+    <template #footer>
+      <media-game-button size="sm" variant="primary" @click="emit('close')">返回本期 ↵</media-game-button>
+    </template>
   </linshe-modal>
 </template>
 <script setup>
 import LinsheModal from '../ui/LinsheModal.vue'
 import MediaGameButton from './MediaGameButton.vue'
+import MediaFavoriteButton from './MediaFavoriteButton.vue'
 import { bustUrlIfOverwritten } from '../../utils/imageUrlRefresh.js'
 defineProps({
   visible: Boolean,
@@ -79,9 +85,10 @@ defineProps({
   section: { type: Object, default: null },
   body: { type: Array, default: null },
   loading: Boolean,
+  favoriteBusy: Boolean,
   error: { type: String, default: '' }
 })
-const emit = defineEmits(['close', 'retry', 'zoom'])
+const emit = defineEmits(['close', 'retry', 'zoom', 'favorite'])
 </script>
 <style scoped>
 .section-reader { color: var(--text-primary); overflow-wrap: anywhere; }
@@ -91,7 +98,7 @@ const emit = defineEmits(['close', 'retry', 'zoom'])
 .section-heading p { margin: 0; line-height: 1.8; }
 .section-content { padding: 28px 32px; background: var(--media-paper); }
 .section-image { cursor: zoom-in; margin-bottom: 28px; }
-.section-image img { display: block; width: 100%; max-height: 240px; object-fit: contain; border: 2px solid var(--media-rule); }
+.section-image img { display: block; width: 100%; max-height: 440px; object-fit: contain; border: 2px solid var(--media-rule); }
 .section-image span { display: block; margin-top: 8px; color: var(--text-muted); font-size: 12px; }
 .section-status { padding: 32px 0; text-align: center; line-height: 1.8; }
 .section-status .cel-spin { display: inline-block; margin-right: 12px; }

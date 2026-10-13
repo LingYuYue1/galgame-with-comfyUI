@@ -12,12 +12,13 @@
       :tabindex="openable ? 0 : undefined"
       :title="openable ? '查看当期报刊详情' : undefined"
       @click.stop="openable && emit('open')"
-      @keydown.enter.prevent="openable && emit('open')"
-      @keydown.space.prevent="openable && emit('open')"
+      @keydown.enter.self.prevent="openable && emit('open')"
+      @keydown.space.self.prevent="openable && emit('open')"
     >
       <div class="po-head-left">
         <span class="po-brand">{{ post.outlet_name || '数字报刊' }}</span>
         <span class="po-issue">第 {{ data.issue }} 期</span>
+        <media-favorite-button v-if="showFavorite" class="po-favorite" :post="post" whole-issue :loading="favoriteBusy" @toggle="emit('favorite', $event)" />
       </div>
       <h1 class="po-title">{{ data.title }}</h1>
       <p v-if="data.lead" class="po-lead">{{ data.lead }}</p>
@@ -71,20 +72,23 @@
       <span v-if="data.credits?.editor">编辑：{{ data.credits.editor }}</span>
     </footer>
   </article>
-  <media-section-reader :visible="readerVisible" :post="post" :section="selectedSection" :body="selectedSection ? bodyOf(selectedSection) : null" :loading="!!pending[openKey]" :error="errors[openKey] || ''" @close="readerVisible = false" @retry="loadSection(selectedSection)" @zoom="emit('zoom', $event)" />
+  <media-section-reader :visible="readerVisible" :post="post" :section="selectedSection" :body="selectedSection ? bodyOf(selectedSection) : null" :loading="!!pending[openKey]" :error="errors[openKey] || ''" :favorite-busy="favoriteBusy" @favorite="emit('favorite', $event)" @close="readerVisible = false" @retry="loadSection(selectedSection)" @zoom="emit('zoom', $event)" />
 </template>
 
 <script setup>
 import { ref, computed } from 'vue'
 import * as api from '../../api/index.js'
 import MediaGameButton from './MediaGameButton.vue'
+import MediaFavoriteButton from './MediaFavoriteButton.vue'
 import MediaSectionReader from './MediaSectionReader.vue'
 import { bustUrlIfOverwritten } from '../../utils/imageUrlRefresh.js'
 const props = defineProps({
   post: { type: Object, required: true },
   openable: { type: Boolean, default: false },
+  favoriteBusy: Boolean,
+  showFavorite: { type: Boolean, default: true },
 })
-const emit = defineEmits(['open', 'zoom', 'section-loaded', 'section-error'])
+const emit = defineEmits(['open', 'zoom', 'section-loaded', 'section-error', 'favorite'])
 const data = computed(() => props.post?.payload || null)
 const openKey = ref('')
 const readerVisible = ref(false)
@@ -145,7 +149,8 @@ async function loadSection(s) {
   padding: 18px 22px 16px;
   border-bottom: 3px double var(--po-line);
 }
-.po-head-left { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.po-head-left { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
+.po-favorite { margin-left: auto; flex-shrink: 0; }
 .po-brand {
   font-size: 11.5px; font-weight: 700; letter-spacing: 1px;
   padding: 2px 9px; border-radius: 4px;

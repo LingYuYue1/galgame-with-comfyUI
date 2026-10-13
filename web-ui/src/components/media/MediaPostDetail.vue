@@ -133,6 +133,7 @@
           删除帖子
         </media-game-button>
         <div class="reader-actions-right">
+          <media-favorite-button v-if="kind === 'feed'" :post="post" :loading="favoriteBusy" :disabled="busy" @toggle="emit('favorite', $event)" />
           <media-game-button
             size="sm"
             :loading="regenerating"
@@ -154,6 +155,7 @@
 import { computed } from 'vue'
 import LinsheModal from '../ui/LinsheModal.vue'
 import MediaGameButton from './MediaGameButton.vue'
+import MediaFavoriteButton from './MediaFavoriteButton.vue'
 import { bustUrlIfOverwritten } from '../../utils/imageUrlRefresh.js'
 
 const props = defineProps({
@@ -161,9 +163,10 @@ const props = defineProps({
   post: { type: Object, default: null },
   kind: { type: String, default: 'feed' },
   busy: Boolean,
+  favoriteBusy: Boolean,
   regenerating: Boolean
 })
-const emit = defineEmits(['close', 'delete', 'regenerate', 'zoom'])
+const emit = defineEmits(['close', 'delete', 'regenerate', 'zoom', 'favorite'])
 const paragraphs = computed(() =>
   String(props.post?.content || '')
     .split(/\n+/)
@@ -184,15 +187,6 @@ function zoom() {
 </script>
 
 <style scoped>
-@media (min-width: 768px) {
-  :global(.linshe-modal-overlay:has(> .media-reader-panel)) {
-    padding-block: 10px;
-  }
-  :global(.media-reader-panel) {
-    height: 100dvh;
-    max-height: 100%;
-  }
-}
 .reader {
   color: var(--text-primary);
   overflow-wrap: anywhere;
@@ -484,6 +478,7 @@ function zoom() {
 }
 .reader-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -491,6 +486,7 @@ function zoom() {
 }
 .reader-actions-right {
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
 }
 @media (max-width: 600px) {
