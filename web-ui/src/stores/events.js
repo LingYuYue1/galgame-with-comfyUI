@@ -141,6 +141,7 @@ export const useEventsStore = defineStore('events', () => {
   // UI 立刻显示"推进中"（processing=true），无需等待 HTTP 响应。
   const MAX_CONCURRENT_CHOOSES = 2
   const BRANCH_TIME_EXTENSION_MS = 5 * 60 * 1000
+  const BRANCH_TIME_EXTENSION_WINDOW_MS = 15 * 60 * 1000
   let _choosingCount = 0
   const _chooseQueue = []  // { eventId, choice, customText }
 
@@ -149,11 +150,12 @@ export const useEventsStore = defineStore('events', () => {
     _choosingCount++
     console.log(`[store] makeChoice EXEC event=${eventId} (concurrent: ${_choosingCount}/${MAX_CONCURRENT_CHOOSES})`)
 
-    // 后端接受选择后会同步延长 5 分钟；前端先乐观更新，避免生成分支时旧倒计时归零。
+    // 与后端一致：仅剩余 15 分钟以内且尚未过期时，乐观延长 5 分钟。
     const eventIdx = activeEvents.value.findIndex(e => e.id === eventId)
     if (eventIdx !== -1 && activeEvents.value[eventIdx].expires_at) {
       const currentExpiresAt = new Date(activeEvents.value[eventIdx].expires_at)
-      if (!Number.isNaN(currentExpiresAt.getTime())) {
+      const remainingMs = currentExpiresAt.getTime() - Date.now()
+      if (remainingMs > 0 && remainingMs <= BRANCH_TIME_EXTENSION_WINDOW_MS) {
         activeEvents.value[eventIdx] = {
           ...activeEvents.value[eventIdx],
           expires_at: new Date(currentExpiresAt.getTime() + BRANCH_TIME_EXTENSION_MS).toISOString(),

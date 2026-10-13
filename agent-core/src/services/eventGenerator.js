@@ -368,12 +368,6 @@ export async function generateEvent(character, options = {}) {
     }
   } catch { /* schedule not available */ }
 
-  const worldPenetrationLine = worldSetting
-    ? (eventType.key === 'custom'
-        ? '- **严格遵循<world_setting>**：这个事件发生在上述<world_setting>中，不是发生在真空或现实世界中。所有感官细节（街头景象、路人行为、空气气味、社交礼仪）和角色反应（身体本能、社交判断、情感触发点）必须忠实地在<world_setting>规则下展开。用户指定的事件方向是本次事件的核心，必须直接发生；<world_setting>重塑的是它的呈现方式，而不是替换它。\n'
-        : '- **严格遵循<world_setting>**：这个事件发生在上述<world_setting>中，不是发生在真空或现实世界中。所有感官细节（街头景象、路人行为、空气气味、社交礼仪）和角色反应（身体本能、社交判断、情感触发点）必须忠实地在<world_setting>规则下展开。事件方向只是一个叙事钩子——它的具体呈现方式必须被<world_setting>重新塑造。\n')
-    : '';
-
   // [1] 角色人格（"你"已替换为角色名，去角色扮演化）
   let personaMsg = `以下是角色「${displayName}」的人格设定，供你参考角色的外貌、性格和行为模式：
 
@@ -402,16 +396,16 @@ ${multiPerson.otherPersona}`;
 {
   "title": "事件标题事件标题（≤8字，口语感叹。从你刚写完的事件场景里抓最戳人的那个瞬间，用角色第一反应的口吻喊出来——不要给事件'取名'，是替角色喊出ta看到/发现/意识到时脑子里蹦出来的那句话。正确：包裹在动……|谁寄来的？！|钥匙怎么还在她这里。错误：神秘包裹降临|意外来客——这些是在概括事件类型。禁止万能感叹'天哪''不是吧''怎么会'——必须带上这个事件的具体信息点）",
   "description": "场景叙述（80-150字。
-不要像讲故事，而像镜头正在发生：
-- 行动需要符合当前天气和时间，但禁止直接提及天气时间",
+以角色当下的动作、感受和对话展开，必要时简短交代背景与原因：
+- 行动符合当前天气和时间；天气或时间有助于理解场景时可自然提及",
   "prompt": "${imagePromptInstruction}${weatherHint}${multiPersonImageNote}",
   "choiceA": "选项A（具体行动，8-15字。符合${displayName}的性格和当下处境）",
-  "choiceB": "选项B（与A形成真正的行动对比——不符合${displayName}的个性，会将事件往意料之外但符合<world_setting>的情况发展。8-15字）"
+  "choiceB": "选项B（与A形成真正的行动对比——违背${displayName}惯常的个性与做法，会将事件往意料之外但符合世界规则的情况发展。8-15字）"
 }
 
 选项设计原则：
 - A和B必须是性质完全不同的两条路径——读者感受到它们通往不同的情绪走向
-- **但两条路径都必须能从${displayName}的性格和当下处境中自然推出**
+- A顺着${displayName}惯常的性格行动，B则与之相反、挑战ta惯常的做法；两条路径都必须在当前处境下可执行，并符合世界规则
 - 避免两个"本质上差不多"的选项
 - 根据场景选择最合适的对比维度：做vs不做、直面vs绕开、自己解决vs求助、立刻vs等等、坦白vs保留、介入vs旁观`;
 
@@ -421,7 +415,7 @@ ${multiPerson.otherPersona}`;
     : '';
 
   const funFromNote = eventType.funFrom?.length
-    ? `\n\n这件事之所以值得成为一个事件，不是因为它"出了大事"——而是因为它天然带有${eventType.funFrom.join('、')}的张力。叙事时往这些层面用力，让读者感受到"就是这个感觉"。`
+    ? `\n\n这件事之所以值得成为一个事件，不是因为它"出了大事"——而是因为它天然带有${eventType.funFrom.join('、')}的张力。根据具体情境自然体现这些层面，不必逐项突出或刻意制造戏剧冲突。`
     : '';
 
   const customDirectionHeader = eventType.key === 'custom'
@@ -469,7 +463,7 @@ ${customKeyUnderstanding}
 
 镜头直接落在一个正在发生的动作上。
 
-背景、关系、原因，都随着动作自然露出来，而不是提前说明。
+背景、关系和原因可以随动作呈现，也可以用简短叙述交代，以读者能理解人物动机和事情经过为准。
 
 【结尾——停在行动门槛】
 结尾停在一个具体动作即将发生之前。
@@ -478,8 +472,7 @@ ${customKeyUnderstanding}
 - 事件从${displayName}当前所在的地点、手头在做的事、视线范围内的东西中触发。第一句出现的地点、动作、物件，直接从当前 schedule 场景中承接
 - 避免为制造戏剧性，直接把角色挪到另一个无关地点再触发事件
 
-${worldPenetrationLine}
-【天气约束】description中行动需要符合当前天气和时间，但禁止直接提及天气时间` });
+【天气约束】description中行动符合当前天气和时间；天气或时间有助于理解场景时可自然提及` });
 
   // [4] Character persona — stable per character
   msgs.push({ role: 'system', content: personaMsg });
@@ -495,16 +488,8 @@ ${worldPenetrationLine}
 - 若方向与<world_setting>有冲突：保留方向的核心行为，只把它的表现方式融入<world_setting>。` });
   }
 
-  // [user] Event-specific creation task — changes per event（有<world_setting>时开头注入遵循规则）
-  const customPreamble = eventType.key === 'custom'
-    ? '\n用户手动指定的事件方向必须直接发生——<world_setting>负责塑造它的表现方式，不负责替换它。'
-    : '';
-  const eventUserContent = worldSetting
-    ? `请遵循当前<world_setting>来生成奇遇，角色人设如果和<world_setting>有冲突，则以<world_setting>最高优先级，人设会因为<world_setting>改变。${customPreamble}
-
-${directorPrompt}`
-    : directorPrompt;
-  msgs.push({ role: 'user', content: eventUserContent });
+  // [user] 本次创作任务；世界观约束统一由前面的静态强调层承载。
+  msgs.push({ role: 'user', content: directorPrompt });
 
   let eventData;
   let rawResult = '';
@@ -660,6 +645,7 @@ export async function generateNextBranch(character, event, choice, deps = {}) {
   const db = getDb();
   const now = new Date();
   const branchTimeExtensionMinutes = 5;
+  const branchTimeExtensionWindowMs = 15 * 60 * 1000;
 
   // 0. 原子性标记处理中（CAS：仅 processing=0 时置 1），防止并发重复提交
   // 如果已有其他请求在处理中，直接抛出错误，避免：
@@ -681,15 +667,17 @@ export async function generateNextBranch(character, event, choice, deps = {}) {
   }
 
   try {
-  // 用户已成功提交一个有效分支选择，立即延长倒计时，避免分支生成期间事件到期。
-  db.prepare(`
-    UPDATE character_events
-    SET expires_at = datetime(expires_at, '+' || ? || ' minutes')
-    WHERE id = ?
-  `).run(branchTimeExtensionMinutes, event.id);
-  event.expires_at = db.prepare(
-    `SELECT expires_at FROM character_events WHERE id = ?`
-  ).get(event.id).expires_at;
+  // 有效选择仅在剩余 15 分钟以内续时，仍在生成前生效，避免等待时倒计时归零。
+  if (expiresAt.getTime() - now.getTime() <= branchTimeExtensionWindowMs) {
+    db.prepare(`
+      UPDATE character_events
+      SET expires_at = datetime(expires_at, '+' || ? || ' minutes')
+      WHERE id = ?
+    `).run(branchTimeExtensionMinutes, event.id);
+    event.expires_at = db.prepare(
+      `SELECT expires_at FROM character_events WHERE id = ?`
+    ).get(event.id).expires_at;
+  }
   // 仍延长开场日程，不能在跨过边界后改成延长下一个活动。
   syncEventSchedule(event);
 
@@ -749,10 +737,6 @@ export async function generateNextBranch(character, event, choice, deps = {}) {
     ? getWorldIntegrationRule('event')
     : '';
 
-  const worldPenetrationLine2 = worldSetting2
-    ? '- **严格遵循<world_setting>**：这个事件发生在上述<world_setting>中，不是发生在真空或现实世界中。所有感官细节（街头景象、路人行为、空气气味、社交礼仪）和角色反应（身体本能、社交判断、情感触发点）必须忠实地在<world_setting>规则下展开。事件方向只是一个叙事钩子——它的具体呈现方式必须被<world_setting>重新塑造。\n'
-    : '';
-
   let personaMsg2 = `以下是角色「${displayName2}」的人格设定，供你参考角色的外貌、性格和行为模式：
 
 ${personaText2}`;
@@ -807,16 +791,16 @@ ${multiPerson2.otherPersona}`;
   const formatPrompt2 = `请严格按照以下 JSON 格式输出，不要任何解释或额外文字：
 
 {
-  "description": "选择后的场景叙述场景叙述，承接上一个选择的结果，展现角色此刻的即时感受和新出现的局面。场景转折要出乎意料但又在情理之中（80-150字）。
+  "description": "选择后的场景叙述，承接上一个选择的结果，展现角色此刻的即时感受和新出现的局面。每次分支必须出现一个出乎意料但又在情理之中的转折，并承接所选行动（80-150字）。
 
-采用紧密第三人称（她/他/ta），始终贴着角色当下的感知与动作，不解释、不总结、不评价。
+采用紧密第三人称（她/他/ta），贴着角色当下的感知与动作展开，可以简短交代必要的背景、原因和感受，让读者看清行动与结果的联系。
 
-不要像讲故事，而像镜头正在发生：
-- 结尾停在『必须做出选择之前』，留下悬念，不提前进入结果。
-- 行动需要符合当前天气和时间，但禁止直接提及天气时间。",
-  "prompt": "${branchImagePromptInstruction}${weatherHint}${multiPersonImageNote2}",
+以角色当下的动作、感受和对话展开，必要时简短交代背景与原因：
+- 写清上一个选择的结果，再停在下一步可采取行动的位置；不要替玩家决定下一步。
+- 行动符合当前天气和时间；天气或时间有助于理解场景时可自然提及。",
+  "prompt": "${branchImagePromptInstruction}",
   "choiceA": "新选项A（具体行动。必须符合${displayName2}的个性——是ta此刻真的会做出来的事。8-15字）",
-  "choiceB": "新选项B（与A形成真正的行动对比——不符合${displayName2}的个性，会将事件往意料之外但符合<world_setting>的情况发展。8-15字）"
+  "choiceB": "新选项B（与A形成真正的行动对比——违背${displayName2}惯常的个性与做法，会将事件往意料之外但符合世界规则的情况发展。8-15字）"
 }`;
 
   // 只有多人模式才注入关系信息（和初始事件生成一致）
@@ -830,10 +814,10 @@ ${multiPerson2.otherPersona}`;
     : '';
 
   const directorPrompt2 = `事件标题：${event.title}
-${timeTag2}${historyText}${multiNote2}${funFromNote2}
+${historyText}${multiNote2}${funFromNote2}
+${timeTag2}${weatherHint}${multiPersonImageNote2}
 
-**核心要求——让分支有趣**：接下来的场景不能是"选了A所以A发生了"的平铺直叙。读者选择之后应该经历一个"没想到会这样——但仔细一想确实合理"的转折。这个转折可以来自：
-- 另一个角色的反应方式出乎意料（但符合那个人的人设）
+**核心要求——每次分支必须有转折**：先兑现所选行动，写清实际结果和角色反应，再让读者经历一个“没想到会这样——但仔细一想确实合理”的转折，不能只是“选了A所以A发生了”的平铺直叙。转折可以来自另一角色的意外反应、新发现或行动带来的意外后果，必须符合世界规则、承接已有情节，不能取消或改写玩家已经选择的行动。
 
 **剧情推进（必须发生）**：${choice.label}${choiceExtra}
 
@@ -854,25 +838,24 @@ ${timeTag2}${historyText}${multiNote2}${funFromNote2}
     msgs.push({ role: 'system', content: worldIntegrationBlock2 });
   }
 
-  // [2] JSON format — most stable, always cache-hit (template unchanged, only trailing env ref varies)
+  // [2] 输出格式不混入本轮天气和同框信息，避免提前打断稳定前缀。
   msgs.push({ role: 'system', content: formatPrompt2 });
 
   // [3] Branch continuation instructions — stable per character
   msgs.push({ role: 'system', content: `你正在为「${displayName2}」的特殊事件生成下一幕——一段紧密第三人称叙事。上一幕中角色做出了选择，现在展现选择之后发生的事情，选择已经完成，描述的是选择的结果。
 
-${worldPenetrationLine2}
-【天气约束】description中行动需要符合当前天气和时间，但禁止直接提及天气时间` });
+【避免长线重复】
+- 对照已有历史，尤其最近三幕：本幕必须有新的实际结果，不能只换措辞、道具或人物，重复同一种行动、障碍和选项。
+- 强制转折仍须发生，但已解决的问题和已获得的成果继续有效；让转折来自新的后果、发现或人物反应，不能把剧情重置到原来的困境。
+- 同一小目标若已拖延多幕，本幕给它明确结果，再由新局面提出有冲突的A/B选项；用户明确要求重复尝试时照做并写出不同反馈。
+
+【天气约束】description中行动符合当前天气和时间；天气或时间有助于理解场景时可自然提及` });
 
   // [4] Character persona — stable per character
   msgs.push({ role: 'system', content: personaMsg2 });
 
-  // [user] Branch task（有<world_setting>时开头注入遵循规则）
-  const branchUserContent = worldSetting2
-    ? `请遵循当前<world_setting>来推进奇遇，角色人设如果和<world_setting>有冲突，则以<world_setting>最高优先级，人设会因为<world_setting>改变。
-
-${directorPrompt2}${prevSceneBlock}`
-    : directorPrompt2 + prevSceneBlock;
-  msgs.push({ role: 'user', content: branchUserContent });
+  // [user] 本次分支任务与上一幕参考。
+  msgs.push({ role: 'user', content: directorPrompt2 + prevSceneBlock });
 
   let branchData;
   let rawBranchResult = '';
@@ -1058,10 +1041,6 @@ export async function concludeEvent(character, event, outcome) {
     ? choiceHistory.map((h, i) => `第${i + 1}步：${h.choice_label} → ${h.summary}`).join('\n')
     : `角色经历了：${event.description}（未与用户互动）`;
 
-  const worldConsistencyLine = worldSetting3
-    ? '- **<world_setting>一致性**：结局和记忆摘要必须反映<world_setting>的基本规则。角色做出的选择及其后果、环境的反应、事件的收束方式，都必须在<world_setting>框架内自然发生。\n'
-    : '';
-
   // 人格走统一入口把「你」替换为角色名；直接塞原始 base_prompt（第二人称）会把结局叙事带成第一人称
   const displayName3 = character.display_name;
   let personaText3 = buildCharacterPersona(character, { variant: 'full', person: displayName3 });
@@ -1076,42 +1055,36 @@ export async function concludeEvent(character, event, outcome) {
 ${historyText}
 当前场景：${event.description}
 
-这是写给读者看的小说结尾，不是事件总结。要求：
-${worldConsistencyLine}- 【叙事视角·最高优先级】全程第三人称叙事：主语用「${displayName3}」或「她/他」，叙事部分严禁出现「我」「我的」「我们」等第一人称称谓（唯一例外是角色说出口的台词引号内），内心活动写成「她心想」而不是「我心想」
-- 只聚焦 1~2 个最有戏的瞬间展开，其余经过一笔带过或不写；严禁从早到晚按时间顺序复述全程的流水账写法
-- 至少三分之一篇幅是"人味"：角色的内心吐槽、和环境的一点小摩擦、或一个出乎意料的小细节
-- 结尾用一句台词或一个小动作收束，留点余韵；禁止"就这样结束了"式的总结句
+为读者自然收束这段经历，交代结果和人物感受。要求：
+- 【叙事视角·最高优先级】全程第三人称叙事：主语用「${displayName3}」或「她/他」，叙事部分严禁出现「我」「我的」「我们」等第一人称称谓（唯一例外是角色说出口的台词引号内），内心活动写成「她心想」而不是「我心想」
+- 写清本次事件如何收束及其对人物的影响，适当承接关键经过，避免逐幕重复
+- 人物的感受、对话和细节按情节需要自然呈现，保持角色口吻，不规定篇幅比例或强加吐槽
+- 根据情节自然结束，可以用叙述、台词或动作交代落点；不必另造悬念或转折
 - 结局叙述 100~180 字，将直接展示在页面上，作为事件的正式收尾
 - 记忆摘要 100~180 字，只存入角色长期记忆、不会展示给用户，用第三人称视角客观记录整个事件的起因、经过、转折和结果（保持客观简洁即可，无需文学性）
 
 **重要：输出严格 JSON 格式，不要输出任何解释或 JSON 以外的文字**
 {"conclusion":"结局叙述（全程第三人称，主语用${displayName3}或她/他，叙事部分禁止出现「我」，仅台词引号内可例外）","summary":"记忆摘要（第三人称，包含完整的事件经过）"}`
-    : `角色刚刚经历了一场无人参与的特殊事件。请基于事件描述，想象一个最有趣、最自然的收尾画面。
+    : `角色刚刚经历了一场无人参与的特殊事件。请基于事件描述，写出一个符合已知情节与人物动机的自然收尾。
 事件标题：${event.title}
 ${historyText}
 
-这是写给读者看的小说结尾，不是事件总结。要求：
-${worldConsistencyLine}- 【叙事视角·最高优先级】全程第三人称叙事：主语用「${displayName3}」或「她/他」，叙事部分严禁出现「我」「我的」「我们」等第一人称称谓（唯一例外是角色说出口的台词引号内），内心活动写成「她心想」而不是「我心想」
-- 只聚焦 1~2 个最有戏的瞬间展开，其余经过一笔带过或不写；严禁按时间顺序复述全程的流水账写法
-- 至少三分之一篇幅是"人味"：角色的内心吐槽、和环境的一点小摩擦、或一个出乎意料的小细节
-- 结尾用一句台词或一个小动作收束，留点余韵；禁止"就这样结束了"式的总结句
+为读者自然收束这段经历，交代结果和人物感受。要求：
+- 【叙事视角·最高优先级】全程第三人称叙事：主语用「${displayName3}」或「她/他」，叙事部分严禁出现「我」「我的」「我们」等第一人称称谓（唯一例外是角色说出口的台词引号内），内心活动写成「她心想」而不是「我心想」
+- 写清本次事件如何收束及其对人物的影响，适当承接关键经过，避免逐幕重复
+- 人物的感受、对话和细节按情节需要自然呈现，保持角色口吻，不规定篇幅比例或强加吐槽
+- 根据情节自然结束，可以用叙述、台词或动作交代落点；不必另造悬念或转折
 - 结局叙述 100~180 字，将直接展示在页面上，作为事件的正式收尾
 - 记忆摘要 100~180 字，只存入角色长期记忆、不会展示给用户，用第三人称视角客观记录事件
 
 **重要：输出严格 JSON 格式，不要输出任何解释或 JSON 以外的文字**
 {"conclusion":"结局叙述（全程第三人称，主语用${displayName3}或她/他，叙事部分禁止出现「我」，仅台词引号内可例外）","summary":"记忆摘要（第三人称）"}`;
 
-  const conclusionUserContent = worldSetting3
-    ? `请遵循当前<world_setting>来收束奇遇，角色人设如果和<world_setting>有冲突，则以<world_setting>最高优先级，人设会因为<world_setting>改变。
-
-${taskPrompt}`
-    : taskPrompt;
-
   const msgs = [
     { role: 'system', content: permissionPrompt },
     ...(worldIntegrationNote ? [{ role: 'system', content: worldIntegrationNote }] : []),
     { role: 'system', content: personaMsg3 },
-    { role: 'user', content: conclusionUserContent },
+    { role: 'user', content: taskPrompt },
   ];
 
   let conclusionData;

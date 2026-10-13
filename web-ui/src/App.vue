@@ -273,6 +273,7 @@ onMounted(async () => {
 
   // 日程更改成功（手动编辑 / 聊天约定 / 跨天约定应用）→ 右上角提示
   onStreamEvent('schedule_changed', (data) => {
+    if (data.source === 'event') return // 奇遇占用日程静默同步，不弹更新提示
     const name = data.display_name || '角色'
     const todayKey = new Date().toLocaleDateString('sv-SE') // 本地时区 YYYY-MM-DD
     if (data.target_date && data.target_date !== todayKey) {
