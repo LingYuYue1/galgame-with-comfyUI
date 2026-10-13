@@ -133,7 +133,8 @@
   --modal-radius: 18px;
   /* full 尺寸面板宽度：主题无关，页面可用 panel-class 覆盖该 token */
   --modal-full-width: 94vw;
-  --modal-shadow: 0 12px 48px rgba(0, 0, 0, 0.18);
+  /* 仅叠加浅色边缘与薄厚底；用阴影描线，不占布局尺寸。 */
+  --modal-shadow: 0 5px 0 color-mix(in srgb, var(--accent-hover) 20%, var(--border-strong)), inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 0 0 1px color-mix(in srgb, var(--accent-hover) 18%, var(--border)), 0 12px 48px rgba(0, 0, 0, 0.18);
   --modal-backdrop: blur(6px);
   --modal-lining-bg: var(--glass-bg);
   --modal-lining-border: 1px solid var(--glass-border);
@@ -313,7 +314,7 @@
   --modal-bg: var(--bg-secondary);
   --modal-border: 2px solid var(--border-strong);
   --modal-radius: var(--radius-xl);
-  --modal-shadow: var(--shadow-lg), 0 5px 0 color-mix(in srgb, var(--cel-outline) 14%, transparent);
+  --modal-shadow: 0 5px 0 color-mix(in srgb, var(--accent-hover) 16%, var(--border-strong)), inset 0 1px 0 rgba(255, 255, 255, 0.08), var(--shadow-lg);
   --modal-backdrop: none;
   --modal-lining-bg: transparent;
   --modal-lining-border: none;
