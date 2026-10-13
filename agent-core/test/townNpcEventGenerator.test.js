@@ -17,6 +17,34 @@ const fakeNpc = db => {
 const fakeLlm = payload => ({ chatSync: async () => JSON.stringify(payload) });
 const noImage = { generateImageRaw: async () => ({ success: false, images: [] }) };
 
+test('town choices extend only within 15 minutes and do not stack after crossing the window', async t => {
+  const now = Date.parse('2026-10-13T03:00:00Z');
+  t.mock.timers.enable({ apis: ['Date'], now });
+  const db = getDb();
+  t.after(() => closeDb());
+  const npc = fakeNpc(db);
+  let event = await gen.generateTownNpcEvent(npc, { manual: true, customPrompt: '一起整理理发店',
+    llm: fakeLlm({ title: '整理店铺', description: '两人收拾店铺。', prompt: '店铺', choiceA: '整理柜子', choiceB: '先擦桌子' }), image: noImage });
+  const payload = { description: '柜子整理好了。', prompt: '柜子', choiceA: '收起工具', choiceB: '休息片刻' };
+  const sqliteTime = ms => new Date(ms).toISOString().replace('T', ' ').slice(0, 19);
+  for (const seconds of [20 * 60, 15 * 60 + 1, 15 * 60, 15 * 60 - 1]) {
+    const expiry = sqliteTime(now + seconds * 1000);
+    db.prepare('UPDATE town_npc_events SET expires_at=? WHERE id=?').run(expiry, event.id);
+    event.expires_at = expiry;
+    const expected = sqliteTime(now + (seconds + (seconds <= 900 ? 300 : 0)) * 1000);
+    event = await gen.generateTownNpcNextBranch(npc, event, { choice: 'A', label: '整理柜子' }, {
+      llm: { chatSync: async () => {
+        assert.equal(db.prepare('SELECT expires_at FROM town_npc_events WHERE id=?').get(event.id).expires_at, expected);
+        return JSON.stringify(payload);
+      } }, image: noImage,
+    });
+    assert.equal(event.expires_at, expected);
+  }
+  const expiry = event.expires_at;
+  event = await gen.generateTownNpcNextBranch(npc, event, { choice: 'C', label: '休息片刻' }, { llm: fakeLlm(payload), image: noImage });
+  assert.equal(event.expires_at, expiry);
+});
+
 test('town npc events mirror the character event lifecycle without a character card', async t => {
   const db = getDb();
   t.after(() => closeDb());
