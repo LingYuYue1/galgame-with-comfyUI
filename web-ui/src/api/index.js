@@ -339,10 +339,10 @@ export function refineAppearanceDraft({ image, basePrompt, displayName, sceneLab
 }
 
 /** 修正外观·文字模式：按纯文字要点扩写外观描述（不出图，只走文本 LLM；不入库，由前端回填） */
-export function expandAppearanceDraft({ brief, basePrompt, displayName, sceneLabel }) {
+export function expandAppearanceDraft({ brief, characterId, basePrompt, displayName, sceneLabel }) {
   return request('/characters/expand-appearance-draft', {
     method: 'POST',
-    body: { brief, base_prompt: basePrompt, display_name: displayName, scene_label: sceneLabel },
+    body: { brief, character_id: characterId, base_prompt: basePrompt, display_name: displayName, scene_label: sceneLabel },
   })
 }
 
