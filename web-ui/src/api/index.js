@@ -2102,18 +2102,23 @@ export function getMediaUnread(seen = {}) {
 }
 
 /** 帖子分页（不传 outlet 则跨媒体） */
-export function listMediaPosts({ outlet = null, board = null, category = null, limit = 40, offset = 0 } = {}) {
+export function listMediaPosts({ outlet = null, board = null, category = null, favoritesOnly = false, limit = 40, offset = 0 } = {}) {
   let path = `/media/posts?limit=${limit}&offset=${offset}`
   if (outlet) path += `&outlet=${encodeURIComponent(outlet)}`
   if (board) path += `&board=${encodeURIComponent(board)}`
-  // 分类过滤：digital = 数字报刊（周刊/海报）；social = 社交平台（帖子流）
+  // 分类过滤：digital = 数字报刊；social = 社交平台；收藏可在各分类内独立筛选
   if (category) path += `&category=${encodeURIComponent(category)}`
+  if (favoritesOnly) path += '&favorites=1'
   return request(path)
 }
 
 /** 抓一批新帖（异步：返回 started 后靠 SSE media_new_posts 得知完成） */
 export function refreshMediaPosts(body = {}) {
   return request('/media/refresh', { method: 'POST', body })
+}
+
+export function setMediaPostFavorite(postId, favorite) {
+  return request(`/media/posts/${postId}/favorite`, { method: 'PUT', body: { favorite } })
 }
 
 /** 催一次封面补印 */

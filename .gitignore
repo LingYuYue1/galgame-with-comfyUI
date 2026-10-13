@@ -55,3 +55,4 @@ agent-core/test/*
 !agent-core/test/dialogueTranscript.test.js
 !agent-core/test/characterBackgrounds.test.js
 !agent-core/test/chatModePrompt.test.js
+!agent-core/test/mediaFavorites.test.js
