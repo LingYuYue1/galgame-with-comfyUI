@@ -10,7 +10,7 @@
         <div class="es-scan-content">
           <strong>立绘脚本生成中</strong>
           <Transition name="es-phrase" mode="out-in"><p :key="scanTipIndex">{{ scanTips[scanTipIndex] }}</p></Transition>
-          <linshe-button size="sm" :loading="controlling" @click="controlTask">停止任务</linshe-button>
+          <linshe-button size="sm" :loading="controlling" @click="controlTask()">停止任务</linshe-button>
         </div>
       </div>
     </Transition>
@@ -43,8 +43,8 @@ v-if="editing.image_url" :key="editing.image_url" :src="editing.image_url" :asse
       <section v-else key="grid" class="es-overview">
         <StandingGenerationDirection v-model="requirement" v-model:outfit-scene="outfitScene" input-id="standing-character-direction" :disabled="locked" />
         <div class="es-toolbar">
-          <linshe-button variant="primary" :disabled="locked || !targets.length" :loading="submitting" @click="generate">{{ paused ? '任务已停止' : busy ? '正在生成…' : '一键生成立绘' }}</linshe-button>
-          <linshe-button v-if="busy || job?.resumable" size="sm" :loading="controlling" :disabled="job?.status === 'stopping' || controlling" @click="controlTask">{{ paused || job?.resumable ? '继续任务' : job?.status === 'stopping' ? '正在停止…' : '停止任务' }}</linshe-button>
+          <linshe-button variant="primary" :disabled="(paused ? submitting || !!working : locked) || controlling || !targets.length" :loading="submitting || (paused && controlling)" @click="paused ? controlTask('restart') : generate()">{{ paused ? '重新生成' : busy ? '正在生成…' : '一键生成立绘' }}</linshe-button>
+          <linshe-button v-if="busy || job?.resumable" size="sm" :loading="controlling" :disabled="job?.status === 'stopping' || controlling || submitting" @click="controlTask()">{{ paused || job?.resumable ? '继续任务' : job?.status === 'stopping' ? '正在停止…' : '停止任务' }}</linshe-button>
           <p v-if="job" class="es-progress" role="status">{{ jobText }} <span v-if="job.error"> · {{ job.error }}</span></p>
           <linshe-button class="es-touch-manage" size="sm" @click="showTouchLines=true">触摸台词管理</linshe-button>
         </div>
@@ -116,10 +116,11 @@ const pendingSlots = computed(() => {
   if (!busy.value || !job.value) return new Set()
   return new Set(JSON.parse(job.value.slots_json || '[]').slice(job.value.completed || 0))
 })
-async function controlTask() {
-  if (controlling.value || !job.value) return
+async function controlTask(action = paused.value || job.value?.resumable ? 'resume' : 'stop') {
+  if (controlling.value || submitting.value || !job.value) return
+  error.value = ''
   controlling.value = true
-  try { await api.controlExpressionStandingTask(props.character.id, job.value.id, paused.value || job.value.resumable ? 'resume' : 'stop'); await refresh() }
+  try { await api.controlExpressionStandingTask(props.character.id, job.value.id, action); await refresh() }
   catch (e) { error.value = e.message }
   finally { controlling.value = false }
 }
@@ -145,7 +146,7 @@ onBeforeUnmount(() => clearInterval(scanTipTimer))
 const statusLabels = { empty: '未生成', queued: '等待出图', generating: '正在出图', done: '已完成', failed: '失败' }
 const targets = computed(() => slots.value.map(s => s.id))
 const imageCount = computed(() => slots.value.filter(s => s.image_url).length)
-const jobText = computed(() => ({ queued: '等待任务', outfits: '正在自动补全所选服装，完成后继续生成立绘…', stopping: '当前步骤完成后停止，不再提交下一张', paused: '任务已停止，可继续剩余立绘', prompts: '正在一次生成全部提示词…', generating: `正在逐张出图 ${job.value?.completed || 0}/${JSON.parse(job.value?.slots_json || '[]').length}`, done: '本批次已完成', partial_failed: '部分图片失败，可单独重试', failed: '任务失败' })[job.value?.status] || '')
+const jobText = computed(() => ({ queued: '等待任务', outfits: '正在自动补全所选服装，完成后继续生成立绘…', stopping: '当前步骤完成后停止，不再提交下一张', paused: '任务已停止，可继续剩余立绘，或按原生成方向重写本批次全部提示词并从头出图', prompts: '正在一次生成全部提示词…', generating: `正在逐张出图 ${job.value?.completed || 0}/${JSON.parse(job.value?.slots_json || '[]').length}`, done: '本批次已完成', partial_failed: '部分图片失败，可单独重试', failed: '任务失败' })[job.value?.status] || '')
 let timer, requestSeq = 0
 async function refresh() {
   if (!props.open || !props.character?.id) return
@@ -168,7 +169,7 @@ const unsubscribe = onEvent('expression_standings_updated', d => { if (d.charact
 onBeforeUnmount(() => { clearInterval(timer); requestSeq++; unsubscribe() })
 function edit(slot) { editingId.value = slot.id; prompt.value = slot.prompt || ''; generation.value = { ...slot.generation, portraitLoras: true }; showPrompt.value = false }
 async function start(ids, reusePrompts = false) {
-  if (locked.value) return
+  if (locked.value || controlling.value) return
   error.value = ''; submitting.value = true
   try {
     const characterId = props.character.id

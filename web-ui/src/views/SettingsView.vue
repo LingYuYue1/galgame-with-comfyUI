@@ -1004,14 +1004,13 @@ type="range" min="0" :max="MOMENT_FREQ_STEPS.length - 1" step="1"
     </linshe-modal>
 
     <!-- 质量提示词弹窗 -->
-    <linshe-modal v-model="qualityDialog.show" title="质量提示词">
+    <linshe-modal v-model="qualityDialog.show" title="质量提示词" wide :transition-ms="300">
       <p class="form-dialog-desc">填写英文质量提示词覆盖工作流默认值，留空则使用系统默认</p>
       <linshe-input
         v-model="qualityDialog.text"
         type="textarea"
-        rows="4"
-        maxlength="500"
-        placeholder="masterpiece, best quality..."
+        rows="8"
+        placeholder="masterpiece, best quality, score_9, score_8，highres, absurdres, year 2025"
       />
       <template #footer>
         <linshe-button variant="secondary" @click="qualityDialog.show = false">取消</linshe-button>
@@ -1020,14 +1019,13 @@ type="range" min="0" :max="MOMENT_FREQ_STEPS.length - 1" step="1"
     </linshe-modal>
 
     <!-- 负面提示词弹窗 -->
-    <linshe-modal v-model="negativeDialog.show" title="负面提示词">
+    <linshe-modal v-model="negativeDialog.show" title="负面提示词" wide :transition-ms="300">
       <p class="form-dialog-desc">填写英文负面提示词覆盖工作流默认值，留空则使用工作流内置默认</p>
       <linshe-input
         v-model="negativeDialog.text"
         type="textarea"
-        rows="4"
-        maxlength="500"
-        placeholder="lowres, bad anatomy, bad hands..."
+        rows="8"
+        placeholder="score_1, score_2, score_3, bad anatomy, bad proportions, deformed anatomy, deformed face, deformed eyes, multiple fingers, text, watermark, artist name, censor, mosaic, signature, logo, twitter username, patreon username, username, shadows, highlights, strong lighting, dramatic lighting, rim light, backlighting, high contrast, volumetric lighting"
       />
       <template #footer>
         <linshe-button variant="secondary" @click="negativeDialog.show = false">取消</linshe-button>
