@@ -177,6 +177,14 @@ export function adaptWorldText(worldSetting, mode = 'strip', slots = null) {
   let found = false;
 
   for (const line of lines) {
+    // ★ 闭合标签是结构框架（不属于任何内容节）：即便它紧跟被裁的节，也必须保留，
+    //   否则注入 prompt 的 <world_setting> 块会变成未闭合。
+    //   （上游 v3.8.2 曾为此专加回归断言：closing tag must reach the model unchanged；本仓同样保证。）
+    if (line.trim() === '</world_setting>') {
+      skipping = false;
+      out.push(line);
+      continue;
+    }
     const m = line.match(/^#{1,6}\s*(.+?)\s*$/);
     if (m) {
       if (isAmbience(m[1])) {

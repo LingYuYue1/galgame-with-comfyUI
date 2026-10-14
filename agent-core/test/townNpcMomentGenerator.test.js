@@ -1,6 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import os from 'node:os';
+import path from 'node:path';
 process.env.DB_PATH = ':memory:';
+// ⚠ 隔离世界观项目库目录：本测试的断言依赖「未声明氛围节」的保守默认，不能让真实
+//   data/world-projects/ 里的声明改变注入结果（须先于任何 src 模块 import）。
+process.env.LINSHE_WORLD_PROJECTS_DIR = path.join(os.tmpdir(), 'linshe-town-npc-moment-no-world-projects');
 globalThis.fetch = async () => { throw new Error('Network forbidden'); };
 const { config } = await import('../src/config.js');
 const { getDb, closeDb } = await import('../src/db/index.js');
@@ -14,6 +19,9 @@ const failImage = { generateImageRaw: async () => ({ success: false, images: [] 
 test('town npc moments post with npc authorship, day facts in the prompt, and deferral on cap', async t => {
   const db = getDb();
   t.after(() => closeDb());
+
+  const world = '## 基本规则\n居民使用魔法。\n## 人们的行为\n夜间禁止出门，茶摊只在白天营业。';
+  db.prepare('UPDATE world_settings SET content = ? WHERE is_active = 1').run(world);
 
   db.prepare(`INSERT INTO town_maps (name, grid_cols, grid_rows) VALUES ('m', 10, 10)`).run();
   db.prepare(`INSERT INTO town_locations (map_id, key, name, kind, grid_x, grid_y)
@@ -45,6 +53,13 @@ test('town npc moments post with npc authorship, day facts in the prompt, and de
 
   // prompt 带上了今天的真实相遇素材与人设
   const promptText = seen.map(msgs => msgs.map(m => m.content).join('\n')).join('\n');
+  // ⚠ 上游 v3.8.2 原断言：整段 world 原样到达模型（`<world_setting>\n${world}\n</world_setting>`）。
+  //   但本仓保留 Pr 系列的氛围节裁剪（朋友圈链路防复读实测保护）：<world_setting> 内的
+  //   「## 人们的行为」例句节必须被裁掉，否则 LLM 会复读例句措辞（见 momentForms.js 文档）。
+  //   故按本地口径锁三件事：开标签 + 规则节到达、闭合标签完整、氛围例句节被裁掉。
+  assert.ok(promptText.includes('<world_setting>\n## 基本规则\n居民使用魔法。'), 'world rules must reach the model');
+  assert.ok(promptText.includes('</world_setting>'), 'closing tag must survive the ambience-section strip');
+  assert.ok(!promptText.includes('夜间禁止出门'), 'ambience examples must be stripped for moments');
   assert.ok(promptText.includes('阿圆和路过的货郎在茶摊聊起了南边的新鲜货'), 'encounter summary should feed the prompt');
   assert.ok(promptText.includes('茶摊主'), 'job persona should be injected');
   assert.ok(promptText.includes('禁止否认或编造更大的事'), 'facts must not be contradicted or inflated');

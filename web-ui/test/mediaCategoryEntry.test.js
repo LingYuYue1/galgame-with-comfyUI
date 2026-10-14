@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readMediaSeen, markMediaSeen, mediaCategoryUnread, chooseMediaCategory } from '../src/utils/mediaCategoryEntry.js'
+import { readMediaSeen, markMediaSeen, mediaCategoryUnread, chooseMediaCategory, chooseMediaRefreshCategory } from '../src/utils/mediaCategoryEntry.js'
 
 const categories = ['traditional', 'digital', 'social']
 function memoryStorage(value = null) {
@@ -21,6 +21,33 @@ test('multiple unread categories share priority; no unread falls back to all thr
   assert.equal(chooseMediaCategory(categories, unread, () => 0), 'traditional')
   assert.equal(chooseMediaCategory(categories, unread, () => 0.999), 'social')
   assert.deepEqual([0, 0.5, 0.999].map(r => chooseMediaCategory(categories, {}, () => r)), categories)
+})
+
+test('repeated media navigation opens another updated category even when the current one is unread', () => {
+  for (const current of categories) {
+    for (const target of categories.filter(key => key !== current)) {
+      for (const random of [0, 0.5, 0.999]) {
+        assert.equal(chooseMediaRefreshCategory(categories, {
+          [current]: true, [target]: true,
+        }, current, () => random), target)
+      }
+    }
+  }
+})
+
+test('repeated media navigation keeps the current category when no other category has updates', () => {
+  for (const current of categories) {
+    for (const unread of [{}, { [current]: true }]) {
+      assert.equal(chooseMediaRefreshCategory(categories, unread, current), current)
+    }
+  }
+})
+
+test('multiple updates elsewhere share entry priority without returning to the current category', () => {
+  const unread = { traditional: true, digital: true, social: true }
+  assert.equal(chooseMediaRefreshCategory(categories, unread, 'digital', () => 0), 'traditional')
+  assert.equal(chooseMediaRefreshCategory(categories, unread, 'digital', () => 0.999), 'social')
+  assert.equal(chooseMediaRefreshCategory(categories, { social: true }, ''), 'social')
 })
 
 test('seen posts persist across visits and only newer content signals an update', () => {

@@ -229,6 +229,14 @@ export function adaptWorldForMoment(worldSetting, mode = 'strip') {
   let found = false;
 
   for (const line of lines) {
+    // ★ 闭合标签是结构框架（不属于任何内容节）：即使它紧跟被裁的节，也必须保留，
+    //   否则注入 prompt 的 <world_setting> 块会变成未闭合（与 db/worldRepository.js
+    //   的 adaptWorldText 同款修复，两处行为必须一致）。
+    if (line.trim() === '</world_setting>') {
+      skipping = false;
+      out.push(line);
+      continue;
+    }
     if (/^#{1,6}\s/.test(line)) {
       const isBehavior = WORLD_BEHAVIOR_HEADING_RE.test(line.trim());
       if (isBehavior) {
