@@ -66,9 +66,11 @@ test('★★★ 编辑器载荷来自 /outline/editor（含 prefix/suffix/blocks
   for (const k of ['prefix', 'suffix', 'separator']) {
     assert.ok(new RegExp(`${k}\\.value`).test(src), `编辑器必须回传 ${k}（否则拼回不可能逐字节一致）`)
   }
-  // blocks 用于给每个节点配上原文块（`toNode(beat, blocks[i])`）
+  // blocks 用于给每个节点配上原文块 —— 必须按服务端下发的 rawIndex 配对：
+  // raw 里可能存在被过滤的残缺块（F-50），按下标 i 直配会整体错位。
+  // （2026-10-14 更新：原「blocks[i] 直配」正是错位缺陷的载体形态，契约已同步升级）
   assert.match(src, /ed\.blocks/, '必须从载荷里取每个节点的原文块')
-  assert.match(src, /toNode\(b, blocks\[i\]|blocks\[i\]\s*\|\|/, '每个节点应带上对应原文块')
+  assert.match(src, /toNode\(b, blocks\[b\?\.rawIndex \?\? i\]/, '每个节点应按 rawIndex 带上自己的原文块')
   // ★ 前端不得自己解析 raw（会把"保留未知字段"的活儿做丢）
   assert.ok(!/\.raw\b[\s\S]{0,40}\.split\(/.test(src), '不应在前端自己切 raw')
 })
