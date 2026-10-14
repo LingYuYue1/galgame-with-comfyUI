@@ -10,13 +10,14 @@
  */
 
 import { getDb, getSystemRules, getSystemRulesWithWorld, getWorldSetting } from '../db/index.js';
+import { recallMomentMemories, formatMomentMemories } from './momentMemoryRecall.js';
 import { chatSync } from '../llm/llm-client.js';
 import { config } from '../config.js';
 import { broadcast as broadcastToUnified } from './unifiedStreamBus.js';
 import { saveBase64Image } from './imagePaths.js';
 import { getWorldIntegrationRule } from '../builtinRules.js';
 import { compressDataUriToAvif } from './imageTranscode.js';
-import { MOMENT_COMMENT_RULES, firstMomentImagePrompt } from './momentForms.js';
+import { MOMENT_COMMENT_RULES, firstMomentImagePrompt, adaptWorldForMoment } from './momentForms.js';
 import { extractMomentImageRequest, stripMomentImageRequest } from './momentImageRequest.js';
 
 const USER_POST_MAX_IMAGES = 3;
@@ -151,7 +152,7 @@ export async function generateUserPostComment(character, post, historyComments, 
 
   const worldSetting = getWorldSetting();
   const permissionPrompt = worldSetting
-    ? getSystemRulesWithWorld()
+    ? getSystemRulesWithWorld({ worldTransform: adaptWorldForMoment })
     : getSystemRules();
   const worldIntegrationNote = worldSetting
     ? getWorldIntegrationRule('momentReply')
@@ -220,6 +221,12 @@ export async function generateUserPostComment(character, post, historyComments, 
   if (imageContext) msgs.push({ role: 'system', content: imageContext });
   msgs.push({ role: 'system', content: character.base_prompt || '' });
   if (relationContext) msgs.push({ role: 'system', content: relationContext });
+  const memories = await recallMomentMemories([`char-${character.id}`], {
+    postText: visibleContent,
+    threadText: historyComments.slice(-6).map(c => c.content),
+    imageText: imageDescription,
+  }, deps);
+  if (memories.length) msgs.push({ role: 'system', content: formatMomentMemories(memories, displayName) });
   msgs.push({ role: 'user', content: task });
 
   const chat = deps.chatSync || chatSync;

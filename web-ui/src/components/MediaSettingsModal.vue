@@ -178,6 +178,17 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'changed'])
 
 const toastFn = inject('toast')
+const confirmFn = inject('confirm', null)
+async function confirmRemoval(message) {
+  return confirmFn
+    ? await confirmFn({
+        title: '确认删除',
+        message,
+        okText: '删除',
+        danger: true
+      })
+    : window.confirm(message)
+}
 const list = ref([])
 const boards = ref([])
 const editingId = ref(null)
@@ -356,8 +367,9 @@ function startCreate() {
 async function reloadBoards() {
   if (!editingId.value) { boards.value = []; return }
   try {
-    const d = await api.listMediaBoards(editingId.value)
-    boards.value = d.boards || []
+    const id = editingId.value
+    const d = await api.listMediaBoards(id)
+    if (editingId.value === id) boards.value = d.boards || []
   } catch (err) {
     console.error('[media-settings] 读取板块失败:', err)
     boards.value = []
@@ -398,7 +410,9 @@ async function save() {
 
 async function removeOutlet() {
   const name = form.value?.name || ''
-  const ok = window.confirm(`确定删除「${name}」吗？\n该媒体下的板块与所有帖子会一并删除，且不可恢复。`)
+  const ok = await confirmRemoval(
+    `确定删除「${name}」吗？\n该媒体下的板块与所有帖子会一并删除，且不可恢复。`
+  )
   if (!ok) return
   try {
     await api.deleteMediaOutlet(editingId.value)
@@ -448,7 +462,9 @@ async function renameBoard(b, name) {
 }
 
 async function removeBoard(b) {
-  const ok = window.confirm(`删除板块「${b.name}」？\n该板块下的帖子不会被删除，只是变成未分类。`)
+  const ok = await confirmRemoval(
+    `删除板块「${b.name}」？\n该板块下的帖子不会被删除，只是变成未分类。`
+  )
   if (!ok) return
   try {
     await api.deleteMediaBoard(b.id)

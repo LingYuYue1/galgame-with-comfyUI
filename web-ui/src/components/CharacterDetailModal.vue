@@ -341,7 +341,7 @@
                 外观 tag 参考
                 <a :href="`https://animadex.net/?mode=characters&q=${encodeURIComponent(character?.name).replaceAll('_', '+')}`" target="_blank" :title="character?.name">animadex · {{ character?.display_name || character?.name }}</a>
               </div>
-              <linshe-button variant="primary" :disabled="!detail.dirty" @click="saveCharDetail">保存</linshe-button>
+              <linshe-button variant="primary" :disabled="!detail.dirty || outfitBatchRunning" @click="saveCharDetail">保存</linshe-button>
             </div>
           </div>
         </div>
@@ -647,6 +647,7 @@ import { ref, reactive, computed, watch, inject, onMounted, onUnmounted } from '
 import { useChatStore } from '../stores/chat.js'
 import * as api from '../api/index.js'
 import LinsheSelect from './ui/LinsheSelect.vue'
+import LinsheTabs from './ui/LinsheTabs.vue'
 import LinsheButton from './ui/LinsheButton.vue'
 import LinsheInput from './ui/LinsheInput.vue'
 import LinsheSwitch from './ui/LinsheSwitch.vue'
@@ -911,6 +912,13 @@ async function loadSceneOutfits(characterId, fallbackWorkDesc = '', gen = detail
 //   原先固定"按工装推其余三套"——工装没填就完全用不了，现在任一已填项即可驱动。
 // 注意变量名别与立绘的 sceneGenerating 撞（那是「生成某场景立绘」用的）。
 const outfitGenerating = ref(false)
+// 后台「场景服装」批量任务是否在跑（用于禁用保存 / 生成按钮）。
+// 本地已改为草稿式生成（generateSceneOutfits 不落后台任务），故这里恒为 false ——
+// 保留该口径以承接早前合并进来的保存按钮 disabled 条件（模板中引用 outfitBatchRunning）。
+const activeOutfitBatch = computed(() => imageEditTasks.tasks.find(task =>
+  task.action === 'scene_outfits' && task.status === 'running' && Number(task.meta?.characterId) === Number(props.character?.id)
+))
+const outfitBatchRunning = computed(() => !!activeOutfitBatch.value)
 
 async function generateOtherSceneOutfits() {
   const c = props.character
@@ -2044,6 +2052,10 @@ const standingPanel = reactive({
   generating: sceneGenerating,
   busy: standingBusy,
   busyForChar: standingBusyForChar,
+  // 批量任务的当前阶段由后台决定，不能使用正在浏览的场景名。
+  loadingText: computed(() => activeOutfitBatch.value
+    ? (activeOutfitBatch.value.progress?.stage || '正在准备服装与形象…')
+    : `正在生成「${currentSceneLabel.value}」形象…`),
   uploading: standingUploading,
   tip: standingTip,
   displayUrl: standingDisplayUrl,
@@ -2141,14 +2153,31 @@ const standingPanel = reactive({
   display: flex; align-items: center; justify-content: center;
   color: var(--on-accent); font-size: 26px; font-weight: 700; flex-shrink: 0;
 }
+.detail-avatar-fallback { width: 100%; height: 100%; border-radius: inherit; background: var(--accent-solid); display: grid; place-items: center; }
 .detail-avatar-img {
   width: 100%; height: 100%;
   object-fit: cover;
   border-radius: inherit;
   display: block;
 }
-.detail-avatar.clickable { cursor: pointer; transition: opacity 0.15s; }
-.detail-avatar.clickable:hover { opacity: 0.85; }
+.detail-avatar.clickable { cursor: pointer; text-align: center; }
+.detail-avatar.clickable:hover, .detail-avatar.clickable:focus-visible {
+  border-color: var(--accent);
+  outline: 2px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  outline-offset: 2px;
+}
+.detail-avatar-corner {
+  position: absolute; bottom: -4px; right: -4px;
+  width: 22px; height: 22px; display: grid; place-items: center;
+  background: var(--bg-primary); color: var(--accent);
+  border: 1px solid var(--border-strong); border-radius: 50%;
+  box-shadow: var(--shadow-hard-sm); pointer-events: none;
+  transition: transform 0.3s var(--ease-spring);
+}
+.detail-avatar:hover .detail-avatar-corner, .detail-avatar:focus-visible .detail-avatar-corner {
+  background: var(--accent-solid); color: var(--on-accent); border-color: var(--accent-solid);
+  transform: translate(1px, 1px) scale(1.08);
+}
 
 /* ═══ 角色关系区块 ═══ */
 .detail-rel-section {
@@ -2316,6 +2345,46 @@ const standingPanel = reactive({
 .prompt-textarea { min-height: 500px; }
 
 .modal-wide .prompt-textarea { padding: 12px; border-radius: 10px; font-size: 12px; line-height: 1.7; color: var(--text-primary); }
+
+/* 人设与服装复用统一表单、按钮和分段控件，仅定义布局。 */
+.persona-accordion { margin-top: 0; flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.persona-section { flex: 0 0 auto; display: flex; flex-direction: column; min-height: 0; transition: flex-grow 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+.persona-section.is-open { flex-grow: 1; }
+.persona-section + .persona-section { margin-top: 16px; }
+.persona-section-heading { margin: 0; }
+.persona-section-trigger { display: flex; align-items: center; gap: 11px; padding: 10px 0; border-bottom: 1px solid var(--border-strong); cursor: pointer; text-align: left; color: var(--text-secondary); }
+.persona-section-trigger:hover, .persona-section.is-open .persona-section-trigger { color: var(--text-primary); }
+.persona-section-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: var(--radius-sm); }
+.persona-section-emblem { display: grid; place-items: center; width: 32px; height: 32px; flex-shrink: 0; border-radius: 9px 7px 9px 6px; background: var(--bg-sunken); border: 1px solid var(--border-strong); transform: rotate(-4deg); transition: transform 0.3s var(--ease-spring); }
+.persona-section.is-open .persona-section-emblem { color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--bg-primary)); box-shadow: var(--shadow-hard-sm); }
+.persona-section-trigger:hover .persona-section-emblem { transform: rotate(0); }
+.persona-section-title { flex: 1; text-align: left; font-size: var(--fs-sm); font-weight: 700; }
+.persona-section-subtitle { display: block; margin-top: 3px; font-size: var(--fs-xs); font-weight: 400; color: var(--text-secondary); }
+.persona-section.is-open .persona-section-trigger { border-bottom-color: var(--accent); }
+.persona-section-chevron { flex-shrink: 0; transition: transform 0.3s ease; }
+.persona-section-chevron.open { transform: rotate(180deg); }
+/* 用真实布局高度收展，标题随内容移动；保留 DOM，切换不丢失编辑位置。 */
+.persona-collapse {
+  display: grid; grid-template-rows: 0fr; flex: 1; min-height: 0;
+  visibility: hidden;
+  transition: grid-template-rows 0.3s cubic-bezier(0.4, 0, 0.2, 1), visibility 0s 0.3s;
+}
+.persona-collapse.is-expanded { grid-template-rows: 1fr; visibility: visible; transition-delay: 0s; }
+.persona-section-body { min-height: 0; overflow: hidden; }
+.persona-section-content { padding-top: 12px; min-height: 100%; box-sizing: border-box; display: flex; flex-direction: column; }
+.persona-section-heading { flex-shrink: 0; }
+.split-hint { margin: 0 0 12px; font-size: var(--fs-xs); color: var(--text-secondary); line-height: 1.7; }
+.scene-block { flex: 1; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.scene-block-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.scene-block-head .split-hint { flex: 1 1 220px; margin: 0; }
+.scene-edit { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+.scene-edit > .ls-input { flex: 1; }
+.scene-edit-empty { font-size: var(--fs-xs); color: var(--text-secondary); padding: 12px 0; }
+.persona-fold-enter-active, .persona-fold-leave-active { transition: opacity 0.3s ease, transform 0.3s ease; }
+.persona-fold-enter-from, .persona-fold-leave-to { opacity: 0; transform: translateY(-4px); }
+@media (prefers-reduced-motion: reduce) {
+  .persona-fold-enter-active, .persona-fold-leave-active, .persona-section-chevron, .persona-section, .persona-collapse { transition: none; }
+}
 
 /* ═══ 人设 / 外观服装（人格提示词拆分为两块）═══ */
 .split-hint {
@@ -2634,7 +2703,7 @@ const standingPanel = reactive({
 .detail-inline .modal-wide .fi, .detail-inline .modal-wide .prompt-textarea { font-size: 16px; }
 
 /* 头像行：允许换行，誓约徽章不再把「更换头像 / 移除」挤出屏幕 */
-.detail-inline .detail-avatar-row { flex-wrap: wrap; gap: 12px; margin-bottom: 14px; padding: 0 2px; }
+.detail-inline .detail-avatar-row { flex-wrap: wrap; gap: 12px; margin-bottom: 8px; padding: 6px 2px; }
 .detail-inline .detail-avatar { width: 56px; height: 56px; font-size: 24px; }
 
 /* 角色关系：标题独占一行，入口按钮并排平分（原先是标题被两个按钮挤成两行） */
@@ -2644,7 +2713,65 @@ const standingPanel = reactive({
 .detail-inline .detail-rel-btn { width: 100%; justify-content: center; }
 
 /* 角色名 / 英文名：窄屏改单列，别把两个输入框挤进半屏 */
-.detail-inline .detail-name-row { flex-direction: column; gap: 10px; }
+@media (max-width: 560px) {
+  .detail-inline .detail-name-row { flex-direction: column; gap: 8px; }
+}
+
+/* 底部操作区：说明独占一行，删除 / 保存分列两端 */
+.detail-inline .detail-actions { flex-wrap: wrap; justify-content: space-between; gap: 10px; }
+.detail-inline .recruit-appearance-hint { order: -1; flex: 1 1 100%; margin-left: 0; white-space: normal; }
+
+.detail-inline .form-group .fl { font-size: 12px; }
+.detail-inline .form-hint { font-size: 10px; }
+
+/* ═══ 平板 / 中窄视口（<1532 放不下左右悬浮窗，立绘与更多设置收进正文流）═══
+   主面板仍是居中的 min(880px, 96vw)，只把正文改成可滚动的纵向流 */
+@media (max-width: 1531px) {
+  .modal-body-detail { overflow-y: auto; }
+  .modal-body-detail .preview-card { flex: none; }
+  .modal-body-detail .prompt-textarea { flex: none; min-height: 340px; }
+}
+
+/* ═══ 移动端 ═══
+ 几何与 LinsheModal 的移动端段落同口径：遮罩只收留白（8px + 安全区），面板保留
+ 圆角 / 描边 / 白内衬的浮层观感 —— 不要再退回 100vw/100dvh + border-radius:0 的全屏面板。
+ 正文改成「内容优先」的纵向流：头像 → 内容卡 → 更多设置，底部操作区固定。 */
+
+.detail-inline {
+  padding: calc(8px + env(safe-area-inset-top, 0px))
+           calc(8px + env(safe-area-inset-right, 0px))
+           calc(8px + env(safe-area-inset-bottom, 0px))
+           calc(8px + env(safe-area-inset-left, 0px));
+}
+.detail-inline .modal-panel, .detail-inline .modal-wide { width: 100%; max-width: 100%; max-height: 100%; }
+.detail-inline .detail-panel { height: 100%; max-height: 100%; }
+
+/* 安全区由上方的遮罩留白让出，头部 / 底部不再各自叠加 */
+.detail-inline .modal-header { padding: 12px 16px; }
+.detail-inline .modal-header h3 { font-size: 15px; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 8px; }
+.detail-inline .modal-close { flex-shrink: 0; }
+.detail-inline .modal-body { padding: 4px 14px 14px; }
+.detail-inline .modal-footer { padding: 10px 14px 14px; }
+
+.detail-inline .modal-body-detail { overflow-y: auto; }
+.detail-inline .modal-body-detail .preview-card { flex: none; padding: 14px; border-radius: 12px; }
+.detail-inline .modal-body-detail .prompt-textarea { flex: none; min-height: 300px; }
+.detail-inline .modal-wide .fi, .detail-inline .modal-wide .prompt-textarea { font-size: 16px; }
+
+/* 头像行：允许换行，誓约徽章不再把「更换头像 / 移除」挤出屏幕 */
+.detail-inline .detail-avatar-row { flex-wrap: wrap; gap: 12px; margin-bottom: 8px; padding: 6px 2px; }
+.detail-inline .detail-avatar { width: 56px; height: 56px; font-size: 24px; }
+
+/* 角色关系：标题独占一行，入口按钮并排平分（原先是标题被两个按钮挤成两行） */
+.detail-inline .detail-rel-section { padding: 12px; margin-bottom: 14px; }
+.detail-inline .detail-rel-header { flex-direction: column; align-items: stretch; gap: 10px; margin-bottom: 10px; }
+.detail-inline .detail-rel-btns, .detail-inline .detail-rel-ctas { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.detail-inline .detail-rel-btn { width: 100%; justify-content: center; }
+
+/* 角色名 / 英文名：窄屏改单列，别把两个输入框挤进半屏 */
+@media (max-width: 560px) {
+  .detail-inline .detail-name-row { flex-direction: column; gap: 8px; }
+}
 
 /* 底部操作区：说明独占一行，删除 / 保存分列两端 */
 .detail-inline .detail-actions { flex-wrap: wrap; justify-content: space-between; gap: 10px; }

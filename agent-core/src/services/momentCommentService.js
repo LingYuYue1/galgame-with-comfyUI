@@ -15,7 +15,7 @@ import { chatSync } from '../llm/llm-client.js';
 import { config } from '../config.js';
 import { getCoreDialogueRules, getWorldIntegrationRule } from '../builtinRules.js';
 import { loadEmotionState, stateToPrompt, loadAffinity, affinityToPrompt, cropPersonalityForEmotion } from './emotionEngine.js';
-import { MOMENT_COMMENT_RULES, firstMomentImagePrompt } from './momentForms.js';
+import { MOMENT_COMMENT_RULES, firstMomentImagePrompt, adaptWorldForMoment } from './momentForms.js';
 import { extractMomentImageRequest, stripMomentImageRequest } from './momentImageRequest.js';
 import { userNickname, loadCommentHistory, isCharacterSleeping } from './momentUserPostService.js';
 import { recallMomentMemories, formatMomentMemories } from './momentMemoryRecall.js';
@@ -132,7 +132,7 @@ export async function generateCharacterCommentReply(character, post, historyComm
   // 权限层
   const worldSettingReply = getWorldSetting();
   const permissionPrompt = worldSettingReply
-    ? getSystemRulesWithWorld()
+    ? getSystemRulesWithWorld({ worldTransform: adaptWorldForMoment })
     : getSystemRules();
   const worldIntegrationNoteReply = worldSettingReply
     ? getWorldIntegrationRule('momentReply')
@@ -241,16 +241,17 @@ ${MOMENT_COMMENT_RULES}
 
   msgs.push({ role: 'system', content: contextTask });
 
-  // RAG 记忆注入：检索发帖人（A）的记忆，让即将回评的角色（B）知道 A 经历过什么。
-  // 角色发的朋友圈取帖主本人的记忆；用户 / NPC 发的朋友圈取评论者视角下关于帖主的记忆。
-  const memoryOwnerName = isUserPost ? userName : (post.display_name || 'TA');
-  const memoryScope = post.character_id != null ? [`char-${post.character_id}`] : [`char-${character.id}`];
-  const momentMemories = await recallMomentMemories(memoryScope, {
+  const rootId = latestComment?.thread_root_id || targetComment?.thread_root_id || targetComment?.id;
+  const recallThread = historyComments.filter(c => !highlightedIds.has(c.id)
+    && (!rootId || c.id === rootId || c.thread_root_id === rootId)).slice(-6);
+  const momentMemories = await recallMomentMemories([`char-${character.id}`], {
     postText: visibleContent,
-    commentText: [...latestCommentLines, commentHistory],
+    commentText: [formatCommentLine(latestComment), formatCommentLine(targetComment)],
+    threadText: recallThread.map(formatCommentLine),
+    imageText: firstMomentImagePrompt(post.prompt),
   }, opts.deps || {});
   if (momentMemories.length) {
-    msgs.push({ role: 'system', content: formatMomentMemories(momentMemories, memoryOwnerName) });
+    msgs.push({ role: 'system', content: formatMomentMemories(momentMemories, displayName) });
   }
 
 

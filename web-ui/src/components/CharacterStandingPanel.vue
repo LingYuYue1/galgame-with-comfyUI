@@ -1,6 +1,6 @@
 <template>
   <!-- 角色立绘：桌面端是主面板左侧的悬浮窗（默认），手机端内联在详情卡正文末尾（inline） -->
-  <div class="detail-standing" :class="{ 'is-inline': inline }">
+  <div class="detail-standing" :class="{ 'is-inline': inline }" :style="{ '--standing-slide-offset': `${slideDirection * 36}px` }">
     <div class="standing-panel">
       <div
         class="standing-panel-header"
@@ -108,7 +108,7 @@
 // 角色立绘面板：桌面端是主面板左侧的悬浮窗（默认），手机端内联在详情卡正文末尾（inline）。
 // 面板自身不持有状态与请求逻辑 —— 全部由父组件通过 ctl 传入（见 CharacterDetailModal 的
 // 立绘接口）：详情弹窗会因打开 LoRA / 外观设置而整体重建，状态留在弹窗里才不会丢。
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 import LinsheButton from './ui/LinsheButton.vue'
 import LinsheInput from './ui/LinsheInput.vue'
@@ -120,6 +120,25 @@ const props = defineProps({
   /** true = 内联在正文里（手机端）；false = 悬浮在主面板左侧（桌面端） */
   inline: { type: Boolean, default: false },
 })
+
+// 只保存过渡状态；角色与形象数据仍由父组件管理。
+const slideDirection = ref(1)
+const sceneSwitching = ref(false)
+const sceneKey = computed(() => `${props.character?.id ?? ''}:${props.ctl.sceneIndex ?? props.ctl.sceneLabel ?? ''}`)
+function switchScene(direction) {
+  if (props.ctl.busy || sceneSwitching.value || (props.ctl.scenes?.length || 0) <= 1) return
+  slideDirection.value = direction
+  sceneSwitching.value = true
+  if (direction < 0) props.ctl.prevScene()
+  else props.ctl.nextScene()
+}
+// 提前缓存已生成的场景图，减少切换时等图片下载造成的空白。
+watch(() => props.ctl.scenes?.map(scene => scene.image_url).filter(Boolean) || [], urls => {
+  for (const url of new Set(urls)) {
+    const image = new Image()
+    image.src = url
+  }
+}, { immediate: true })
 
 // 手机端内联时控件用 md（点按更稳），桌面端悬浮窗保持 sm
 const controlSize = computed(() => (props.inline ? 'md' : 'sm'))

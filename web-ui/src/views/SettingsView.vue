@@ -632,7 +632,7 @@ type="range" min="1" max="10" step="1"
         <div class="toggle-row freq-row">
           <div>
             <div class="tl">主动聊天频率</div>
-            <div class="td">0 关闭，越大越频繁。</div>
+            <div class="td">{{ freqSlider <= 0 ? '关闭主动聊天。' : `频率触发间隔约 ${chatFreqLabel}，实际时间会有浮动。` }}</div>
           </div>
           <div class="freq-control">
             <input
@@ -640,14 +640,14 @@ type="range" min="0" max="1" step="0.1"
               v-model.number="freqSlider"
               @change="onFreqChange"
             />
-            <span class="freq-val">{{ freqSlider.toFixed(1) }}</span>
+            <span class="freq-val">{{ chatFreqLabel }}</span>
           </div>
         </div>
 
         <div class="toggle-row freq-row">
           <div>
             <div class="tl">奇遇触发频率</div>
-            <div class="td">0 关闭自动触发，1 为默认频率（约 30 分钟一次）。</div>
+            <div class="td">{{ eventFreqSlider <= 0 ? '关闭自动触发。' : `约每 ${eventFreqLabel} 检查一次，满足条件时触发奇遇。` }}</div>
           </div>
           <div class="freq-control">
             <input
@@ -655,7 +655,7 @@ type="range" min="0" max="1" step="0.1"
               v-model.number="eventFreqSlider"
               @change="onEventFreqChange"
             />
-            <span class="freq-val">{{ eventFreqSlider.toFixed(1) }}</span>
+            <span class="freq-val">{{ eventFreqLabel }}</span>
           </div>
         </div>
 
@@ -1370,6 +1370,14 @@ const connSaved = ref(false)
 const features = reactive({ emotion: false, memory: false, replyGuesses: false, realtimeAffinityDisplay: false, serializeBackgroundLLM: false, backgroundLLMMaxConcurrency: 3, mergeMessages: false, weather: true, momentsAdult: false })
 const freqSlider = ref(0.5)
 const eventFreqSlider = ref(1)
+// 仅换算显示，保留原有 0~1 参数；公式对应两个 scheduler 的现有间隔。
+function frequencyTimeLabel(minutes) {
+  return minutes % 60 === 0 ? `${minutes / 60} 小时` : `${minutes} 分钟`
+}
+const chatFreqLabel = computed(() => freqSlider.value <= 0
+  ? '关闭' : frequencyTimeLabel(Math.round(8 + (1 - freqSlider.value) / 0.9 * 112)))
+const eventFreqLabel = computed(() => eventFreqSlider.value <= 0
+  ? '关闭' : frequencyTimeLabel(Math.round(30 / eventFreqSlider.value)))
 // 朋友圈发帖频率档位：value 是 momentFreq（周期 = 基准 2~8 小时 / value）。
 // 用档位而不是连续滑块：周期跨度从 5 分钟到 32 小时，连续拖动既拖不准也说不清。
 // 顺序按「越往右越频繁」，与「频率」的直觉一致。

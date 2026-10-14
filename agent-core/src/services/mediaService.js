@@ -346,7 +346,34 @@ export function isPeriodicalLayout(layout) {
   return ['portal', 'poster', 'weekly'].includes(String(layout || ''));
 }
 
+/**
+ * 校验媒体形态入参 —— 非法值直接 400（含显式传入的 `null`）。
+ *
+ * ⚠ 白名单是**新建可选的全部形态**（`OUTLET_LAYOUT_KEYS`，与设置页下拉同源）：
+ *   feed / forum / photos / gallery / portal / poster。
+ *   不含旧形态 `weekly` —— 老数据仍能正常渲染（`normalizeLayout` 兼容），但不允许**新写**。
+ *   曾经形态名散在路由/服务各处硬编码而漏判，这里收成单点。
+ *
+ * @param {*} layout 待校验的形态
+ * @returns {string} 规范化后的合法形态 key
+ */
+function validateOutletLayout(layout) {
+  const s = String(layout ?? '').trim();
+  if (!OUTLET_LAYOUT_KEYS.includes(s)) {
+    throw Object.assign(new Error('媒体类型不在允许的六种形态之内'), { statusCode: 400 });
+  }
+  return s;
+}
+
 export function createOutlet({ name, tagline = '', prompt = '', icon = '', layout = 'feed' }) {
+  /**
+   * 形态兼容策略（两条口径并存，两个回归测试各自钉住，缺一不可）：
+   *   · **显式 `null`** → 400：调用方明确给了个空类型，属入参错误，不静默兜底；
+   *   · 其余非法/缺失 → `normalizeLayout` 回落 `feed`（保持本地「兼容旧调用方」契约）。
+   *   （mediaOutletLayout 测「null 抛 400」；local-patch-regression 测「脏字符串回落 feed」。）
+   */
+  if (layout === null) validateOutletLayout(layout);
+  const layoutKey = normalizeLayout(layout);
   const nm = clampText(name, 24);
   if (!nm) throw Object.assign(new Error('媒体名称不能为空'), { statusCode: 400 });
   if (!clampText(prompt, 8000)) throw Object.assign(new Error('媒体提示词不能为空'), { statusCode: 400 });
@@ -357,21 +384,24 @@ export function createOutlet({ name, tagline = '', prompt = '', icon = '', layou
   const r = db.prepare(`
     INSERT INTO media_outlets (name, tagline, prompt, icon, sort_order, enabled, layout)
     VALUES (?, ?, ?, ?, ?, 1, ?)
-  `).run(nm, clampText(tagline, 60), clampText(prompt, 8000), clampText(icon, 8), maxOrder + 1, normalizeLayout(layout));
+  `).run(nm, clampText(tagline, 60), clampText(prompt, 8000), clampText(icon, 8), maxOrder + 1, layoutKey);
   // 用户又亲手把同名媒体建回来了 → 撤掉删除墓碑，语义才算一致
   forgetDeletedOutlet(nm);
   // T5：留一条创建痕迹（谁建的、什么形态）
   recordMediaOp({
     opType: 'create', targetType: 'outlet', targetId: Number(r.lastInsertRowid),
-    targetName: nm, outletName: nm, detail: `新建媒体「${nm}」（形态 ${normalizeLayout(layout)}）`,
-    snapshot: { name: nm, layout: normalizeLayout(layout), tagline: clampText(tagline, 60) },
+    targetName: nm, outletName: nm, detail: `新建媒体「${nm}」（形态 ${layoutKey}）`,
+    snapshot: { name: nm, layout: layoutKey, tagline: clampText(tagline, 60) },
   });
   return getOutlet(Number(r.lastInsertRowid));
 }
+
 export function updateOutlet(id, patch = {}) {
   const db = getDb();
   const cur = db.prepare('SELECT * FROM media_outlets WHERE id = ?').get(id);
   if (!cur) return null;
+  // 形态：显式传入才校验（非法值 400）；undefined = 不动，沿用当前值（含老形态兼容）
+  const layout = patch.layout === undefined ? normalizeLayout(cur.layout) : validateOutletLayout(patch.layout);
   const name = patch.name !== undefined ? clampText(patch.name, 24) : cur.name;
   if (!name) throw Object.assign(new Error('媒体名称不能为空'), { statusCode: 400 });
   if (patch.name !== undefined) {
@@ -387,7 +417,7 @@ export function updateOutlet(id, patch = {}) {
     patch.prompt !== undefined ? clampText(patch.prompt, 8000) : cur.prompt,
     patch.icon !== undefined ? clampText(patch.icon, 8) : cur.icon,
     patch.enabled !== undefined ? (patch.enabled ? 1 : 0) : cur.enabled,
-    patch.layout !== undefined ? normalizeLayout(patch.layout) : (cur.layout || 'feed'),
+    layout,
     id,
   );
   return getOutlet(id);
@@ -641,11 +671,14 @@ export function listPosts({ outletId = null, boardId = null, category = null, li
 export function listPostsNeedingImage(limit = 8) {
   // ⚠ 必须排除门户：门户由 fillPortalImages 负责逐块补图，而门户帖的 image_prompt 存的是
   //   「第一块的头图提示词」，被这里捞到会**额外多生一张重复的主图**（正是两层设计要避免的浪费）。
+  //   ★ 判据用**帖子自身的 `payload.portal`**，而不是媒体当前的 `layout` ——
+  //     否则媒体从 feed 改成 portal 后，它名下的**普通帖**也会被一并排除，永远配不上图。
+  //     （回归测试 mediaOutletLayout.test.js「changing type moves old posts」钉住此行为。）
   return getDb().prepare(`
     SELECT p.id, p.image_prompt, p.character_id, p.payload_json FROM media_posts p
     LEFT JOIN media_outlets o ON o.id = p.outlet_id
     WHERE p.image_status = 'pending' AND p.image_prompt IS NOT NULL AND p.image_prompt != ''
-      AND COALESCE(o.layout, 'feed') != 'portal'
+      AND COALESCE(json_extract(CASE WHEN json_valid(p.payload_json) THEN p.payload_json ELSE '{}' END, '$.portal'), 0) != 1
     ORDER BY p.id DESC LIMIT ?
   `).all(limit);
 }
@@ -2490,6 +2523,7 @@ async function generatePortalIssue(outlet) {
   );
   const postId = Number(r.lastInsertRowid);
   console.log(`[media] ${outlet.name} 第${p.issue}期门户已出刊（post #${postId}，${p.sections.length} 个板块），配图后台补印`);
+  broadcast('media_new_posts', { outletId: outlet.id, count: 1 });
 
   // ★ 出刊即开始补图（用户口径）。**不 await** —— 出刊要立刻返回，这正是两层设计的意义。
   setTimeout(() => {

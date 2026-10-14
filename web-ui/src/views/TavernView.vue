@@ -513,12 +513,12 @@
             <div v-if="recruit.step === 'preview'" class="modal-body" style="position:relative">
               <div class="preview-card">
                 <div class="preview-name-row">
-                  <input
+                  <linshe-input
                     v-model="recruit.result.display_name"
                     class="preview-name-input"
                     placeholder="角色名"
                   />
-                  <input
+                  <linshe-input
                     v-model="recruit.result.name"
                     class="preview-name-input"
                     placeholder="英文名（英文/拼音，唯一）"
@@ -2498,7 +2498,7 @@ onMounted(async () => {
   width: 90px;
   padding: 3px 6px;
   font-size: 13px;
-  color: var(--text-bright);
+  color: var(--town-paper-ink);
   background: #fffdf8;
   border: 1px solid rgba(var(--accent-rgb), 0.4);
   border-radius: 6px;
@@ -2846,7 +2846,7 @@ onMounted(async () => {
 }
 
 .inline-input {
-  background: rgba(255,255,255,0.9);
+  background: var(--bg-secondary);
   border: 1px solid var(--accent);
   border-radius: 8px;
   padding: 4px 10px;
@@ -3180,6 +3180,15 @@ onMounted(async () => {
 /* ── 置顶 / 取消置顶后卡片重排：TransitionGroup 的 FLIP 位移过渡 ── */
 .char-card.char-pin-move {
   transition: transform var(--dur-slow) var(--ease-out);
+}
+.char-pin-enter-active,
+.char-pin-leave-active {
+  transition: opacity 0.3s var(--ease-standard), transform 0.3s var(--ease-standard);
+}
+.char-pin-enter-from,
+.char-pin-leave-to {
+  opacity: 0;
+  transform: translateY(6px);
 }
 
 .char-card-avatar {

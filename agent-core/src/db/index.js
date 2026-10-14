@@ -2976,6 +2976,19 @@ function migrateChatBgSchema(db) {
   }
 }
 
+/** 一次性升级旧报刊；后续启动尊重用户选择的媒体类型。 */
+export function migrateMediaOutletLayouts(db) {
+  const migrated = db.prepare(`SELECT 1 FROM system_settings WHERE setting_key = 'media_layout_editable_migrated'`).get();
+  if (migrated) return;
+  db.transaction(() => {
+    db.prepare(`UPDATE media_outlets SET layout = 'portal' WHERE name IN ('狸狸通讯社','狸狸八卦') AND layout != 'portal'`).run();
+    db.prepare(`INSERT INTO system_settings (setting_key, setting_value) VALUES ('media_layout_editable_migrated', '1')`).run();
+  })();
+}
+
+
+
+
 /**
  * 迁移: 宝箱橱窗 —— 商品清单与当前橱窗
  *

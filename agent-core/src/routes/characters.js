@@ -11,7 +11,7 @@ import { config } from '../config.js';
 import { searchCharacterInfo } from '../services/webSearch.js'; // 出站已白名单化（见 webSearch.js assertAllowedOutboundUrl / toSafeMoegirlScrapeUrl）
 import { clearImageJudgeCounter } from './chat.js';
 import { invalidateGalleryCache, dataUriExt } from './images.js';
-import { startEditTask } from '../services/imageEditTasks.js';
+import { startEditTask, startBackgroundTask } from '../services/imageEditTasks.js';
 import { deleteByConversation } from '../services/vectorClient.js';
 import { clearConversationMemories } from '../services/memory/memoryRepository.js';
 import { cropPersonalityForEmotion, generateShortPromptWithLLM, runShortPromptMigration, getMigrationStatus, giveGift, getGiftCooldowns, loadEmotionState, saveEmotionSnapshot, loadOath, setOath, canSendRing, loadAffinity } from '../services/emotionEngine.js';
