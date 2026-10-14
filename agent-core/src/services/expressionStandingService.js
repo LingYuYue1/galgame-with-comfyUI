@@ -271,6 +271,20 @@ export function startStandingBatch(id, { slotIds, requirement = '', outfitScene 
     }
   };
   control.run = run;
+  control.restart = () => {
+    // Restart the whole batch, including slots already rendered before the pause.
+    // Keep existing images until their replacements have been committed.
+    db.transaction(() => {
+      db.prepare('UPDATE expression_standing_jobs SET completed=0,error=NULL,request_json=? WHERE id=?').run(requestSnapshot(false), jobId);
+      for (const slot of slots) {
+        db.prepare("UPDATE character_expression_standings SET status='queued',error=NULL WHERE character_id=? AND slot_id=?").run(id, slot.id);
+      }
+    })();
+    reusePrompts = false;
+    control.prompts = null;
+    control.cursor = 0;
+    control.failures = 0;
+  };
   queue = queue.then(run, run);
   if (slots.length === all.length && !reusePrompts && !hasTouchLines(readTouchLines(db,id))) {
     // A text-task startup/storage failure must not strand the queued image job.
@@ -314,8 +328,9 @@ export function controlStandingBatch(id, jobId, action, dependencies) {
   if (action === 'stop') {
     control.pauseRequested = true;
     if (!control.paused) getDb().prepare(`UPDATE expression_standing_jobs SET status='stopping' WHERE id=?`).run(jobId);
-  } else if (action === 'resume') {
+  } else if (action === 'resume' || action === 'restart') {
     if (!control.paused) throw fail('请等待当前步骤完成后继续任务', 409);
+    if (action === 'restart') control.restart();
     control.pauseRequested = false;
     control.paused = false;
     getDb().prepare(`UPDATE expression_standing_jobs SET status='queued' WHERE id=?`).run(jobId);

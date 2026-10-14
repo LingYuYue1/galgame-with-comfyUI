@@ -117,7 +117,58 @@ test('stopping finishes current image, releases queue, and resumes remaining slo
   assert.equal(service.listExpressionStandings(id).slots[0].image_url, first);
 });
 
-test('stop during prompt generation saves the full batch but submits zero images until resumed', async () => {
+for (const reusePrompts of [false, true]) test(`restart paused batch regenerates every prompt and image (reusePrompts=${reusePrompts})`, async () => {
+  const id = newCharacter();
+  const slots = service.standingSlots().slice(0, 2);
+  const slotIds = slots.map(s => s.id);
+  const image = dataUrl(await sourceImage());
+  await service.editStandingImage(id, slotIds[0], 'upload', { image });
+  const oldImage = service.listExpressionStandings(id).slots[0].image_url;
+  for (const slot of slots) service.updateStandingPrompt(id, slot.id, 'saved old expression prompt');
+  let release, entered;
+  const waiting = new Promise(resolve => { release = resolve; });
+  const started = new Promise(resolve => { entered = resolve; });
+  let prompts = 0, images = 0, restarting = false;
+  const { jobId } = service.startStandingBatch(id, { slotIds, reusePrompts, requirement: 'gentle poses' }, {
+    promptGenerator: async (_, targets, requirement) => {
+      prompts++;
+      assert.deepEqual(targets.map(s => s.id), slotIds);
+      assert.equal(requirement, 'gentle poses');
+      if (restarting) {
+        const state = service.listExpressionStandings(id);
+        assert.equal(state.jobs[0].completed, 0);
+        assert.equal(state.slots[0].image_url, oldImage, 'retain images until replacement succeeds');
+        assert.equal(JSON.parse(state.jobs[0].request_json).promptsReady, false);
+      }
+      return new Map(targets.map(s => [s.id, `${restarting ? 'fresh' : 'initial'} expression, full body`]));
+    },
+    imageGenerator: async prompt => {
+      images++;
+      if (images === 1) { entered(); await waiting; throw new Error('old image failure'); }
+      assert.match(prompt, /fresh expression/);
+      assert.ok(service.listExpressionStandings(id).slots.filter(s => slotIds.includes(s.id)).every(s => s.prompt.includes('fresh expression')));
+      return { success: true, images: [{ base64: image }] };
+    },
+  });
+  await started;
+  assert.throws(() => service.controlStandingBatch(id, jobId, 'restart'), /等待当前步骤/);
+  service.controlStandingBatch(id, jobId, 'stop');
+  assert.throws(() => service.controlStandingBatch(id, jobId, 'restart'), /等待当前步骤/);
+  release();
+  assert.equal((await waitForStatus(jobId, 'paused')).completed, 1);
+  restarting = true;
+  service.controlStandingBatch(id, jobId, 'restart');
+  assert.throws(() => service.controlStandingBatch(id, jobId, 'restart'), /等待当前步骤/);
+  const finished = await waitForJob(jobId);
+  assert.equal(finished.status, 'done', 'previous failures must not carry into restarted batch');
+  assert.equal(finished.completed, 2);
+  assert.equal(prompts, reusePrompts ? 1 : 2);
+  assert.equal(images, 3);
+  assert.equal(service.listExpressionStandings(id).busy, false);
+  assert.notEqual(service.listExpressionStandings(id).slots[0].image_url, oldImage);
+});
+
+for (const action of ['resume', 'restart']) test(`stop during prompt generation submits zero images until ${action}`, async () => {
   const id = newCharacter(); const image = dataUrl(await sourceImage());
   let release, entered; const waiting = new Promise(resolve => { release = resolve; });
   const started = new Promise(resolve => { entered = resolve; });
@@ -130,8 +181,8 @@ test('stop during prompt generation saves the full batch but submits zero images
   await waitForStatus(jobId, 'paused');
   assert.equal(images, 0);
   assert.ok(service.listExpressionStandings(id).slots[0].prompt);
-  service.controlStandingBatch(id, jobId, 'resume'); await waitForJob(jobId);
-  assert.equal(prompts, 1); assert.equal(images, 1);
+  service.controlStandingBatch(id, jobId, action); await waitForJob(jobId);
+  assert.equal(prompts, action === 'restart' ? 2 : 1); assert.equal(images, 1);
 });
 async function waitForJob(id) {
   for (let i = 0; i < 200; i++) {
