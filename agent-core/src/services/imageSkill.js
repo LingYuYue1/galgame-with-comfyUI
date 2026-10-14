@@ -622,6 +622,11 @@ async function _execute(rawPrompt, opts) {
       //   把光照钉在正确时段 —— 修「凌晨 2 点的活动生成出白天图」。
       timeOfDay: opts.timeOfDay,
     });
+    // ★ 时段锚点命中日志（F-15）：排查「凌晨出白天图」的第一现场 ——
+    //   这行出现 = 锚点已注入；没出现 = 调用方没传 timeOfDay（或时刻非法）。
+    if (preparation.timeOfDay) {
+      console.log(`[image] 时段锚点 ${preparation.timeOfDay.label}(${preparation.timeOfDay.key}) scene=${opts.promptScene || opts.scene || 'chat'}`);
+    }
     if (_limitEnabled()) {
       await acquireSlot();
       slotAcquired = true;

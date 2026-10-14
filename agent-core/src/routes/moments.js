@@ -1181,6 +1181,9 @@ imagePrompt 中${userName}的外观以上述描述为准。`,
       text,
       manual: true,
       postId,
+      // ★ 时段锚点（F-15）：特殊日程朋友圈 = 履约现场「发帖即此刻」，
+      //   把画面时刻与 now 对齐 —— 凌晨的约定不再画成白天（同 L975 普通发帖口径）。
+      at: now,
     });
     const imagePrompt = usedPrompts.length > 0 ? usedPrompts.join('\n---\n') : imagePrompts[0];
 

@@ -463,7 +463,9 @@ export async function prepareImagePrompt(prompt, {
   const foundTags = selection.selectedTags.map(item => item.tag);
   console.log(`[imagePromptKnowledge] query=${JSON.stringify(retrievalQuery.slice(0, 160))} mode=${retrieval.mode} duration=${retrieval.durationMs}ms tags=${JSON.stringify(foundTags)}`);
   const status = selection.promptRefined === original ? 'fallback' : 'deterministic';
-  const result = { promptOriginal: original, ragQuery: retrievalQuery, promptRefined: selection.promptRefined, status, scene, retrieval, selection };
+  // timeOfDay：把命中的时段锚点（{key,label,en,suppress} 或 null）一并返回 ——
+  // 调用方（imageSkill 的锚点命中日志）与排查链依赖它；不传 timeOfDay 时为 null，行为不变。
+  const result = { promptOriginal: original, ragQuery: retrievalQuery, promptRefined: selection.promptRefined, status, scene, retrieval, selection, timeOfDay: selection.timeOfDay || null };
   // 结果只在内存中返回（promptRefined / retrieval 等），不写数据库
   return result;
 }

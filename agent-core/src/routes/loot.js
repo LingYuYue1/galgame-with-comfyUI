@@ -30,7 +30,7 @@ router.get('/window', (req, res) => {
   }
 });
 
-// POST /api/loot/window/roll — 刷新某页（重抽 8 个；缺图的异步排队生成）
+// POST /api/loot/window/roll — 刷新某页（重抽 4 个；缺图的异步排队生成）
 router.post('/window/roll', (req, res) => {
   try {
     const page = String(req.body?.page || '').trim();

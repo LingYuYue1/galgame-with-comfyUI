@@ -41,8 +41,15 @@ function listMigrationFiles() {
 }
 
 /**
- * 加载并登记本目录下所有迁移。**可重复调用**（幂等：已登记的 id 会重建 registry 前先清空）。
- * 供 db/index.js 在 initSchema 末尾调用。
+ * 加载并登记本目录下所有迁移 —— **由 app.js 启动时调用一次**（见 app.js「可插拔迁移」段：
+ * 它在 getDb() 之后调用本函数登记清单，再由 runRegisteredMigrations(getDb()) 执行）。
+ *
+ * ⚠ 语义注意（F-44 修复，2026-10-14）：本函数**只应被调用一次**（单进程内）——
+ * 实现没有清空重建动作，同进程内第二次调用会因 registry 的「迁移 id 重复」校验**直接抛错**
+ * （该校验是**有意设计**：防清单复制粘贴改漏；registry 亦明言「生产路径永远不清」）。
+ * 测试如需重复加载：先 `__resetRegistryForTest()` 再调用（先例：test/migrationRegistry.test.js）。
+ * 加载失败（语法错误/缺导出/文件名与 id 不符）一律**抛错**、不静默少跑 —— 因此 `failed`
+ * 目前恒为空数组，保留该字段仅为 API 形状稳定。
  * @returns {{loaded:string[], failed:{file:string,error:string}[]}}
  */
 export async function loadFeatureMigrations() {

@@ -371,13 +371,14 @@ function initSchema(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_character_outfits_char ON character_outfits(character_id);
 
-    -- 场景立绘（工装/私服/居家/睡衣四套形象，供角色详情页左右切换查看）。
+    -- 场景立绘（常服/私服/居家/睡衣四套形象，供角色详情页左右切换查看）。
+    -- ⚠ 立绘是四套，**不含** OUTFIT_SCENES 里的第 5 套「全身」/nude（见 services/characterStanding.js）。
     -- 与 character_outfits 的「场景服装」是两回事：服装是**文字描述**（驱动生图），立绘是**已画好的图**。
     -- 刻意分表 —— 角色可以还没配服装就先有立绘，也可以配了服装但某套还没出图，两者解耦。
     -- scene 取值同 services/outfitScene.js 的 OUTFIT_SCENES。
     -- 注意：characters.standing_url 仍是「角色默认形象」，被聊天/朋友圈/群聊等各处引用，本表不动它；
     -- work 槽在读取时以 standing_url 兜底（见 services/characterStanding.js），
-    -- 这样「已有的那张立绘」天然就是工装形象，用户不会觉得立绘凭空消失。
+    -- 这样「已有的那张立绘」天然就是常服形象，用户不会觉得立绘凭空消失。
     CREATE TABLE IF NOT EXISTS character_standings (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       character_id INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
@@ -1014,6 +1015,10 @@ function initSchema(db) {
   // 迁移: 记忆 v3 —— 多重表示 + 双时态演化 + 实体/三元组索引层（见 docs/memory-upgrade-plan.md）
   migrateChatMemoryV3Schema(db);
 
+  // 迁移: 记忆证据闸门 — memory_fragments 补 evidence 四列（★ F-11 兜底，2026-10-12：
+  //   与可插拔迁移 002 同口径、幂等；写入路径硬依赖这四列，不依赖 registry 是否跑成）
+  migrateMemoryEvidenceColumns(db);
+
   // 迁移: 记忆整理记账表（防同一批候选被反复送进 LLM）+ 整理/审计表维护索引
   migrateMemoryConsolidationMarks(db);
 
@@ -1179,7 +1184,7 @@ function initSchema(db) {
   // 迁移: 角色间关系的亲密度分级（决定朋友圈多人场景的概率与画面尺度）
   migrateRelationshipIntimacy(db);
 
-  // 迁移: 角色服装的场景标记（工装/外出/居家/睡眠，由日程决定穿哪套）
+  // 迁移: 角色服装的场景标记（常服/私服/居家/睡衣/全身，由日程决定穿哪套）
   migrateCharacterOutfitScene(db);
 
   // 迁移 + 种子: 媒体内容页（传媒 / 板块 / 帖子）
@@ -1757,6 +1762,15 @@ function migrateDisturbSchema(db) {
  * 所以把约束从 UNIQUE(name) 放宽成 UNIQUE(source, name)（同一来源内仍然不允许重名）。
  *
  * SQLite 不支持直接删除列约束，只能重建表；重建前后字段与数据原样保留。
+ *
+ * ★ F-57 修复（2026-10-12）：原实现的新表定义写死了「当时的」列清单（只到 checked），
+ * 会**静默丢弃**之后新增的列 —— adult 迁移（本文件上方 migrateMomentTopicAdultSchema）
+ * 刚加上列，紧接着本函数一重建就没了，随后 seedEventLibraries 的 `INSERT ... adult`
+ * 直接抛 "table moment_topics has no column named adult"，getDb() 整体失败。
+ * 影响面：任何还没跑过本重建的库（含全新库）首次启动必崩；且重加列后预置露骨话题的
+ * adult 标记会被清成 0（INSERT OR IGNORE 不会补）。
+ * 现改为：①新表定义补齐 adult（与最新结构一致）；②列搬运按「新表实际列 ∩ 源表实际列」
+ * 动态取交集 —— 以后再新增列只需改本函数的建表定义，搬运自动跟随。
  */
 function migrateMomentTopicAllowDuplicateName(db) {
   try {
@@ -1777,12 +1791,17 @@ function migrateMomentTopicAllowDuplicateName(db) {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         checked INTEGER DEFAULT 1,
+        adult INTEGER DEFAULT 0,
         UNIQUE(source, name)
       )
     `);
+    // 列搬运取交集（源表缺的列由新表 DEFAULT 兜底；新表加列后此处自动跟随）
+    const srcCols = db.prepare('PRAGMA table_info(moment_topics)').all().map(c => c.name);
+    const dstCols = db.prepare('PRAGMA table_info(moment_topics__migrate)').all().map(c => c.name);
+    const colList = dstCols.filter(c => srcCols.includes(c)).join(', ');
     db.exec(`
-      INSERT INTO moment_topics__migrate (id, name, desc, source, is_active, created_at, updated_at, checked)
-      SELECT id, name, desc, source, is_active, created_at, updated_at, checked FROM moment_topics
+      INSERT INTO moment_topics__migrate (${colList})
+      SELECT ${colList} FROM moment_topics
     `);
     db.exec('DROP TABLE moment_topics');
     db.exec('ALTER TABLE moment_topics__migrate RENAME TO moment_topics');
@@ -2960,9 +2979,9 @@ function migrateChatBgSchema(db) {
 /**
  * 迁移: 宝箱橱窗 —— 商品清单与当前橱窗
  *
- * loot_catalog：由外部清单（`邻舍-local/30-工具箱/loot-catalog/catalog.json`）导入的商品池。
+ * loot_catalog：由外部清单 JSON 经 `scripts/import-loot.mjs` 导入的商品池。
  *   图片按「单件」缓存（image_url），因为候选组合随机、几乎不重复，按整套生图等于每次刷新都烧算力。
- * loot_offers：当前橱窗里每页的 8 个格子。放库里而不是内存 —— 刷新页面不该把橱窗清空。
+ * loot_offers：当前橱窗里每页的 4 个格子。放库里而不是内存 —— 刷新页面不该把橱窗清空。
  */
 function migrateLootCatalogSchema(db) {
   try {
@@ -3735,7 +3754,7 @@ function migrateMediaOpLog(db) {
 /**
  * 迁移: 角色服装的场景标记 — character_outfits 加 scene 列
  *
- * 用途：角色可同时拥有多套「场景服装」（工装 work / 外出 casual / 居家 home / 睡眠 sleep），
+ * 用途：角色可同时拥有多套「场景服装」（常服 work / 私服 casual / 居家 home / 睡衣 sleep / 全身 nude），
  * 由日程决定当前穿哪套。取值见 services/outfitScene.js 的 OUTFIT_SCENES。
  *
  * **刻意不复用 `enabled`**：现有的 `enabled` 承载「同时只启用一套」的互斥语义
@@ -4193,6 +4212,37 @@ export function migrateChatMemoryV3Schema(db) {
   } catch (err) {
     console.error('[db] migrateChatMemoryV3Schema error:', err.message);
     throw err;
+  }
+}
+
+/**
+ * 迁移: 记忆证据闸门 — memory_fragments 补 evidence 四列（★ F-11 兜底，2026-10-12）。
+ *
+ * 与可插拔迁移 `002_memory_evidence_gate` 同口径，但**不依赖 registry**：
+ * `memoryRepository` 的 INSERT 硬引用这四列，而 002 曾是唯一加列途径 —— 若它静默
+ * return（表尚不存在）或 ALTER 抛错被其内部 catch 吞掉，registry 会误认为迁移
+ * 「已应用」：既不落 schema_migrations_failed、也永不重试 → 列永久缺失 →
+ * 每一次记忆写入都抛 no such column、记忆系统整体静默瘫痪。
+ * 这里每次启动幂等兜底：缺哪列补哪列（002 的吞错也已同步改为抛出，双保险）。
+ */
+function migrateMemoryEvidenceColumns(db) {
+  try {
+    const cols = new Set(db.prepare('PRAGMA table_info(memory_fragments)').all().map(c => c.name));
+    if (!cols.size) return;   // 表不存在（异常路径）：本次跳过，下次启动再兜底
+    const add = (name, decl) => {
+      if (cols.has(name)) return null;
+      db.exec(`ALTER TABLE memory_fragments ADD COLUMN ${name} ${decl}`);
+      return name;
+    };
+    const added = [
+      add('evidence_text', 'TEXT'),
+      add('evidence_count', 'INTEGER'),
+      add('evidence_msg_id', 'INTEGER'),
+      add('evidence_verified', 'INTEGER'),
+    ].filter(Boolean);
+    if (added.length) console.log(`[db] memory_fragments 兜底补齐证据列: ${added.join(' / ')}`);
+  } catch (err) {
+    console.error('[db] migrateMemoryEvidenceColumns error:', err.message);
   }
 }
 

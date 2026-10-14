@@ -135,17 +135,28 @@ export function initialize() {
  * 在入睡/起床高峰期（21:00-02:00 / 06:00-09:00）每 15 分钟跑一次，
  * 其他时段每小时兜底一次。使用自调整 setTimeout 链，不用 setInterval。
  */
+/**
+ * 全量同步一轮所有角色的睡眠状态（cron tick 主逻辑；`now` 供测试注入）。
+ *
+ * ⚠ 口径与 `initialize()` 完全一致：只看角色有没有日程数据（与 schedule_enabled 无关），
+ *   但**排除归档角色** —— 归档 = 不参与任何主动行为（含日程维护；权威口径见
+ *   characters.js 归档路由注释「各调度器的选人查询叠加 COALESCE(archived,0)=0」）。
+ *   initialize / getTodayScheduleRaw 均已排除，此前这里是唯一漏网处。
+ */
+export function syncAllSleepingStates(now = new Date()) {
+  const db = getDb();
+  const chars = db.prepare('SELECT id FROM characters WHERE COALESCE(archived, 0) = 0').all();
+
+  for (const char of chars) {
+    syncSleepingState(char.id, now);
+  }
+}
+
 function startSleepingStateCron() {
   let running = false;
 
   async function tick() {
-    const db = getDb();
-    // 同 initialize：睡眠同步只看角色有没有日程数据，与「是否重新生成」的开关无关
-    const chars = db.prepare('SELECT id FROM characters').all();
-
-    for (const char of chars) {
-      syncSleepingState(char.id);
-    }
+    syncAllSleepingStates();
   }
 
   function scheduleNext() {

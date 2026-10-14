@@ -104,17 +104,30 @@ export function countQuoteOccurrence(rawText, quote, occurrence = 1) {
  * @param {Array<{id:number,content:string}>} windowMessages 本批次的消息窗口（**必须限定范围**）
  * @returns {{ok:boolean, reason?:string, msgId?:number, total?:number}}
  */
-export function verifyQuoteInWindow(quote, occurrence = 1, windowMessages = []) {
-  const q = String(quote || '').trim();
-  if (!q) return { ok: false, reason: 'missing-evidence-text' };
-  // 引文过长：多半是模型把整段对话抄进来了，不算"逐字锚点"。上限 2000 与千千结一致。
-  if (q.length > 2000) return { ok: false, reason: 'evidence-too-long' };
+/**
+ * F-47 修复（2026-10-14）：剥离 <chat_log> 行首的说话人标记（`[三月七] ` / `[用户] `）。
+ *
+ * 现场：memoryExtractor 把窗口消息拼成 `[角色名] 正文` 的行格式喂给模型；模型被要求
+ * 「逐字照抄」时会把**整行的说话人标记一起抄**进 evidenceText —— 而搜索结果源是
+ * raw_messages.content（不含标记）→ 真实数据试跑实测 5/5 全拒（quote-not-found）。
+ * 本剥离只处理行首标记形态（[1~24 字符] + 空白），正文比对不放松；与原样双形态尝试。
+ */
+function stripSpeakerPrefix(s) {
+  return String(s || '').replace(/^\[[^\]\n]{1,24}\][ \t]*/, '');
+}
 
-  const want = Number.isInteger(Number(occurrence)) && Number(occurrence) >= 1 ? Number(occurrence) : 1;
+/** 候选形态：原样优先，其次剥说话人标记（相同或为空则不重复） */
+function quoteCandidates(q) {
+  const stripped = stripSpeakerPrefix(q);
+  return stripped && stripped !== q ? [q, stripped] : [q];
+}
+
+/** 在窗口内搜索单一形态的引文（原 verifyQuoteInWindow 的循环体，逻辑未变） */
+function searchQuoteInWindow(needle, want, windowMessages) {
   let best = null;   // 命中窗口内**最早**的那条（多条都含引文时取第一条，与"第 N 次出现"跨消息累计的口径一致）
   let acc = 0;
   for (const m of windowMessages || []) {
-    const r = countQuoteOccurrence(m?.content, q, 1);
+    const r = countQuoteOccurrence(m?.content, needle, 1);
     if (r.total <= 0) continue;
     if (!best) best = { msgId: Number(m.id), firstAt: acc + 1 };
     acc += r.total;
@@ -124,6 +137,23 @@ export function verifyQuoteInWindow(quote, occurrence = 1, windowMessages = []) 
   }
   if (!best) return { ok: false, reason: 'quote-not-found', total: 0 };
   return { ok: false, reason: 'occurrence-out-of-range', total: acc, msgId: best.msgId };
+}
+
+export function verifyQuoteInWindow(quote, occurrence = 1, windowMessages = []) {
+  const q = String(quote || '').trim();
+  if (!q) return { ok: false, reason: 'missing-evidence-text' };
+  // 引文过长：多半是模型把整段对话抄进来了，不算"逐字锚点"。上限 2000 与千千结一致。
+  if (q.length > 2000) return { ok: false, reason: 'evidence-too-long' };
+
+  const want = Number.isInteger(Number(occurrence)) && Number(occurrence) >= 1 ? Number(occurrence) : 1;
+  // F-47：双形态尝试 —— 原样优先（既有行为不变），再试剥说话人标记（模型照抄整行的真实形态）
+  let firstFail = null;
+  for (const cand of quoteCandidates(q)) {
+    const r = searchQuoteInWindow(cand, want, windowMessages);
+    if (r.ok) return r;
+    if (!firstFail) firstFail = r;
+  }
+  return firstFail;
 }
 
 /**
@@ -145,10 +175,15 @@ export function verifyEvidence(ev) {
   } catch { return { ok: false, reason: 'db-error' }; }
   if (!row) return { ok: false, reason: 'evidence-msg-not-found' };
 
-  const r = countQuoteOccurrence(row.content, quote, Number(ev?.evidenceCount) || 1);
-  if (!r.ok) return { ok: false, reason: 'quote-not-found', total: r.total };
-  if (Number(ev?.evidenceCount) > r.total) return { ok: false, reason: 'occurrence-out-of-range', total: r.total };
-  return { ok: true, total: r.total };
+  // F-47：与 verifyQuoteInWindow 同款的双形态兼容（原样优先 → 剥说话人标记）
+  const want = Number(ev?.evidenceCount) || 1;
+  let lastTotal = 0;
+  for (const cand of quoteCandidates(quote)) {
+    const r = countQuoteOccurrence(row.content, cand, want);
+    if (r.ok) return { ok: true, total: r.total };
+    lastTotal = r.total;
+  }
+  return { ok: false, reason: 'quote-not-found', total: lastTotal };
 }
 
 /**

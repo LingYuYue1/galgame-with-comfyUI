@@ -1,11 +1,21 @@
 /**
- * characterStanding.js — 四套场景立绘（工装 / 私服 / 居家 / 睡衣）
+ * characterStanding.js — 四套场景立绘（常服 / 私服 / 居家 / 睡衣）
  *
  * ── 解决什么问题 ──
  *
  * 角色原本只有一张立绘（characters.standing_url）。做完「场景服装」之后，角色在不同场合
  * 穿不同衣服，但形象面板只能看到那一张 —— 本模块让每个角色在四个场景下各有一张立绘，
  * 详情页可以左右切换查看。
+ *
+ * ── 为什么是四套，而不是 OUTFIT_SCENES 的全部五套（F-19）──
+ *
+ * `outfitScene.js` 的 `OUTFIT_SCENES` 如今有五套，第五套是 `nude`（「全身」，私密场景的
+ * 不穿衣形态）。那个枚举服务于**服装描述通道**（日程按场合选一套来驱动生图）；立绘是另一条
+ * 通道，详情页那排左右切换的四格，设计上只对 work / casual / home / sleep 成立（见下面的
+ * work 兜底规则），而且把「全身」做成一个可生成的立绘页签，与「这一套不参与用户输入」的既有
+ * 口径相悖。所以本模块**不复用整表**，而是显式滤掉 `PRIVATE_SCENE`。
+ * ⚠ 不要把这里改回 `OUTFIT_SCENES.map(...)`：枚举以后每加一套，立绘就会悄悄多一格
+ *   —— 这正是 F-19 的成因（第五套一进枚举就自动长成了立绘页签，文案却仍写四套）。
  *
  * ── 三条数据的关系（别搞混）──
  *
@@ -16,15 +26,20 @@
  *
  * ── 兜底规则 ──
  *
- * work（工装）槽没图时回落到 characters.standing_url —— 于是「用户已有的那张立绘」
- * 天然就是工装形象，切换过去不会是空白，用户不会觉得立绘凭空消失。
+ * work（常服）槽没图时回落到 characters.standing_url —— 于是「用户已有的那张立绘」
+ * 天然就是常服形象，切换过去不会是空白，用户不会觉得立绘凭空消失。
  */
 
 import { getDb } from '../db/index.js';
-import { OUTFIT_SCENES } from './outfitScene.js';
+import { OUTFIT_SCENES, PRIVATE_SCENE } from './outfitScene.js';
 
-const SCENE_KEYS = OUTFIT_SCENES.map(s => s.key);
-const LABEL_BY_KEY = Object.fromEntries(OUTFIT_SCENES.map(s => [s.key, s.label]));
+/**
+ * 立绘独占的场景集 = `OUTFIT_SCENES` **去掉私密场景（「全身」）**，顺序沿用枚举
+ * （work / casual / home / sleep）。过滤而不是另抄一份字面量：套名/标签仍以 outfitScene 为单一真源。
+ */
+export const STANDING_SCENES = OUTFIT_SCENES.filter(s => s.key !== PRIVATE_SCENE);
+const SCENE_KEYS = STANDING_SCENES.map(s => s.key);
+const LABEL_BY_KEY = Object.fromEntries(STANDING_SCENES.map(s => [s.key, s.label]));
 
 /**
  * 该角色的四套场景立绘（四行始终齐全、顺序固定）。
@@ -42,7 +57,7 @@ export function listSceneStandings(characterId) {
   const char = db.prepare('SELECT standing_url FROM characters WHERE id = ?').get(characterId);
   const fallback = String(char?.standing_url || '') || null;
 
-  return OUTFIT_SCENES.map(s => {
+  return STANDING_SCENES.map(s => {
     const hit = byScene.get(s.key);
     const explicit = String(hit?.image_url || '') || null;
     const useFallback = !explicit && s.key === 'work' && !!fallback;
@@ -89,4 +104,8 @@ export function deleteSceneStanding(characterId, scene) {
   return r.changes > 0;
 }
 
+/**
+ * 对外暴露的四套场景 key / 标签 —— 路由层用它做**入参校验**（generate / upload / delete），
+ * 因此「全身」/nude 会在入口被拒（400 无效的场景），不会出现「能写不能看」的半态。
+ */
 export { SCENE_KEYS as STANDING_SCENE_KEYS, LABEL_BY_KEY as STANDING_SCENE_LABELS };

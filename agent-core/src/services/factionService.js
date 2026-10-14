@@ -187,6 +187,21 @@ function assertNoCycle(id, parentId) {
   }
 }
 
+/**
+ * 校验 parentId：父派系必须**存在**且属于**同一世界观**（update 场景还要防环）。
+ *
+ * ⚠ 为什么必须显式校验（而不是依赖外键）：
+ *   · 外键只挡「不存在」——且报错是 SqliteError（500 形态），不是可读的业务错误；
+ *   · 「跨世界挂靠」在外键层面**完全挡不住**（id 存在即可挂）——2026-10-14 审计实查。
+ */
+function assertValidParent(childId, parentId, worldSlug) {
+  if (parentId == null) return;
+  const parent = db().prepare('SELECT id, world_slug FROM factions WHERE id = ?').get(Number(parentId));
+  if (!parent) throw fail('父派系不存在', 404);
+  if (parent.world_slug !== worldSlug) throw fail('父派系属于其它世界观，不能跨世界挂靠');
+  if (childId != null) assertNoCycle(childId, parentId);
+}
+
 // ── 读 ────────────────────────────────────────────────────────
 
 /** 组织架构：members + 角色名（含归档标记；计数另行排除归档） */
@@ -201,22 +216,51 @@ function membersOf(factionId) {
   `).all(factionId);
 }
 
-/** 势力关系（出边） */
+/** 对称语义的关系词（对方侧同样可见）；「从属」是有向语义（A 从属 B ≠ B 从属 A），故不在其列 */
+const SYMMETRIC_RELATIONS = new Set(['同盟', '敌对', '中立', '竞争']);
+
+/**
+ * 势力关系（出边 + 对称型入边镜像）。
+ *
+ * ★ 存储保持单边有向（from→to 唯一，写侧不变）；对称语义的关系在**读取时**聚合镜像 ——
+ *   对面登记、本侧也应看到（否则「A 登记与 B 敌对」后 B 的详情里空空如也）。
+ *   读时镜像 ⇒ 存量数据自动对称、无需迁移；同一对方双侧都登记时出边优先、只展示一条。
+ */
 function relationsOf(factionId) {
-  return db().prepare(`
+  const out = db().prepare(`
     SELECT r.id, r.to_faction_id AS toId, r.relation, r.note,
            f.name AS toName, f.type AS toType
     FROM faction_relations r
     JOIN factions f ON f.id = r.to_faction_id
     WHERE r.from_faction_id = ?
-    ORDER BY r.relation, f.name COLLATE NOCASE
   `).all(factionId);
+
+  const inbound = db().prepare(`
+    SELECT r.id, r.from_faction_id AS toId, r.relation, r.note,
+           f.name AS toName, f.type AS toType
+    FROM faction_relations r
+    JOIN factions f ON f.id = r.from_faction_id
+    WHERE r.to_faction_id = ?
+  `).all(factionId);
+
+  const seen = new Set(out.map(r => r.toId));
+  for (const r of inbound) {
+    if (!SYMMETRIC_RELATIONS.has(r.relation) || seen.has(r.toId)) continue;
+    seen.add(r.toId);
+    out.push(r);
+  }
+  return out.sort((a, b) => String(a.relation).localeCompare(String(b.relation)) || String(a.toName).localeCompare(String(b.toName)));
 }
 
 function toDTO(row) {
   const members = membersOf(row.id);
-  // ⚠ D7：归档角色不计入成员数（与归档体系一致），但仍在 members 里可见
-  const activeMembers = members.filter(m => !m.archived);
+  // ⚠ D7：归档角色不计入成员数（与归档体系一致），但仍在 members 里可见。
+  // ★ 计数按**角色**去重 —— 同一角色可在同派系担任多个职务（UNIQUE 允许 role 不同），
+  //   「成员数」是人数、不是职务行数（2026-10-14 审计修正）。
+  const byChar = new Map();
+  for (const m of members) byChar.set(m.character_id, m.archived);
+  let archivedCount = 0;
+  for (const v of byChar.values()) if (v) archivedCount++;
   return {
     id: row.id,
     slug: row.slug,
@@ -236,20 +280,24 @@ function toDTO(row) {
     worldSlug: row.world_slug || '',
     sortOrder: row.sort_order,
     origin: row.origin,
-    memberCount: activeMembers.length,
-    archivedMemberCount: members.length - activeMembers.length,
+    memberCount: byChar.size - archivedCount,
+    archivedMemberCount: archivedCount,
     members,
     relations: relationsOf(row.id),
   };
 }
 
-/** 列出当前世界的全部派系（含成员与关系；SQL 条数有限，一次取全） */
-export function listFactions() {
-  const slug = activeWorldSlug();
+/** 按世界 slug 列出派系（含成员与关系；SQL 条数有限，一次取全） */
+function listFactionsBySlug(slug) {
   const rows = slug
     ? db().prepare('SELECT * FROM factions WHERE world_slug = ? ORDER BY sort_order, name COLLATE NOCASE').all(slug)
     : [];
   return rows.map(toDTO);
+}
+
+/** 列出当前世界的全部派系 */
+export function listFactions() {
+  return listFactionsBySlug(activeWorldSlug());
 }
 
 export function getFaction(id) {
@@ -267,6 +315,7 @@ export function createFaction(input = {}) {
   if (!name) throw fail('派系名不能为空');
   const type = freeLabel(input.type, '其他');
   const parentId = input.parentId == null || input.parentId === '' ? null : Number(input.parentId);
+  assertValidParent(null, parentId, slug);
 
   const row = db().prepare(`
     INSERT INTO factions (slug, name, type, parent_id, summary, description, color, icon, world_slug, sort_order, origin,
@@ -317,7 +366,7 @@ export function updateFaction(id, patch = {}) {
     tags: patch.tags === undefined ? parseTags(cur.tags) : normalizeTags(patch.tags),
   };
   if (!next.name) throw fail('派系名不能为空');
-  if (next.parentId != null) assertNoCycle(numId, next.parentId);
+  assertValidParent(numId, next.parentId, cur.world_slug);
 
   db().prepare(`
     UPDATE factions
@@ -489,7 +538,9 @@ ${lines.join('\n')}
 // ── project.json 镜像（红线 12：定义随世界观项目库走）────────────
 
 /**
- * 把当前世界的派系**镜像**写回 `world-projects/<slug>/project.json` 的 `factions` 槽位。
+ * 把 `<slug>` 世界的派系**镜像**写回 `world-projects/<slug>/project.json` 的 `factions` 槽位。
+ * ⚠ 数据源与写目标必须同世界（listFactionsBySlug(slug)，不取「激活世界」）——此前两处不同源，
+ *   多世界场景会把激活世界的派系写进别的世界（2026-10-14 审计修正）。
  *
  * ⚠ 与 `world.md` 同口径：**运行时真源是 DB**，这里写的是**镜像/可迁移载体**
  *   （方便人工编辑、版本控制、随世界观项目库整体迁移）。
@@ -499,7 +550,7 @@ ${lines.join('\n')}
 export function mirrorToProject(slug = activeWorldSlug()) {
   if (!slug) return { ok: false, reason: 'no-world' };
   try {
-    const factions = listFactions().map(f => ({
+    const factions = listFactionsBySlug(slug).map(f => ({
       slug: f.slug,
       name: f.name,
       type: f.type,

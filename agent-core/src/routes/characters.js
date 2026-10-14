@@ -27,7 +27,7 @@ import { assignFontForNewCharacter } from '../services/handwritingFontService.js
 import { refresh as refreshCharSearch } from '../services/characterSearch.js';
 import { listCharacterOutfits, createCharacterOutfit, updateCharacterOutfit, deleteCharacterOutfit } from '../services/outfitService.js';
 import { listSceneOutfits, upsertSceneOutfits, generateSceneOutfits, getSceneOutfitForNow, setCharacterBody, OUTFIT_SCENES, sceneOutfitParam } from '../services/outfitScene.js';
-import { listSceneStandings, upsertSceneStanding, deleteSceneStanding, getSceneStandingRow, STANDING_SCENE_KEYS, STANDING_SCENE_LABELS } from '../services/characterStanding.js';
+import { listSceneStandings, upsertSceneStanding, deleteSceneStanding, getSceneStandingRow, STANDING_SCENES, STANDING_SCENE_KEYS, STANDING_SCENE_LABELS } from '../services/characterStanding.js';
 import { buildCharacterPersona, extractAppearanceIdentityCorpus, replaceAppearanceSection, splitAppearanceSection, isAppearanceOnlyPromptChange, APPEARANCE_HEADING_RE } from '../services/characterPersona.js';
 import { getWorldIntegrationRule, STANDING_IMAGE_PROMPT_RULE, STANDING_PROMPT_MODES, STANDING_ROLE_PROMPTS } from '../builtinRules.js';
 import { collectCharacterImageUrls } from '../services/characterImages.js';
@@ -1798,9 +1798,10 @@ router.delete('/:id/standing', (req, res) => {
   res.json({ ok: true });
 });
 
-// ── 场景立绘（工装/私服/居家/睡衣四套形象，详情页左右切换查看）──
+// ── 场景立绘（常服/私服/居家/睡衣四套形象，详情页左右切换查看）──
 // 与上面的 standing_url 并存：standing_url 是「默认形象」（全库各处引用它，本组不碰），
-// 本组是四套场景形象，存 character_standings 表。工装槽没图时以 standing_url 兜底。
+// 本组是四套场景形象，存 character_standings 表。常服槽没图时以 standing_url 兜底。
+// ⚠ 四套 ≠ OUTFIT_SCENES 的五套：立绘不含「全身」/nude（见 services/characterStanding.js 头注释与 F-19）。
 // 路由顺序：POST /:id/standings/generate 与 DELETE /:id/standings/:scene 同为 3 段，
 // 靠 HTTP 方法区分（前者 POST、后者 DELETE），不会互吃；仍把语义路径放前面便于排查。
 
@@ -1825,12 +1826,13 @@ async function renderSceneStandingImage(char, promptText, scene) {
   return url;
 }
 
-// GET /api/characters/:id/standings — 四套场景立绘（work 槽用 standing_url 兜底）
+// GET /api/characters/:id/standings — 四套场景立绘（常服槽用 standing_url 兜底）
 router.get('/:id/standings', (req, res) => {
   const db = getDb();
   const char = db.prepare('SELECT id FROM characters WHERE id = ?').get(req.params.id);
   if (!char) return res.status(404).json({ error: 'Character not found' });
-  res.json({ scenes: OUTFIT_SCENES, standings: listSceneStandings(char.id) });
+  // scenes 与 standings 同口径（四套，不含「全身」）—— 前端按它渲染切换器标签
+  res.json({ scenes: STANDING_SCENES, standings: listSceneStandings(char.id) });
 });
 
 // POST /api/characters/:id/standings/generate — 生成指定场景立绘 Body: { scene, requirement? }
@@ -2113,7 +2115,7 @@ router.post('/expand-appearance-draft', async (req, res) => {
     //   · 居家 = 现实中在家穿拖鞋 → 必须 indoor slippers，**不要写成 barefoot**。
     // 此前只约束了睡衣，居家完全没提 → 模型随机发挥，实测 15 套里有 2 套写成赤脚、3 套自相矛盾。
     const sceneLine = sceneLabel
-      ? `这套是「${sceneLabel}」（${sceneLabel === '工装' ? '上班/出勤的常态形象' : sceneLabel === '私服' ? '上街、休闲外出' : sceneLabel === '居家' ? '在家里休息、做家务' : sceneLabel === '睡衣' ? '睡觉时穿的贴身衣物，不要设计成能穿出门的服装' : '该场景'}），整体要符合这个场合。`
+      ? `这套是「${sceneLabel}」（${sceneLabel === '常服' ? '上班/出勤的常态形象' : sceneLabel === '私服' ? '上街、休闲外出' : sceneLabel === '居家' ? '在家里休息、做家务' : sceneLabel === '睡衣' ? '睡觉时穿的贴身衣物，不要设计成能穿出门的服装' : '该场景'}），整体要符合这个场合。`
         + (sceneLabel === '睡衣' ? '\n★ 睡衣必须**赤脚**：description 里要明确写出 barefoot（赤足）。画面里不要出现任何鞋类或袜类物体（shoes / boots / slippers / heels / socks / stockings），连「床边摆着一双没穿的拖鞋」也不要写——生图模型看到 slippers 就会画出来。' : '')
         + (sceneLabel === '居家' ? '\n★ 居家要**穿室内拖鞋**：description 里脚部必须写出 indoor slippers（家居拖鞋，与服装风格协调）。**不要写成 barefoot**（赤脚只属睡衣那套），也不要写外出鞋（sneakers / boots / heels / sandals）。' : '')
       : '';
@@ -2235,7 +2237,7 @@ function _parseCharLoras(raw) {
 
 // ── 角色专属外观/形态（角色外观系统，生图注入见 services/characterPersona.js）──
 
-// ── 场景服装（工装/外出/居家/睡眠，由日程决定穿哪套）──
+// ── 场景服装（常服/私服/居家/睡衣/全身，由日程决定穿哪套）──
 // 注意：这几个路径都是 3 段，与下面的 '/:id/outfits/:outfitId' 同形。
 // 靠 HTTP 方法区分（这里都是 GET/POST，下面那条是 PUT/DELETE），所以不会互相吃；
 // 但仍统一放在前面，并保持路径里出现语义词（scene/generate/current），便于日后排查。

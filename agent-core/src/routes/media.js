@@ -279,8 +279,11 @@ router.put('/auto', (req, res) => {
 router.post('/cleanup-images', (req, res) => {
   try {
     const stale = resetStaleMediaGenerating();
-    // maxAge 0 = 立刻清（用户显式点的，说明就是要清干净）
-    const r = cleanupOrphanMediaImages(0);
+    // ★ F-31 修复（2026-10-12）：原来传 0 = 连「刚生成/正在写入」的文件也一律删。
+    // 生成完成与写入 DB 之间存在时间窗（文件已写、引用还没落库），maxAge=0 会把这类
+    // 新图一并删掉，造成「刚出的图忽然没了」。改用默认 1h 豁免：清理的目标是历史遗留
+    // 孤儿（远早于 1h），豁免新文件不影响「清干净」的实际效果。
+    const r = cleanupOrphanMediaImages();
     res.json({ ok: true, ...r, staleReset: stale });
   } catch (err) { fail(res, err); }
 });

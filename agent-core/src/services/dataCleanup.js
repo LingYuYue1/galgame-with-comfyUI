@@ -152,7 +152,14 @@ export const CLEANUP_TARGETS = [
 
 const TARGET_BY_KEY = new Map(CLEANUP_TARGETS.map(t => [t.key, t]));
 
-/** 单值图片字段（这些表的记录不在清理范围内，一律参与保护集） */
+/**
+ * 单值图片字段（这些表的记录不在清理范围内，一律参与保护集）。
+ * ★ F-46 修复（2026-10-14）：补表情两列 —— `user_emojis.image_path`（我的表情库）/
+ *   `character_emojis.image_path`（角色表情包）；均由 `saveBase64Image('emoji', ...)`
+ *   写入（`/images/emoji/...` 形态）。这两张表的记录同样不在任何清理目标里
+ *   （「表情包」目标只清 emoji 目录的图）→ 记录永在、引用必须受保护，
+ *   否则清一次「表情包」= 表情库全破图。
+ */
 const PROTECT_SINGLE_FIELDS = [
   ['characters', 'avatar_path'],
   ['characters', 'standing_url'],
@@ -161,6 +168,8 @@ const PROTECT_SINGLE_FIELDS = [
   ['loot_catalog', 'image_url'],
   ['media_posts', 'image'],
   ['media_posts', 'author_avatar'],
+  ['user_emojis', 'image_path'],
+  ['character_emojis', 'image_path'],
 ];
 
 /** 从 URL（或 URL 数组的 JSON）里取文件名 */
@@ -170,11 +179,34 @@ function nameFromUrl(u) {
 }
 
 /**
+ * ★ F-42 修复（2026-10-14）：从任意文本里提取所有 `/images/...` 链接的文件名。
+ *
+ * 与 `nameFromUrl` 的区别：后者要求「整个值是单个 URL」；本函数把值**整体当文本**，
+ * 正则扫出其中出现的所有图片链接 —— 覆盖「JSON 文本 / 纯文本 / 层层嵌套」各种形态，
+ * **不假定 JSON 结构**（奇遇的 choice_history 是对象数组、报纸的是对象、
+ * 消息 content 是 JSON 文本或纯文本，事先 parse 各写一套解析太脆）。
+ *
+ * 提取口径故意从宽（宁多保护不误删）：只有「文件名为垃圾」才不会命中真实文件、
+ * 白白少保护一张；而漏提取 = 图被误删，代价大得多。
+ */
+const IMG_LINK_RE = /\/images\/[^\s"'\\<>()\[\]（）「」，,；;、]+/g;
+function namesFromText(val) {
+  if (val == null) return [];
+  const text = String(val).replaceAll('\\/', '/');   // 兼容 JSON 转义斜杠（"\/images\/…"）
+  const out = [];
+  for (const m of text.match(IMG_LINK_RE) || []) {
+    const n = nameFromUrl(m);
+    if (n) out.push(n);
+  }
+  return out;
+}
+
+/**
  * 构建保护集：本次**不会**被清空的记录所引用的图片文件名。
  * @param {Set<string>} wipingTables - 本次要清空的表名（它们的引用马上就不存在了，不参与保护）
  * @returns {Set<string>}
  */
-function buildProtectedSet(db, wipingTables) {
+function buildProtectedSet(db, wipingTables, cutoffIso) {
   const names = new Set();
   const addJsonArray = (val) => {
     if (!val) return;
@@ -186,18 +218,74 @@ function buildProtectedSet(db, wipingTables) {
     for (const u of arr) { const n = nameFromUrl(u); if (n) names.add(n); }
   };
 
-  // images 是 JSON 数组的两张表；若本次要清它，就不用参与保护
-  if (!wipingTables.has('messages')) {
+  // ★ F-10 修复（2026-10-12）：保护集必须按**存活子集**构建 —— 本表将被清理时，
+  //   只保护「清理窗口之外仍存活」的行（created_at >= cutoff）所引用的图；
+  //   原实现对本表整表跳过 → **存活消息引用的老图**（mtime 超窗口）被当孤儿误删，
+  //   用户清完聊天记录后会发现：没被删的消息里图挂了。不清理本表时全量保护（行为不变）。
+  const pickImages = (tbl) => {
+    const wiping = wipingTables.has(tbl);
+    const sql = wiping
+      ? `SELECT images FROM ${tbl} WHERE images IS NOT NULL AND images <> '' AND (created_at IS NULL OR created_at >= ?)`
+      : `SELECT images FROM ${tbl} WHERE images IS NOT NULL AND images <> ''`;
     try {
-      for (const r of db.prepare(`SELECT images FROM messages WHERE images IS NOT NULL AND images <> ''`).all()) addJsonArray(r.images);
+      const rows = wiping ? db.prepare(sql).all(cutoffIso) : db.prepare(sql).all();
+      for (const r of rows) addJsonArray(r.images);
+    } catch { /* 表不存在（老库/裁剪版） */ }
+  };
+  // images 是 JSON 数组的两张表
+  pickImages('messages');
+  pickImages('moment_posts');
+
+  // ★ F-42 修复（2026-10-14）：以下三类引用原先**漏扫**，导致「奇遇配图 / 报纸配图」的
+  //   本体图（仍被保留的记录所引用）在清理时被当孤儿误删 → 历史回看 / 报纸墙破图。
+  //   真实库实查（2026-10-14 副本普查）：events 目录 29 张中 28 张被本段来源引用、
+  //   newspaper 目录 18 张全部被引用 —— 即这两个清理目标在修复前几乎「一清全灭」。
+  //
+  //   提取统一走 namesFromText（文本级正则，不假定 JSON 结构）；
+  //   ①② 三张表都不在任何清理目标里（引用只随记录删除而消失）→ 全量保护。
+  const REF_TEXT_TABLES = [
+    // ① 奇遇记录：已结束奇遇（final_image 单值 + choice_history 对象数组）
+    ['event_history', ['final_image', 'choice_history']],
+    // ① 进行中奇遇（image 单值 + choice_history）
+    ['character_events', ['image', 'choice_history']],
+    // ② 报纸记录：《邻舍日报》三期文本里的新闻插画（三个 JSON 列）
+    ['town_newspapers', ['items_json', 'character_event_json', 'world_state_json']],
+  ];
+  for (const [tbl, cols] of REF_TEXT_TABLES) {
+    try {
+      for (const r of db.prepare(`SELECT ${cols.join(', ')} FROM ${tbl}`).all()) {
+        for (const col of cols) { for (const n of namesFromText(r[col])) names.add(n); }
+      }
+    } catch { /* 表/列不存在（老库/裁剪版） */ }
+  }
+
+  // ③ 消息正文：messages.content —— 奇遇消息的 content 是 JSON 文本，内嵌
+  //    `"image":"/images/events/..."`（普通聊天是纯文本，扫不出链接也无妨）。
+  //    按 F-10 口径：本表将被清理时只保护存活子集（created_at >= cutoff）；否则全量。
+  {
+    const wiping = wipingTables.has('messages');
+    const sql = wiping
+      ? `SELECT content FROM messages WHERE content IS NOT NULL AND content <> '' AND (created_at IS NULL OR created_at >= ?)`
+      : `SELECT content FROM messages WHERE content IS NOT NULL AND content <> ''`;
+    try {
+      const rows = wiping ? db.prepare(sql).all(cutoffIso) : db.prepare(sql).all();
+      for (const r of rows) { for (const n of namesFromText(r.content)) names.add(n); }
     } catch { /* 表不存在 */ }
   }
-  if (!wipingTables.has('moment_posts')) {
-    try {
-      for (const r of db.prepare(`SELECT images FROM moment_posts WHERE images IS NOT NULL AND images <> ''`).all()) addJsonArray(r.images);
-    } catch { /* ignore */ }
-  }
-  // 单值字段
+
+  // ★ F-46 修复（2026-10-14）：media_posts.payload_json —— 传媒帖子（海报/门户形态）的
+  //   结构化正文里内嵌 `panels[].image` / `sections[].image`（真实库 7 行；2026-10-14 全库
+  //   普查发现，与 F-02 同族）。mediaService 的孤儿清理（F-02/F-31）早已把 payload 图纳入
+  //   「被引用」保护，dataCleanup 此前没接 → 两个清理器口径不一致：「传媒配图」清理会把
+  //   仍被帖子引用的图误删（帖子还在、图没了）。表不在任何清理目标里 → 全量保护；
+  //   提取同样走 namesFromText（不依赖 payload 的具体结构）。
+  try {
+    for (const r of db.prepare(`SELECT payload_json FROM media_posts WHERE payload_json IS NOT NULL AND payload_json <> ''`).all()) {
+      for (const n of namesFromText(r.payload_json)) names.add(n);
+    }
+  } catch { /* 表不存在（老库/裁剪版） */ }
+
+  // 单值字段（都不在清理目标里 → 全量保护）
   for (const [table, col] of PROTECT_SINGLE_FIELDS) {
     if (wipingTables.has(table)) continue;
     try {
@@ -382,10 +470,10 @@ export async function purgeData({ days = 7, targets = [] } = {}) {
     return { ok: false, error: '备份数据库失败，已中止：' + err.message };
   }
 
-  // ② 保护集：本次要清空的表不参与保护（它们的引用马上失效）
+  // ② 保护集：本表将被清空时按「存活子集」保护（created_at >= cutoff，见 F-10 注释）
   const wipingTables = new Set();
   for (const key of keys) TARGET_BY_KEY.get(key).tables.forEach(x => wipingTables.add(x.table));
-  const protectedNames = buildProtectedSet(db, wipingTables);
+  const protectedNames = buildProtectedSet(db, wipingTables, cutoffIso);
 
   const detail = keys.map(key => {
     const t = TARGET_BY_KEY.get(key);
@@ -398,9 +486,9 @@ export async function purgeData({ days = 7, targets = [] } = {}) {
   // ⚠ 教训（2026-10-06 用户报"未能正常删除聊天记录"）：
   //   原来这里的 catch **只 console.warn 就吞掉** —— 结果接口照样返回 ok:true，
   //   前端看到"清理完成"但一行都没删（实测 rows:0）。两种真实失败都被它藏了：
-  //     · FOREIGN KEY constraint failed —— 有 3 张表引用 messages.id
-  //       （memory_fragments / emotion_snapshots / user_portraits），且外键是 NO ACTION，
-  //       删 messages 前**必须先断引用**；
+  //     · FOREIGN KEY constraint failed —— 有 4 张表引用 messages.id
+  //       （memory_fragments / emotion_snapshots / user_portraits / image_tasks），
+  //       且外键是 NO ACTION，删 messages 前**必须先断引用**；
   //     · database disk image is malformed —— SQLite 页损坏（需重建，见 repairDatabase）。
   //   现在①先断引用 ②收集错误并如实上报，不再"假成功"。
   const errors = [];
@@ -414,10 +502,16 @@ export async function purgeData({ days = 7, targets = [] } = {}) {
    *   级联删会把记忆一起抹掉（用户只想清聊天记录，不想丢记忆）；置 NULL 则保留内容、
    *   只丢掉"可回溯到原消息"的能力，符合清理语义。
    */
+  // ★ F-09 修复（2026-10-12）：此前漏了第 4 张表 image_tasks —— 真实库全量外键扫描
+  //   （PRAGMA foreign_key_list）确认引用 messages.id 的正是这 4 张；漏掉它时
+  //   「聊天记录」清理会在 DELETE messages 处 FOREIGN KEY 失败（partial：其它表删了、
+  //   消息删不掉 + errors 里躺一条，实测复现）。image_tasks 是**生图任务历史**，
+  //   与上面三张同理：只断「可回溯到原消息」的引用，内容本身保留。
   const DETACH_REFS = [
     { table: 'memory_fragments', col: 'source_msg_id' },
     { table: 'emotion_snapshots', col: 'after_msg_id' },
     { table: 'user_portraits', col: 'source_msg_id' },
+    { table: 'image_tasks', col: 'source_msg_id' },
   ];
 
   const delTx = db.transaction(() => {

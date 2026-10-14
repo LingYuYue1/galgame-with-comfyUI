@@ -116,10 +116,11 @@ async function curateNow({ conversationId, throughRawMsgId, characterName = '', 
       }
       actions = accepted;
     }
+    // 证据随 actions 带下去：闸门把 `_evidence` 挂在各 action 顶层，由仓储的 validateMemoryAction
+    // 合并落库（闸门关闭时无 `_evidence` → 落 NULL）。
+    // ⚠ 本调用只传仓储签名里存在的形参——历史曾多传一个无接收方的回调（死参数，F-48 已删），别再加回。
     const saved = applyMemoryActions({
       conversationId, sourceRawStartId: startId, sourceRawEndId: endId, sourceMessageId, actions, eventTime,
-      // 证据随动作带下去由仓储写入（闸门关闭时恒为 undefined → 落 NULL）
-      evidenceOf: a => a?._evidence || null,
     });
     setCheckpoint(conversationId, endId, 'idle', null);
     console.log(`[memoryExtractor] curated ${saved.length} memories for ${conversationId}, raw ${startId}-${endId}`);

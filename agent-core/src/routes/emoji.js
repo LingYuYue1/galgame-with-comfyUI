@@ -375,6 +375,7 @@ router.post('/:characterId/:key/upload', (req, res) => {
   const safeKey = emojiKey.replace(/[^a-zA-Z0-9\u4e00-\u9fa5_-]/g, '_');
   const filename = `char_${characterId}_set${set.id}_${safeKey}_${Date.now()}.${extMap[mimeMatch[1]]}`;
   const imagePath = saveBase64Image('emoji', filename, base64);
+  const old = db.prepare('SELECT image_path FROM character_emojis WHERE set_id = ? AND emoji_key = ?').get(set.id, emojiKey);
   db.prepare(`
     INSERT INTO character_emojis (character_id, set_id, emoji_key, prompt, image_path, status, updated_at)
     VALUES (?, ?, ?, '', ?, 'done', datetime('now'))
@@ -384,6 +385,14 @@ router.post('/:characterId/:key/upload', (req, res) => {
       error_message = NULL,
       updated_at = datetime('now')
   `).run(characterId, set.id, emojiKey, imagePath);
+
+  // ★ F-45 修复（2026-10-14）：覆盖同名表情后清理旧图（与 userEmoji.js 的 upload 同款——
+  //   保守序：新图已落盘 + 新 image_path 已写入，此步失败最坏只是旧图残留；
+  //   守卫防极端同毫秒撞名时误删正在使用的新图）。
+  if (old?.image_path && old.image_path !== imagePath) {
+    try { deleteImageFileByUrl(old.image_path); } catch {}
+  }
+
   res.json({ ok: true, image_path: imagePath });
 });
 

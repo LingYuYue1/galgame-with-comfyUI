@@ -534,6 +534,26 @@ ${parts.join('\n\n')}
 }
 
 /**
+ * 读角色的持久化移动方式 —— ★ F-13 修复（2026-10-12，报告 #15）。
+ *
+ * 为什么必须查库：原兜底写的是 `character?.transit_mode`，看似合理，但**各调用方传入的
+ * 角色对象都不含该列**（replyQueueScheduler / chars.js / routes/schedule.js 的 SELECT
+ * 只取展示需要的几列）→ 兜底恒为 undefined → 自动生成路径（调度器/新建角色，不带
+ * options）里超能力角色被按普通口径判「跨区瞬移」：通勤复算误报 + 约束层要求别瞬移。
+ * 这里照 `home_place`（见 generateScheduleImpl 内 options.homePlace 兜底段）的同款做法
+ * **直接查库**。取不到（无角色/无该列）返回 undefined —— 与「未设置」同义，行为回退默认。
+ * @param {number|undefined} characterId
+ * @returns {string|undefined}
+ */
+export function readCharacterTransitMode(characterId) {
+  try {
+    if (!characterId) return undefined;
+    const row = getDb().prepare('SELECT transit_mode FROM characters WHERE id = ?').get(characterId);
+    return row?.transit_mode || undefined;
+  } catch { return undefined; }
+}
+
+/**
  * 为角色生成日程模板
  * @param {object} character - { id, display_name, base_prompt }
  * @param {string} [direction] - 用户指定的日程方向
@@ -835,10 +855,11 @@ ${direction}**
   // msgs[3.7]: 本次编排约束（区域 / NSFW 强度 / 睡眠类型 / 移动方式）——不传选项时整层不出现
   // ★ 移动方式必须**从角色行读**而不是只认 options：自动生成路径（调度器/新建角色）
   //   不带 options，若只认 options 就会静默丢掉豁免，超能力角色又被按普通口径判瞬移。
-  //   与 home_place 的兜底读取同理（见上方 options.homePlace === undefined 那段）。
+  //   ★ F-13 修复（2026-10-12）：兜底原为 `character?.transit_mode`，但调用方传入的角色
+  //   对象都不含该列（兜底恒 undefined）——改为照 home_place 同款做法**直接查库**。
   const transitMode = options?.transitMode !== undefined
     ? options.transitMode
-    : character?.transit_mode;
+    : readCharacterTransitMode(character?.id);
   // ★ 日子类型：**显式传的优先**；没传则**只有该角色配过日型方案时**才按"今天"自动判定。
   //   ⚠ 这个"配过才启用"的条件是刻意的（红线 4：长驻功能默认关闭）——
   //     没有任何日型方案的角色，约束层与从前**逐字节一致**，不会因为加了功能就多一段提示词。
@@ -846,6 +867,10 @@ ${direction}**
   const explicitDayType = options?.dayType ? normalizeDayType(options.dayType) : '';
   const dayTypeForPrompt = explicitDayType
     || (hasDayPlans(db, character.id) ? dayTypeOf(new Date()) : '');
+  // ★ 默认日历兜底开关（F-01 修复，2026-10-12）：写完 day_plans 后默认**同时**升级默认日历
+  //   （免得未配日型的历史日期无日程可回落，见 upsertDefaultTemplate 注释）；
+  //   仅当调用方显式传 fallbackToDefaultCalendar: false（"只当日型"）时跳过。
+  const fallbackToDefaultCalendar = options?.fallbackToDefaultCalendar !== false;
   const constraintLayer = buildScheduleConstraintBlock({
     ...options,
     dayType: dayTypeForPrompt,
@@ -872,6 +897,13 @@ ${directionMsg}`;
         max_tokens: 2048,
         response_format: { type: 'json_object' },
         label: `schedule-gen:${character.display_name}`,
+        // ★ F-58（2026-10-12，环境适配）：日程生成按调用禁用「思考模式」。
+        // 本机通道（opencode + deepseek-v4.1-flash、thinking=enabled）下，推理 token 计入
+        // max_tokens —— 9400 token 的日程 prompt 思考直接吃满 2048 预算、正文为空，必然失败。
+        // 实测诊断（同一句短请求）：enabled 输出 64 token / 13.9s，disabled 输出 2 token / 0.8s。
+        // 日程是结构化 JSON 任务、提示词已含全部编排规则，禁思考既保输出预算又省额度；
+        // 对非思考模型无副作用（等价上游「默认注入 disabled」的既有行为，见 llm-client）。
+        thinking: { type: 'disabled' },
       });
 
       let schedule = parseAndValidateSchedule(rawResult, character.display_name);
@@ -910,8 +942,10 @@ ${directionMsg}`;
         //   没传 → 仍写 `schedule_templates`（**默认日历**），行为与从前逐字节一致。
         //   ⚠ 两条路都要有数据：没配日型的角色，`snapshotTodaySchedule` 走默认日历，
         //     与现在完全相同（不能因为加了功能就让存量角色的日程变空）。
-        if (dayType) {
-          const dt = normalizeDayType(dayType);
+        if (explicitDayType) {
+          // F-01 修复（2026-10-12）：原为未声明变量 `dayType`（每轮成功解析后必抛 ReferenceError），
+          // 按 909-912 行契约改为「显式传入 dayType 才写 schedule_day_plans」。
+          const dt = normalizeDayType(explicitDayType);
           const existed = db.prepare('SELECT id, version FROM schedule_day_plans WHERE character_id = ? AND day_type = ?')
             .get(character.id, dt);
           if (existed) {

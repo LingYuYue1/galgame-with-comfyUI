@@ -330,6 +330,8 @@ export function getOutline() {
  *     落库后与改动前**逐字节一致**（守住"不重新序列化"这条红线）。
  *   · `prefix` / `suffix` —— `<outline_widget>` 包装，原样拼回。
  *   · `basisNote` / `pin` / `cursor` —— 编辑态要显示的既有状态。
+ *   · `beats[].rawIndex` —— 该 Beat 在 `blocks` 中的**真实下标**：raw 里可能有
+ *     被过滤的残缺块（见实现注释），前端**必须按它取块**、不要按下标配对。
  *
  * ⚠ 前端**不要自己解析 raw**（会把"保留未知字段"的活儿做丢）—— 一律用本函数的输出。
  */
@@ -337,16 +339,28 @@ export function getOutlineForEditor() {
   const cur = getOutline();
   if (!cur || !cur.beats.length) return null;
   const { prefix, suffix, blocks, separator } = splitOutlineRaw(cur.raw);
+  // ★ 每个完整 Beat 附上它在**原始块序列**中的真实下标（rawIndex）——
+  //   raw 里可能存在「要素不全」的残缺块（如被清空 Scene 的节点，见 StoryOutlineSceneModal
+  //   的「留空」提示），它们会被完整判据过滤、不在 beats 里，此时 beats 与 blocks
+  //   的「下标一一对应」不再成立。前端必须按 rawIndex 取块，否则从残缺块起**整体错位**：
+  //   后续节点拿到别人的原文块，往返保存时把别人的块写到自己位置、原文丢失
+  //   （违反 SceneModal「不影响已写内容」承诺）。对齐以 blocks 为**唯一来源**逐块解析，
+  //   避免「块扫描」两套口径分叉。
+  const beats = [];
+  blocks.forEach((blockText, i) => {
+    const [parsed] = parseOutline(blockText);
+    if (isCompleteOutlineBeat(parsed)) beats.push({ ...parsed, rawIndex: i });
+  });
   return {
     prefix,
     suffix,
     blocks,
     separator,
-    beats: cur.beats,
+    beats,
     cursor: cur.cursor,
     pin: cur.pin,
     basisNote: cur.basisNote,
-    beatCount: cur.beatCount,
+    beatCount: beats.length,
   };
 }
 
@@ -675,7 +689,14 @@ export async function generateOutlineDraft(input = {}) {
         + '若这一节点不属于任何已有线，就写"无"，不要自造线名。'
         + '严格按上面的机器结构输出。',
     },
-  ], { temperature: 0.8, max_tokens: 2400, label: 'story:outline-gen' });
+  ], {
+    temperature: 0.8, max_tokens: 2400, label: 'story:outline-gen',
+    // ★ F-04 附带（2026-10-12）：story 域三处 LLM 调用统一禁用「思考模式」——
+    //   推理 token 计入 max_tokens，本机通道（thinking=enabled）下会把预算吃光、正文为空
+    //   （同 F-58 机制：实测短请求即可吃掉绝大部分输出预算）。三处产出的都是**机器结构**
+    //   （Beat 格式 / JSON），思考边际收益低，禁思考既保输出预算又省免费额度。
+    thinking: { type: 'disabled' },
+  });
 
   const normalized = normalizeOutlineResponse(raw);
   const beats = parseCompleteOutline(normalized);
@@ -740,7 +761,10 @@ export async function refineOutlineBeat(input = {}) {
         + 'Beat 的「所属故事线」沿用原节点的取值（除非它与剧情明显冲突，此时用已有线名或写"无"）。'
         + '只输出**一个**节点的机器结构（一对 <outline_widget> 里只放一组 Beat/Scene/Subtext/Think）。',
     },
-  ], { temperature: 0.8, max_tokens: 900, label: 'story:outline-refine' });
+  ], {
+    temperature: 0.8, max_tokens: 900, label: 'story:outline-refine',
+    thinking: { type: 'disabled' },   // F-04 附带：同 story:outline-gen 的说明
+  });
 
   const beats = parseCompleteOutline(normalizeOutlineResponse(raw));
   // ⚠ 没有可用结果就抛错，**不要拿空值覆盖**用户已经写好的节点（红线 0 / 与 saveOutline 同口径）
@@ -779,9 +803,22 @@ export async function judgeOutlineAdvance(input = {}) {
   if (cur.cursor >= cur.beats.length) {
     return { advanced: false, cursor: cur.cursor, reason: '已是最后一个节点' };
   }
-  const recentText = String(input.recentText || '').trim();
+  // ★ F-04 修复（2026-10-12）：原先只认调用方传入的 recentText —— 而唯一调用方
+  //   （前端「判定是否推进」按钮）传的是空串，于是**永远**返回「没有可判定的剧情文本」，
+  //   从不发起 LLM 判定（功能完全不可用）。本模块底部的 composeRecentText 本就是为此
+  //   写的拼接器、却一直没有调用方接线 —— 现在在此处自取「最近聊天正文」兜底：
+  //   传了就用传入的（manual），没传就自动从 messages 取最近 20 条（recent-chat）。
+  let recentText = String(input.recentText || '').trim();
+  let textSource = recentText ? 'manual' : '';
   if (!recentText) {
-    return { advanced: false, cursor: cur.cursor, reason: '没有可判定的剧情文本' };
+    recentText = collectRecentChatText();
+    if (recentText) {
+      textSource = 'recent-chat';
+      console.log(`[story] 判定推进：未收到正文，已自动取最近聊天文本（${recentText.length} 字）`);
+    }
+  }
+  if (!recentText) {
+    return { advanced: false, cursor: cur.cursor, reason: '没有可判定的剧情文本', textSource: '' };
   }
 
   const current = cur.beats[cur.cursor - 1];
@@ -801,7 +838,10 @@ export async function judgeOutlineAdvance(input = {}) {
 不要解释。`,
     },
     { role: 'user', content: recentText.slice(0, 3000) },
-  ], { temperature: 0.1, max_tokens: 60, response_format: { type: 'json_object' }, label: 'story:outline-judge' });
+  ], {
+    temperature: 0.1, max_tokens: 60, response_format: { type: 'json_object' }, label: 'story:outline-judge',
+    thinking: { type: 'disabled' },   // F-04 附带：60 的预算被思考吃光后判定会恒为"未推进"
+  });
 
   let advanced = false;
   try {
@@ -812,9 +852,49 @@ export async function judgeOutlineAdvance(input = {}) {
   } catch {
     advanced = false;
   }
-  if (!advanced) return { advanced: false, cursor: cur.cursor, reason: '剧情未推进' };
+  if (!advanced) return { advanced: false, cursor: cur.cursor, reason: '剧情未推进', textSource };
   const updated = setOutlineCursor(cur.cursor + 1);
-  return { advanced: true, cursor: updated.cursor, reason: '已推进到下一节点' };
+  return { advanced: true, cursor: updated.cursor, reason: '已推进到下一节点', textSource };
+}
+
+/**
+ * 自取「最近的剧情正文」：最近 20 条聊天消息（全部会话混合、按时间正序）。
+ * conversation_id 形如 `char_<id>`，角色名从 characters 表取（拿不到就回落空串 → 显示"角色"）。
+ * 拼接与截断口径统一走 composeRecentText（每条 ≤400 字、总 ≤3000 字、保留最新）。
+ * 任何失败都返回空串（调用方按「没有可判定的剧情文本」处理，不抛错）。
+ */
+function collectRecentChatText(limit = 20) {
+  try {
+    const db = getDb();
+    const rows = db.prepare(`
+      SELECT role, content, conversation_id
+      FROM messages
+      WHERE role IN ('user','assistant') AND content IS NOT NULL AND content <> ''
+      ORDER BY id DESC LIMIT ?
+    `).all(limit);
+    if (!rows.length) return '';
+    const charIdOf = (cid) => {
+      const m = /^char_(\d+)$/.exec(String(cid || ''));
+      return m ? Number(m[1]) : null;
+    };
+    const ids = [...new Set(rows.map(r => charIdOf(r.conversation_id)).filter(Boolean))];
+    const names = new Map();
+    if (ids.length) {
+      const ph = ids.map(() => '?').join(',');
+      for (const c of db.prepare(`SELECT id, display_name FROM characters WHERE id IN (${ph})`).all(...ids)) {
+        names.set(c.id, c.display_name);
+      }
+    }
+    const msgs = rows.reverse().map(r => ({
+      role: r.role,
+      display_name: names.get(charIdOf(r.conversation_id)) || '',
+      content: r.content,
+    }));
+    return composeRecentText(msgs);
+  } catch (err) {
+    console.warn('[story] 自动取最近对话失败:', err.message);
+    return '';
+  }
 }
 
 /** 把最近对话拼成判定用的文本（调用方给原始消息数组） */

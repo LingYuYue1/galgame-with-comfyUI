@@ -139,6 +139,13 @@ function safeParse(s, fallback) {
   try { return JSON.parse(s); } catch { return fallback; }
 }
 
+/**
+ * parse 结果**不是数组就归零**（比 `|| []` 更严——挡得住 `123` / `'x'` / `{}` 这类
+ * "真值非数组"；`'null'` 是合法 JSON、safeParse 不抛也不落 fallback，只有 Array.isArray 能兜住）。
+ * F-36：pois_json 的所有读出口都必须过它。
+ */
+function asArray(v) { return Array.isArray(v) ? v : []; }
+
 /** key 只留字母数字下划线（前端 v-for 的稳定 key，也给模型一个可引用的锚） */
 function toKey(raw, fallback) {
   const k = String(raw || '').toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
@@ -189,7 +196,7 @@ function mapPlaceRow(r) {
   return {
     id: r.id, map_id: r.map_id, parent_id: r.parent_id, level: r.level,
     key: r.key, name: r.name, name_en: r.name_en || '', kind: r.kind || '',
-    summary: r.summary || '', pois: safeParse(r.pois_json, []), sort_order: r.sort_order,
+    summary: r.summary || '', pois: asArray(safeParse(r.pois_json, [])), sort_order: r.sort_order,
     // 结构化属性（见文件中部 ACCESS_LEVELS / ZONE_LEVELS 的说明）
     access: r.access || '', zone: r.zone || '', category: r.category || '',
     scene_prompt: r.scene_prompt || '', open_at: r.open_at || '', close_at: r.close_at || '',
@@ -310,7 +317,7 @@ export function upsertPlace(placeId, patch = {}) {
     }
 
     // ── ② 字段更新 ──
-    const pois = patch.pois !== undefined ? normalizePois(patch.pois) : safeParse(cur.pois_json, []);
+    const pois = patch.pois !== undefined ? normalizePois(patch.pois) : asArray(safeParse(cur.pois_json, []));
     db.prepare(`UPDATE world_map_places SET name = ?, name_en = ?, kind = ?, summary = ?, pois_json = ?,
         access = ?, zone = ?, category = ?, scene_prompt = ?, open_at = ?, close_at = ?,
         pos_x = ?, pos_y = ?
@@ -441,7 +448,7 @@ export async function expandPois(placeId, { count = 4, hint = '', excludeNames =
   // 已有 POI：库里存的 + 前端传来的（未保存的手改条目）合并去重。
   // ⚠ 前端那份可能含空名（用户点了「+ 添加一条」还没填），要过滤掉再参与比对。
   const existingNames = [
-    ...(safeParse(place.pois_json, []) || []).map(p => String(p?.name || '')),
+    ...asArray(safeParse(place.pois_json, [])).map(p => String(p?.name || '')),
     ...(Array.isArray(excludeNames) ? excludeNames : []),
   ].map(s => s.trim()).filter(Boolean);
 
@@ -449,7 +456,7 @@ export async function expandPois(placeId, { count = 4, hint = '', excludeNames =
   const siblingNames = parent
     ? db.prepare('SELECT pois_json FROM world_map_places WHERE parent_id = ? AND id != ? LIMIT 8')
       .all(place.parent_id, placeId)
-      .flatMap(r => (safeParse(r.pois_json, []) || []).map(p => String(p?.name || '')))
+      .flatMap(r => asArray(safeParse(r.pois_json, [])).map(p => String(p?.name || '')))
       .filter(Boolean)
     : [];
 
@@ -1238,10 +1245,35 @@ export function collectPlaceNodes(nodes, depth = 0) {
   return out;
 }
 
+/**
+ * 解析「未显式传 mapId 时的默认地图」= **玩家当前所在地图**。
+ *
+ * ── 为什么不是「最新创建的地图」（F-37 病根修复，2026-10-13）──
+ * `listMaps()` 是 `ORDER BY m.id DESC`，`[0]` 恒为最新建的图；而日程弹窗
+ * （GET regenerate-options 不带 mapId）、生成（POST body 不带 mapId）、台账
+ * （buildLedgerCtx 不传参）都会走到这个默认——玩家在 A 图活动、之后又建了 B 图时，
+ * 三处全按 B 图（错的图）取区域/准入/通勤。用户视角：「日程排的全是另一张图的地方」。
+ *
+ * ── 真源选择 ────────────────────────────────────────────────
+ * `town_players.map_id`（schema 注释：「玩家当前所在地图（聚焦口径的权威来源）」，
+ * 出行/初始化时由 townService 落库）。不 import townService.getTownMaps()：那是运行时
+ * 内存态且引入地图域→小镇域耦合；同库直读 DB 零新耦合（本文件本来就用 getDb）。
+ * 读到后**必须校验该图仍存在**（地图可能已被删除），失效则回退旧行为（最新图兜底）。
+ */
+function resolveDefaultMapId() {
+  try {
+    const db = getDb();
+    const pid = Number(db.prepare("SELECT map_id FROM town_players WHERE id = 'me'").get()?.map_id) || null;
+    if (pid && db.prepare('SELECT 1 FROM world_maps WHERE id = ?').get(pid)) return pid;
+  } catch { /* town 表缺失/未初始化 → 走下方兜底 */ }
+  return listMaps()[0]?.id ?? null;
+}
+
 /** 列出可作为日常活动区域的子区（含其下地点属性）——日程弹窗与注入共用 */
 export function listAreasForSchedule(mapId = null) {
   let id = Number(mapId) || null;
-  if (!id) id = listMaps()[0]?.id ?? null;
+  // ★ F-37：默认取「玩家当前所在地图」——不再是「最新创建的地图」（见 resolveDefaultMapId）
+  if (!id) id = resolveDefaultMapId();
   if (!id) return { mapId: null, mapName: '', areas: [] };
   const map = getMap(id);
   if (!map || !Array.isArray(map.tree)) return { mapId: null, mapName: '', areas: [] };

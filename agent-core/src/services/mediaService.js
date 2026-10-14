@@ -313,12 +313,16 @@ function categoryFilter(category, alias = 'o') {
  *
  * 与前端分类的对应：feed →「社交平台」；forum →「网络论坛」；gallery →「规则34」；
  *                    portal →「数字报刊」；poster/weekly →「官方传媒」。
+ *
+ * ★ 本清单是「新建媒体选项」的**唯一权威**（经 `GET /media/layouts` 下发）。
+ *   前端兜底 `MediaSettingsModal.FALLBACK_LAYOUTS` 必须与本清单**逐字一致**
+ *   —— 有跨端一致性测试钉住（web-ui/test/layoutCatalogSync.test.js）；改动要整段同步。
  */
 export const OUTLET_LAYOUTS = [
   { key: 'feed', label: '社交平台', hint: '一批独立帖子（瀑布流）· 一次生成多条' },
   { key: 'forum', label: '网络论坛', hint: '版聊主题帖（标题 + 正文 + 楼层回复）· 文字为主、少量图片' },
-  { key: 'photos', label: '图片站（SFW）', hint: 'SFW 图片站：城市风光 / 美少女自拍 / 美食打卡 / 宣传海报 · 画面确定性生成' },
-  { key: 'gallery', label: '图片站', hint: '图集条目（1 排 4 张）· 每条随机画师串与题材组合' },
+  { key: 'photos', label: '图片站（全年龄）', hint: '城市风光 / 美少女自拍 / 美食打卡 / 宣传海报 · 画面确定性生成' },
+  { key: 'gallery', label: '图片站（成人）', hint: '图集条目（1 排 4 张）· 每条随机画师串与题材组合' },
   { key: 'portal', label: '数字报刊', hint: '按「期」出刊：门户版 + 板块正文（点开才生成）' },
   { key: 'poster', label: '海报', hint: '一张只讲一个瓜：热点速报条 → 大标题 → 主图 → 爆点气泡 → 短文案 → 小图组' },
 ];
@@ -1775,6 +1779,37 @@ function pickPhotoAspect(category) {
 }
 
 /**
+ * 照片题材计划：生成 n 个题材（cityscape / selfie / food / poster），四类各约 1/4。
+ *
+ * 配比规则：城市风光权重最高（slot 0/1），自拍占 slot 2（不允许角色出镜时让给风光），
+ * slot 3 在美食 / 海报间分配。生成后做一次**轻微打散**（见函数内注释），
+ * 避免「前 n/4 全是风光」的机械感。**导出供测试**钉住配比与打散口径。
+ */
+export function buildPhotoCategoryPlan(n, allowSelfie) {
+  const planIdx = [];
+  for (let i = 0; i < n; i++) {
+    const slot = i % 4;
+    if (slot === 0 || slot === 1) planIdx.push('cityscape');       // 城市风光权重最高（题材最具特色）
+    else if (slot === 2) planIdx.push(allowSelfie ? 'selfie' : 'cityscape');
+    else planIdx.push(i % 8 === 3 ? 'food' : 'poster');
+  }
+
+  // 轻微打散：避免「前 n/4 全是风光」的机械感（2026-10-13 兑现原注释承诺——
+  // 此前只算了 per 没使用，`void per` 消警告，打散实际从未发生）。
+  // 仅当首段（per 个）清一色 cityscape 时，把段尾一个与**段后首个非风光题材**对调：
+  // 只动 0~2 个位置、不引入随机（同一输入结果确定）、不改变四类配比。
+  const per = Math.max(1, Math.round(n / 4));
+  if (planIdx.slice(0, per).every(c => c === 'cityscape')) {
+    const swapIn = planIdx.findIndex((c, i) => i >= per && c !== 'cityscape');
+    if (swapIn !== -1) {
+      const tail = per - 1;
+      [planIdx[tail], planIdx[swapIn]] = [planIdx[swapIn], planIdx[tail]];
+    }
+  }
+  return planIdx;
+}
+
+/**
  * 生成「哈托比亚」的一批条目。
  *
  * @param {object} outlet
@@ -1788,16 +1823,7 @@ async function generatePhotoBatch(outlet, count, withCharacters) {
   // ★ 题材配比：城市风光 + 自拍各约 1/4，美食 + 海报各约 1/4（保证四类都出现）。
   //   自拍需要角色；若不允许角色出镜，把自拍份额让给城市风光。
   const allowSelfie = withCharacters === true;
-  const planIdx = [];
-  const per = Math.max(1, Math.round(n / 4));
-  for (let i = 0; i < n; i++) {
-    const slot = i % 4;
-    if (slot === 0 || slot === 1) planIdx.push('cityscape');       // 城市风光权重最高（题材最具特色）
-    else if (slot === 2) planIdx.push(allowSelfie ? 'selfie' : 'cityscape');
-    else planIdx.push(i % 8 === 3 ? 'food' : 'poster');
-  }
-  // 用 per 做一次轻微打散（避免"前 n/4 全是风光"的机械感）
-  void per;
+  const planIdx = buildPhotoCategoryPlan(n, allowSelfie);
 
   const mapScenes = listMapScenePrompts();
   const castPool = allowSelfie ? pickActiveCharacters(8) : [];
@@ -3025,7 +3051,10 @@ async function fillPosterPanelImages(limit = 3) {
     const panels = Array.isArray(payload?.panels) ? payload.panels : [];
     let touched = false;
 
-    for (const panel of panels) {
+    // ★ F-07 配套（2026-10-12）：循环带索引 —— 广播里给出 panelIndex，
+    //   前端才能把补好的面板图精确写进 payload.panels[i]（原先只带 panel:true，无法定位）。
+    for (let pi = 0; pi < panels.length; pi++) {
+      const panel = panels[pi];
       if (filled >= limit) break;
       if (panel.image || !panel.image_prompt) continue;
       try {
@@ -3044,7 +3073,7 @@ async function fillPosterPanelImages(limit = 3) {
           workflowTemplate: result.wfMode,
           db,
         });
-        broadcast('media_image_ready', { postId: row.id, image: result.url, panel: true });
+        broadcast('media_image_ready', { postId: row.id, image: result.url, panel: true, panelIndex: pi });
       } catch (err) {
         console.error(`[media] 海报小图失败 #${row.id}:`, err.message);
       }
@@ -3374,6 +3403,9 @@ export function resetStaleMediaGenerating() {
  *
  * 重复生图的历史遗留：目录里的文件数远多于 DB 引用数（实测 81 vs 37）。
  * 现在虽然加了 CAS 防护不会再产生新的，但存量孤儿会白占磁盘，需要清一次。
+ *
+ * ⚠ 引用口径 = 主图 + payload.panels[].image + payload.sections[].image
+ *   （与 deletePost 的清理清单完全一致，改一处必须同时改另一处）。
  * @param {number} [maxAgeMs] 只清理「这么久以前」的文件，避免误删正在写入的
  * @returns {{scanned:number, removed:number}}
  */
@@ -3381,10 +3413,33 @@ export function cleanupOrphanMediaImages(maxAgeMs = 60 * 60 * 1000) {
   try {
     const dir = getImageDir('media');
     if (!fs.existsSync(dir)) return { scanned: 0, removed: 0 };
-    const referenced = new Set(
-      getDb().prepare(`SELECT image FROM media_posts WHERE image IS NOT NULL AND image <> ''`).all()
-        .map(r => String(r.image).split('/').pop())
-    );
+    // ★ F-02 修复（2026-10-12）：引用口径必须与 deletePost（本文件上方「删除一条内容」）
+    // 完全对齐 —— 除主图 `media_posts.image` 外，海报面板图 / 门户分节图**只存在 payload_json
+    // 里**（payload.panels[].image / payload.sections[].image）。原实现只查 image 列，
+    // 这两类图对清理器不可见 → 每次启动约 3 分钟后被当孤儿删除，而 DB 仍指向已删文件：
+    // 海报小图 / 门户板块图永久空白（且 panel.image 为真值，自动补图会跳过重生成）。
+    // 另：文件名提取与 deleteImageFileByUrl 同口径（去 query → 取末段 → decode），防编码文件名。
+    const referenced = new Set();
+    const addRef = (u) => {
+      if (!u) return;
+      let name = String(u).split('?')[0].split('/').pop() || '';
+      try { name = decodeURIComponent(name); } catch { /* 非法编码：按原样 */ }
+      if (name) referenced.add(name);
+    };
+    const refRows = getDb().prepare(
+      `SELECT image, payload_json FROM media_posts
+        WHERE (image IS NOT NULL AND image <> '') OR (payload_json IS NOT NULL AND payload_json <> '')`
+    ).all();
+    for (const r of refRows) {
+      addRef(r.image);
+      const payload = safeParse(r.payload_json, null);
+      if (Array.isArray(payload?.panels)) {
+        for (const p of payload.panels) addRef(p?.image);
+      }
+      if (Array.isArray(payload?.sections)) {
+        for (const s of payload.sections) addRef(s?.image);
+      }
+    }
     let scanned = 0, removed = 0;
     const now = Date.now();
     for (const f of fs.readdirSync(dir)) {

@@ -443,7 +443,15 @@ export async function repairMissingItemImages({ limit = 100, onProgress } = {}) 
   return { total: targets.length, ok: results.filter(r => r.ok).length, failed: results.filter(r => !r.ok), results };
 }
 
+/**
+ * 效果定义统一入口：内置池优先，回落橱窗清单（getLootEffect）。
+ * F-26/F-59：橱窗 loot 道具的 key 不在 ITEM_EFFECTS 里，凡需要 name/kind 的读取都走这里，
+ * 否则 kind 恒 'unknown'、name 显示原始 key（背包列表 / 生效效果列表 / 提前移除三条链路同源）。
+ */
+const resolveEffectDef = (key) => ITEM_EFFECTS[key] || getLootEffect(key);
+
 function serializeItem(row) {
+  const def = resolveEffectDef(row.effect_key);
   return {
     id: row.id,
     owner_key: row.owner_key,
@@ -455,8 +463,8 @@ function serializeItem(row) {
     locked_by: row.locked_by,
     retired_at: row.retired_at,
     effect_key: row.effect_key,
-    effect_name: ITEM_EFFECTS[row.effect_key]?.name || row.effect_key,
-    kind: ITEM_EFFECTS[row.effect_key]?.kind || 'unknown',
+    effect_name: def?.name || row.effect_key,
+    kind: def?.kind || 'unknown',
     name: row.name,
     description: row.description,
     image_url: row.image_url,
@@ -512,12 +520,15 @@ export function listActiveEffects() {
      JOIN backpack_items i ON i.id = e.item_id
      WHERE i.owner_key = 'me' AND i.status = 'used' AND (e.expires_at IS NULL OR e.expires_at > datetime('now'))
      ORDER BY e.expires_at ASC`
-  ).all().map(row => ({
-    ...row,
-    effect_name: ITEM_EFFECTS[row.effect_key]?.name || row.effect_key,
-    kind: ITEM_EFFECTS[row.effect_key]?.kind || 'unknown',
-    remaining_seconds: secondsUntil(row.expires_at),
-  }));
+  ).all().map(row => {
+    const def = resolveEffectDef(row.effect_key);
+    return {
+      ...row,
+      effect_name: def?.name || row.effect_key,
+      kind: def?.kind || 'unknown',
+      remaining_seconds: secondsUntil(row.expires_at),
+    };
+  });
 }
 
 /**
@@ -530,7 +541,8 @@ export function removeActiveEffect(effectId) {
   const row = db.prepare(`SELECT e.* FROM item_effects e JOIN backpack_items i ON i.id = e.item_id WHERE e.id = ? AND i.owner_key = 'me' AND i.status = 'used'`).get(effectId);
   if (!row) return { ok: false, error: '生效效果不存在' };
 
-  const effect = ITEM_EFFECTS[row.effect_key];
+  // F-59：loot 效果的 kind 同样要回落清单定义 —— 否则「提前移除」不会撤销它落地的临时外观
+  const effect = resolveEffectDef(row.effect_key);
   const payload = safeParseJson(row.payload_json) || {};
 
   const remove = db.transaction(() => {
@@ -713,16 +725,23 @@ export function discardItem(itemId, options = {}) {
 // ── 聊天人格注入 ──
 
 /**
- * 由生效 buff 效果拼「临时状态」人格注入块（纯函数，便于测试）。
+ * 由生效 buff 效果拼「临时状态」人格注入块（便于测试）。
+ *
+ * ★ F-14 修复（2026-10-12）：效果定义与文案都要能**回落到 loot 清单** ——
+ *   橱窗带走的成人玩具 effect_key 是商品 tag（只存在 `loot_catalog`），原来只认
+ *   `ITEM_EFFECTS` 会把它们整条过滤掉 →「使用玩具后对话人格带上状态」永不生效。
+ *   回落真源与 `useItemInTransaction` 的 effect 解析一致（`ITEM_EFFECTS || getLootEffect`）。
+ *   ⚠ 因此不再是严格纯函数（会查库回落）；调用频率低（每次聊天组装一次），可接受。
  * @param {Array<{item_name: string, effect_key: string, remaining_seconds: number}>} effects
  * @returns {string} 无 buff 时返回 ''
  */
 export function buildBuffBlock(effects) {
-  const buffs = (effects || []).filter(e => ITEM_EFFECTS[e.effect_key]?.kind === 'buff');
+  const defOf = (key) => ITEM_EFFECTS[key] || getLootEffect(key);
+  const buffs = (effects || []).filter(e => defOf(e.effect_key)?.kind === 'buff');
   if (buffs.length === 0) return '';
   const lines = buffs.map((e, i) => {
     const hours = Math.max(1, Math.ceil((e.remaining_seconds || 0) / 3600));
-    const text = ITEM_EFFECTS[e.effect_key]?.effectText || '';
+    const text = defOf(e.effect_key)?.effectText || '';
     return `${i + 1}. 受「${e.item_name}」影响（剩余约 ${hours} 小时）：${text}`;
   });
   return `【道具效果 · 临时状态】\n以下状态正在影响你——这是暂时的状态变化，不是你本性的改变，效果结束后会自然恢复。请在言行中自然体现这些状态，但不要在对话中提及「道具」「效果」这些字眼：\n${lines.join('\n')}`;

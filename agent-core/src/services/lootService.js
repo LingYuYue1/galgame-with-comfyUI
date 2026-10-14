@@ -1,14 +1,14 @@
 /**
  * 宝箱橱窗（loot window）
  *
- * 与旧的「盲盒单抽」不同，这里一次给 8 个候选让你挑。清单来自外部（`邻舍-local/30-工具箱/loot-catalog/`），
- * 经导入工具写进 loot_catalog 表；本服务负责：分页配置、刷新橱窗、带走、单件生图缓存。
+ * 与旧的「盲盒单抽」不同，这里一次给 4 个候选让你挑。清单来自外部 JSON 文件，
+ * 经 `scripts/import-loot.mjs` 校验导入写进 loot_catalog 表；本服务负责：分页配置、刷新橱窗、带走、单件生图缓存。
  *
  * 几个刻意的设计
  *  1. 橱窗状态存库（loot_offers），不放内存 —— 刷新页面不该把橱窗清空。
  *  2. 图片按「单件」缓存（loot_catalog.image_url）。候选组合随机、几乎不重复，
- *     按整套生图等于每次刷新都烧 8 次算力；按单件缓存后每种只生一次，之后刷新近乎零成本。
- *  3. 生图串行排队。一次刷 8 张并行会把 ComfyUI 撑爆。
+ *     按整套生图等于每次刷新都烧 4 次算力；按单件缓存后每种只生一次，之后刷新近乎零成本。
+ *  3. 生图串行排队。一次刷 4 张并行会把 ComfyUI 撑爆。
  *  4. 分页配置存在 system_settings（导入时写入），运行时后端不依赖外部文件是否存在。
  */
 import { getDb, getSetting, setSetting } from '../db/index.js';
@@ -21,8 +21,8 @@ export const LOOT_PAGES_KEY = 'loot_pages';
 /** 每页格子数。4 而非 8：一次刷新要等 4 张图生成完才看得齐，8 张等待太久了 */
 export const PAGE_SIZE = 4;
 
-/** cat → useItem 的落地 kind */
-const KIND_BY_CAT = {
+/** cat → useItem 的落地 kind（导出供导入工具校验 cat 取值） */
+export const KIND_BY_CAT = {
   clothes: 'outfit',
   accessory: 'outfit',
   hairstyle: 'hairstyle',
@@ -388,6 +388,10 @@ export function takeItems(page, slotIndexes) {
       // 玩法/状态类不需要图，直接算就绪（否则会永远停在 generating）
       const needImg = needsImage(item);
       const payload = buildPayload(item);
+      // ★ F-05 修复（2026-10-12）：就绪状态提取为变量 —— 既进 INSERT，也随 taken 返回。
+      //   橱窗「使用」链路此前硬编码 status:'ready'，图没生成完时会被 useItem 拒绝
+      //   （"道具尚未就绪"）；前端现在按这里给出的真实状态分流（未就绪 → 放背包 + 提示等图）。
+      const status = (hasImg || !needImg) ? 'ready' : 'generating';
       const r = db.prepare(`
         INSERT INTO backpack_items (effect_key, name, description, image_url, status, payload_json, owner_key, source_type, collected_at)
         VALUES (?, ?, ?, ?, ?, ?, 'me', 'loot', datetime('now'))
@@ -396,12 +400,12 @@ export function takeItems(page, slotIndexes) {
         item.name,
         item.meaning || item.name,
         hasImg ? item.image_url : null,
-        (hasImg || !needImg) ? 'ready' : 'generating',
+        status,
         JSON.stringify(payload),
       );
       db.prepare('DELETE FROM loot_offers WHERE page = ? AND slot_index = ?').run(page, idx);
       if (needImg && !hasImg) enqueueImage(item.id);   // 图还没好，顺手排上
-      taken.push({ catalogId: item.id, backpackId: r.lastInsertRowid, name: item.name, imageUrl: hasImg ? item.image_url : null });
+      taken.push({ catalogId: item.id, backpackId: r.lastInsertRowid, name: item.name, imageUrl: hasImg ? item.image_url : null, status });
     }
   });
   tx();
@@ -503,14 +507,44 @@ async function generateOneImage(catalogId) {
     if (!result.success || !result.images?.length) throw new Error(result.error || 'ComfyUI 未返回图片');
     const url = saveBase64Image('items', `loot_${row.tag}_${Date.now()}.png`, result.images[0].base64);
     db.prepare(`UPDATE loot_catalog SET image_url = ?, image_status = 'done', image_error = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(url, catalogId);
-    // 背包里已经带走、但当时还没图的同款，一并回填
-    db.prepare(`UPDATE backpack_items SET image_url = ?, status = 'ready'
-                WHERE effect_key = ? AND source_type = 'loot' AND status = 'generating' AND image_url IS NULL`).run(url, row.tag);
+    // 背包里已经带走、但当时还没图的同款，一并落定上架（带图）+ 逐个通知前端（item_ready）
+    settleWaitingLootItems(row.tag, url);
+    // 橱窗侧（LootWindow 的商品卡）另走 loot_image_ready 更新格子图
     broadcast('loot_image_ready', { catalogId, tag: row.tag, imageUrl: url });
   } catch (err) {
     db.prepare(`UPDATE loot_catalog SET image_status = 'failed', image_error = ? WHERE id = ?`).run(String(err.message).slice(0, 300), catalogId);
+    // ★ F-12 修复（2026-10-12）：失败也必须给背包侧一个交代 —— 原来这里什么都不做，
+    //   已带走的同款道具永远停在 generating，而前端「生成中不上架」→ 道具**永久消失**。
+    //   降级上架（无图可用；图缺席不阻塞使用，与普通道具的 completeChestItem(…, null)
+    //   以及 F-05 的「ready 才可用、图只是装饰」口径一致）。
+    settleWaitingLootItems(row.tag, null);
     console.error(`[loot] 生图失败 ${row.tag}:`, err.message);
   }
+}
+
+/**
+ * 把某款商品「已带走、还在等图」的背包道具落定上架（★ F-12，2026-10-12）。
+ *
+ * 成功/失败两条路径共用：
+ *   · 成功：带图置 ready，并逐个按**普通道具同款事件** item_ready 广播 ——
+ *     前端 backpack store 的 `_onItemReady` 用现成逻辑直接处理（原来发的是
+ *     loot_image_ready，而背包订阅的是 item_ready → 收不到，只能等 60s 轮询）；
+ *   · 失败：降级上架（image_url=null）—— 绝不让道具卡死在 generating。
+ * @param {string} tag 商品 tag（= backpack_items.effect_key）
+ * @param {string|null} imageUrl 图 URL；失败传 null
+ * @returns {number[]} 受影响的背包道具 id（无匹配时为空数组）
+ */
+export function settleWaitingLootItems(tag, imageUrl = null) {
+  const db = getDb();
+  const ids = db.prepare(
+    `SELECT id FROM backpack_items
+      WHERE effect_key = ? AND source_type = 'loot' AND status = 'generating' AND image_url IS NULL`
+  ).all(tag).map(r => r.id);
+  if (!ids.length) return [];
+  const ph = ids.map(() => '?').join(',');
+  db.prepare(`UPDATE backpack_items SET status = 'ready', image_url = ? WHERE id IN (${ph})`).run(imageUrl || null, ...ids);
+  for (const id of ids) broadcast('item_ready', { itemId: id, imageUrl: imageUrl || null });
+  return ids;
 }
 
 /**

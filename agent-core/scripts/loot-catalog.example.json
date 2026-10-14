@@ -1,0 +1,15 @@
+{
+  "pages": [
+    { "key": "clothes", "label": "服装" },
+    { "key": "accessory", "label": "配饰" },
+    { "key": "hairstyle", "label": "发型" }
+  ],
+  "items": [
+    { "tag": "maid_dress", "name": "女仆装", "meaning": "经典黑白女仆连衣裙", "cat": "clothes", "slot": "full", "page": "clothes" },
+    { "tag": "serafuku", "name": "水手服", "meaning": "蓝白水手领连衣裙", "cat": "clothes", "slot": "full", "page": "clothes" },
+    { "tag": "headband", "name": "发箍", "meaning": "缎带蝴蝶结发箍", "cat": "accessory", "slot": "head", "page": "accessory" },
+    { "tag": "hair_ribbon", "name": "发带", "meaning": "缎带发饰", "cat": "accessory", "slot": "hair", "page": "accessory" },
+    { "tag": "twintails", "name": "双马尾", "meaning": "经典双马尾发型", "cat": "hairstyle", "slot": "hair", "page": "hairstyle" },
+    { "tag": "hime_cut", "name": "公主切", "meaning": "姬发式长发", "cat": "hairstyle", "slot": "hair", "page": "hairstyle" }
+  ]
+}

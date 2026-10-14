@@ -938,15 +938,20 @@ router.post('/delete-batch', (req, res) => {
   if (urls.length > 2000) return res.status(400).json({ error: '一次最多删除 2000 张' });
 
   let deleted = 0;
+  let missing = 0;
   const failedItems = [];
   for (const u of urls) {
     const r = deleteOneImage(u);
-    if (r.ok) deleted++;
-    else failedItems.push({ url: u, error: r.error });
+    if (!r.ok) { failedItems.push({ url: u, error: r.error }); continue; }
+    // ★ F-41：区分「真删了文件」与「文件本就不存在（幂等通过）」——后者不计入删除数，
+    //   但它同样会清掉聊天引用（见 deleteOneImage 的说明），前端提示须如实并报。
+    if (r.missing) missing++; else deleted++;
   }
-  if (deleted > 0) invalidateGalleryCache();
-  console.log(`[delete-batch] 请求 ${urls.length} 张，成功 ${deleted}，失败 ${failedItems.length}`);
-  res.json({ success: true, deleted, failed: failedItems.length, failedItems: failedItems.slice(0, 20) });
+  // ★ F-41：missing 同样改动相册数据（幽灵引用照常清 DB），失效条件必须覆盖它——
+  //   否则「整批全是幽灵」（deleted=0）时缓存不失效，前端重载拿回含幽灵的旧列表（"删了还在"）。
+  if (deleted > 0 || missing > 0) invalidateGalleryCache();
+  console.log(`[delete-batch] 请求 ${urls.length} 张，成功 ${deleted}，missing ${missing}，失败 ${failedItems.length}`);
+  res.json({ success: true, deleted, missing, failed: failedItems.length, failedItems: failedItems.slice(0, 20) });
 });
 
 async function checkImageProviderConnection({ provider, url, apiKey, model, apiFormat } = {}) {

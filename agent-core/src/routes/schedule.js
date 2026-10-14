@@ -714,12 +714,20 @@ router.post('/:characterId/peek/retake', async (req, res) => {
 
     // 异步生图，使用日程事件参数
     try {
+      // ★ 时段锚点（F-15）：优先用前端透传的活动时刻（「再拍一张」须与原图同时段），
+      //   老客户端不带活动上下文时回退「当前活动」；都没有则不注入（行为同旧版）。
+      let timeOfDay = req.body?.activity?.startTime || '';
+      if (!timeOfDay) {
+        try { timeOfDay = getCurrentActivity(characterId)?.startTime || ''; } catch { timeOfDay = ''; }
+      }
+
       const result = await generateImage(prompt, {
         artist: config.comfyui.eventArtist,
         width: config.comfyui.eventWidth,
         height: config.comfyui.eventHeight,
         scene: 'schedule',
         priority: 'high',
+        timeOfDay: timeOfDay || undefined,
         ragTimeoutMs: RAG_TIMEOUT_FAST_MS,
         ...(() => {
           const chLoras = _parseLoras(character.loras);
@@ -986,6 +994,9 @@ router.post('/:characterId/peek', async (req, res) => {
         height: config.comfyui.eventHeight,
         scene: 'schedule',
         priority: 'high',
+        // ★ 时段锚点（F-15）：把配图钉在该活动所属时段 —— 凌晨活动不再画成白天。
+        //   activity.startTime 为 'HH:MM'（锚点函数直接支持）；缺失则不注入（行为同旧版）。
+        timeOfDay: activity.startTime || undefined,
         ...(() => {
           const chLoras = _parseLoras(character.loras);
           const opts = {};

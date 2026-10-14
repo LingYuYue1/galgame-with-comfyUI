@@ -11,7 +11,7 @@
  */
 import { Router } from 'express';
 import { getDb } from '../db/index.js';
-import { saveBase64Image } from '../services/imagePaths.js';
+import { deleteImageFileByUrl, saveBase64Image } from '../services/imagePaths.js';
 
 const router = Router();
 
@@ -55,6 +55,7 @@ router.post('/:key/upload', (req, res) => {
     const imagePath = saveBase64Image('emoji', filename, base64);
 
     const db = getDb();
+    const old = db.prepare('SELECT image_path FROM user_emojis WHERE emoji_key = ?').get(emojiKey);
     db.prepare(`
       INSERT INTO user_emojis (emoji_key, prompt, image_path, status, updated_at)
       VALUES (?, '', ?, 'done', datetime('now'))
@@ -64,6 +65,13 @@ router.post('/:key/upload', (req, res) => {
         error_message = NULL,
         updated_at = datetime('now')
     `).run(emojiKey, imagePath);
+
+    // ★ F-45 修复（2026-10-14）：覆盖同名表情后清理旧图。保守序（新图已落盘 + 新 image_path
+    //   已写入，此步失败最坏只是旧图残留）；守卫防「极端同毫秒撞名」时误删正在使用的新图。
+    //   同域先例：characters.js「旧立绘文件先清掉」；emoji.js 的 character 删除本就删图。
+    if (old?.image_path && old.image_path !== imagePath) {
+      try { deleteImageFileByUrl(old.image_path); } catch {}
+    }
 
     res.json({ ok: true, key: emojiKey, image_path: imagePath });
   } catch (err) {
@@ -77,8 +85,16 @@ router.delete('/:key', (req, res) => {
     const emojiKey = normalizeKey(req.params.key);
     if (!emojiKey) return res.status(400).json({ error: '表情名无效' });
     const db = getDb();
-    const info = db.prepare('DELETE FROM user_emojis WHERE emoji_key = ?').run(emojiKey);
-    if (!info.changes) return res.status(404).json({ error: '表情不存在' });
+    const row = db.prepare('SELECT image_path FROM user_emojis WHERE emoji_key = ?').get(emojiKey);
+    if (!row) return res.status(404).json({ error: '表情不存在' });
+    db.prepare('DELETE FROM user_emojis WHERE emoji_key = ?').run(emojiKey);
+    // ★ F-45 修复（2026-10-14）：记录删除后磁盘图一并清理（best-effort，失败不 500——
+    //   文件删不掉不该让「记录已删」这一步看起来失败）。修复前只删记录、图留在原地
+    //   （删一个留一张的孤儿堆积，相册里可见幽灵图）。
+    //   同域先例：emoji.js 的 character 删除（清空）本就删图；characters.js「旧立绘先清掉」。
+    if (row.image_path) {
+      try { deleteImageFileByUrl(row.image_path); } catch {}
+    }
     res.json({ ok: true });
   } catch (err) {
     console.error('[userEmoji] delete error:', err.message);

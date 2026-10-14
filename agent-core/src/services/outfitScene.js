@@ -1,5 +1,5 @@
 /**
- * outfitScene.js — 场景服装（工装 / 私服 / 居家 / 睡衣）
+ * outfitScene.js — 场景服装（常服 / 私服 / 居家 / 睡衣 / 全身）
  *
  * ── 解决什么问题 ──
  *
@@ -938,6 +938,9 @@ ${list}
     const raw = await chatSync(msgs, {
       temperature: 0.2, max_tokens: 900,
       response_format: { type: 'json_object' }, label: 'schedule-gen:着装校对',
+      // ★ F-58（2026-10-12，环境适配）：同 scheduleGenerator —— thinking 模型的推理 token
+      // 计入 max_tokens，900 的预算会被思考吃光导致正文为空；着装校对是结构化输出任务，禁思考。
+      thinking: { type: 'disabled' },
     });
     const parsed = JSON.parse(String(raw || '')
       .replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim());

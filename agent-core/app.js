@@ -1,10 +1,12 @@
 import './src/envCheck.js'; // 必须最先执行：Node ABI 预检，防 better-sqlite3 加载崩溃
 import express from 'express';
 import cors from 'cors';
+import compression from 'compression';
 import path from 'path';
 import { readFileSync, statSync } from 'fs';
 import { fileURLToPath } from 'url';
 import net from 'node:net';
+import zlib from 'node:zlib';
 import { config, autoDetectWorkflowMode, activateLlmProfile, getActiveProfileId } from './src/config.js';
 import { getDb, closeDb } from './src/db/index.js';
 import {
@@ -57,7 +59,9 @@ const ROOT_DIR = path.join(__dirname, '..');
 
 // 中间件
 app.use(cors());
-// 刻意不使用 compression 中间件（v3.4.0 加过，已整体移除）。两条理由，改回来之前先读：
+// 原生设计：刻意不使用 compression 中间件（v3.4.0 加过，已整体移除）。两条理由，改回来之前先读：
+// ⚠ 本地二创（2026-10-12）：已按本注释末尾「公网/蜂窝」方案为远程访问重新启用——见下方 app.use(compression)，
+//   已显式排除 text/event-stream；本机/局域网场景如需恢复原行为，注释掉该中间件即可。
 //   1) 正确性：它的默认 filter 认为 text/event-stream 可压缩（compressible 返回 true），
 //      会把 SSE 接进 zlib/brotli 变换流，事件被缓冲在压缩缓冲里下不去。
 //      gzip/deflate 是「响应头能发、body 0 字节」，br 更狠「连响应头都发不出去」；
@@ -79,6 +83,18 @@ app.use(cors());
 // （另需 import zlib from 'node:zlib'）：
 //   compression({ level: 1, brotli: { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 1 } } })
 //   （gzip 263→134ms、brotli 194→58ms，平衡点抬到 ≈134 MB/s）
+// 【本地二创 · 2026-10-12】远程访问（公网/蜂窝）启用压缩，方案即上注释预写：
+//   显式排除 text/event-stream；gzip/brotli 均降到最低档，兼顾 CPU 与弱网。
+//   背景：远程接入链路下前端产物 3.4MB+、JSON 接口多，压缩后传输量约降 60~75%（见 docs/remote-access.md）。
+app.use(compression({
+  level: 1,
+  brotli: { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 1 } },
+  filter(req, res) {
+    const ct = String(res.getHeader('Content-Type') || '');
+    if (ct.includes('text/event-stream')) return false; // SSE 必须排除，见上方注释第 1 条
+    return compression.filter(req, res);
+  },
+}));
 app.use(express.json({ limit: '10mb' }));
 
 // 静态文件（Vue 前端，构建后）

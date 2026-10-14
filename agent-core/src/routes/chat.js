@@ -1809,6 +1809,9 @@ async function triggerImageGeneration(conversationId, prompt, assistantMsgId, ta
   try {
     const result = await generateImage(prompt, {
       scene: 'chat',
+      // ★ 时段锚点（F-15）：聊天配图是「此刻」的场景（环境参考/光照均按当前时间），
+      //   把光照钉在当前时段 —— 凌晨聊天不再画出白天光。
+      timeOfDay: new Date(),
       ragTimeoutMs: RAG_TIMEOUT_FAST_MS,
       onProgress: (p) => {
         if (p.stage === 'retrying') {

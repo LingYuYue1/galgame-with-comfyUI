@@ -25,9 +25,31 @@ export const description = '记忆证据闸门：memory_fragments 增加逐字�
 
 export function run(db) {
   try {
+    // ★ 依赖表兜底（F-15 顺带修正 F-11 的边界）：registry 的护栏测试要求
+    //   「每个迁移都能在空库上独立跑通（依赖表缺失要自己兜底）」——与 003/007
+    //   等迁移的 `CREATE TABLE IF NOT EXISTS` 约定一致。表已存在时本句无副作用；
+    //   正常启动路径 initSchema 先建表，本句仅为空库/异常顺序场景兜底。
+    //   （结构必须与 db/index.js initSchema 的 memory_fragments 保持一致。）
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS memory_fragments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        conversation_id TEXT,
+        source_msg_id INTEGER REFERENCES messages(id),
+        source_raw_start_id INTEGER,
+        source_raw_end_id INTEGER,
+        fragment_type TEXT NOT NULL CHECK(fragment_type IN ('fact','preference','emotion')),
+        content TEXT NOT NULL,
+        entities TEXT DEFAULT '[]',
+        chroma_id TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
     const cols = new Set(db.prepare('PRAGMA table_info(memory_fragments)').all().map(c => c.name));
-    // 表还不存在（初始化顺序异常）→ 下轮再跑，不要抛错阻断启动
-    if (!cols.size) return;
+    // ★ F-11：真正的异常**不得再吞错** —— 原实现整个 catch 吞掉后 registry 会误记
+    //   「已应用」、永不重试。加列或兜底建表失败时抛出，由 registry 的失败隔离接管：
+    //   记失败 + 下次启动重试，且不阻断启动。另有 initSchema 的幂等兜底双保险
+    //   （db/index.js 的 migrateMemoryEvidenceColumns）。
 
     const add = (name, decl) => {
       if (cols.has(name)) return false;
@@ -50,7 +72,12 @@ export function run(db) {
       console.log(`[migration] 记忆证据闸门：memory_fragments 新增 ${added.join(' / ')}`);
     }
   } catch (err) {
-    // 吞错留痕交给 registry（记 schema_migrations_failed 并在下次启动重试）
-    console.log('[migration] 记忆证据闸门加列跳过:', err.message);
+    // ★ F-11 修复（2026-10-12）：不再吞错 —— 原注释宣称「交给 registry 留痕重试」，
+    //   但 catch 吞掉后 registry 会误记本迁移「已应用」：既不落 schema_migrations_failed、
+    //   也永不重试（那套机制从未真正生效过）。抛出后由 registry 的失败隔离接管：
+    //   记失败 + 下次启动重试，且不阻断启动。另有 initSchema 的幂等兜底双保险
+    //   （db/index.js 的 migrateMemoryEvidenceColumns）。
+    console.warn('[migration] 记忆证据闸门加列失败，交 registry 留痕重试:', err.message);
+    throw err;
   }
 }

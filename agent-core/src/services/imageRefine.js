@@ -60,8 +60,9 @@ function pathForModeValue(value) {
   return resolveCustomWorkflowPath(value) || path.join(WORKFLOW_DIR, ACTIVE_WORKFLOW);
 }
 
-/** 加载生成原图时使用的源工作流模板（自定义 > 显式模式 > 按场景兜底），用于继承参数 */
-function loadSourceWorkflow({ sourceMode, customWorkflow, scene } = {}) {
+/** 加载生成原图时使用的源工作流模板（自定义 > 显式模式 > 按场景兜底），用于继承参数。
+ *  **导出供测试**（F-35：钉住 resolvedMode 只留在「模式值空间」[turbo|base|文件名]、不混入绝对路径）。 */
+export function loadSourceWorkflow({ sourceMode, customWorkflow, scene } = {}) {
   let p = null;
   let resolvedMode = null;
   if (customWorkflow && fs.existsSync(path.join(WORKFLOW_DIR, customWorkflow))) {
@@ -69,9 +70,12 @@ function loadSourceWorkflow({ sourceMode, customWorkflow, scene } = {}) {
   } else {
     // sourceMode 可能是 'turbo' | 'base'，也可能是自定义工作流文件名
     // （全局 custom 模式下 image_tasks.workflow_template 原样记录了文件名）
+    // ★ 自定义文件名分支只做「存在性检查」并**保留原值**——不能把 resolveCustomWorkflowPath
+    //   的返回值（绝对路径）塞进 resolvedMode：下面 pathForModeValue 会**再解析一次**，
+    //   绝对路径因含分隔符被判非法 → 静默回落 turbo（放大细化「继承参数」拿错模板的错源）。
     resolvedMode = (sourceMode === 'base' || sourceMode === 'turbo')
       ? sourceMode
-      : (resolveCustomWorkflowPath(sourceMode) || fallbackModeForScene(scene));
+      : (resolveCustomWorkflowPath(sourceMode) ? sourceMode : fallbackModeForScene(scene));
     p = pathForModeValue(resolvedMode);
   }
   if (!fs.existsSync(p)) return { wf: null, resolvedMode };

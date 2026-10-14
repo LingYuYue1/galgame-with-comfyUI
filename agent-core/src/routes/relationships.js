@@ -36,6 +36,9 @@ router.post('/deduce', async (req, res) => {
 
     let centerName, centerDisplay, centerPrompt;
     let fromName;
+    // 非 user 模式的中心角色对象（单独查库、不受归档过滤）——结果装配段要把它并进
+    // nameToChar（F-16：归档角色当中心时曾因缺这步导致推演恒空），故提升到外层作用域。
+    let centerChar = null;
 
     if (isUserMode) {
       const nickname = config.user?.nickname || 'User';
@@ -55,8 +58,9 @@ router.post('/deduce', async (req, res) => {
     } else {
       if (!characterId) return res.status(400).json({ error: 'characterId is required' });
 
-      const centerChar = db.prepare('SELECT * FROM characters WHERE id = ?').get(characterId);
-      if (!centerChar) return res.status(404).json({ error: 'Character not found' });
+      const centerRow = db.prepare('SELECT * FROM characters WHERE id = ?').get(characterId);
+      if (!centerRow) return res.status(404).json({ error: 'Character not found' });
+      centerChar = centerRow;
 
       centerName = centerChar.name;
       centerDisplay = centerChar.display_name;
@@ -144,6 +148,12 @@ router.post('/deduce', async (req, res) => {
 
     const nameToChar = {};
     for (const c of allChars) nameToChar[c.name] = c;
+    // ★ F-16 修复（2026-10-12）：把**中心角色**并进映射。中心是上面单独查库的，
+    //   不受归档过滤（设计上允许归档角色当中心——「归档不参与推演」只约束候选）。
+    //   缺这一步时 `nameToChar[item.from_name]`（from_name=中心）恒查不到 →
+    //   下面的 `if (!fromChar || !toChar) continue;` 会跳掉**每一条** →
+    //   推演恒返回空列表（LLM 其实正常跑完，内容全被丢——见回归测试 F-16①）。
+    if (!isUserMode && centerChar && !nameToChar[centerName]) nameToChar[centerName] = centerChar;
 
     // LLM 给的 intimacy 可能缺失或越界 → 回落关键词推断（与历史数据同一套口径）
     const pickIntimacy = (item, text) => {

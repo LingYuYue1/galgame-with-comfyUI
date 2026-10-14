@@ -6,6 +6,7 @@
  *
  * - 每 5 分钟扫描一次所有角色的当日快照
  * - 启动时立即扫一遍：已过时段的直接标记 expired（过时不候），正在时段内的马上发送
+ * - 遗留孤儿自愈：进程中断留下的 generating（本进程未领取）→ 窗口内重置重试 / 出窗标记 expired
  * - 生成函数由路由层注入（setSpecialScheduleMomentGenerator），避免 service → route 反向依赖
  */
 
@@ -18,6 +19,18 @@ const CHECK_INTERVAL = 5 * 60 * 1000; // 5 分钟
 let specialMomentGenerator = null;
 export function setSpecialScheduleMomentGenerator(fn) {
   specialMomentGenerator = fn;
+}
+
+// 本进程「已领取、正在生成」的条目键（characterId::startTime —— edited 条目在同角色同天内
+// 以 startTime 唯一，见 scheduleEditor.updateSpecialMomentStatus 的口径）。
+// 用于区分「生成进行中」与「上个进程中断后的遗留孤儿」：进程重启后集合为空，
+// 凡停留在 generating 的条目即为孤儿（由 collectDueSpecialMoments 按下文规则恢复）。
+const inFlight = new Set();
+const momentKey = (characterId, startTime) => `${characterId}::${startTime}`;
+
+/** 测试专用：清空「进行中」集合（模块级状态在测试进程内跨用例共享，用例间需要隔离） */
+export function __resetSpecialMomentInFlightForTest() {
+  inFlight.clear();
 }
 
 function toMin(hhmm) {
@@ -37,6 +50,7 @@ function saveScheduleJson(characterId, schedule) {
  * 扫描今日所有角色的特殊日程：
  * - 时段内且 pending → 标记 generating 并返回待生成列表
  * - 已过时段且 pending → 标记 expired（过时不候）
+ * - 遗留 generating 孤儿（非本进程领取，如重启前中断）：窗口内重置 pending 重新派发 / 出窗标记 expired
  */
 export function collectDueSpecialMoments(now = new Date()) {
   const db = getDb();
@@ -61,14 +75,32 @@ export function collectDueSpecialMoments(now = new Date()) {
     let changed = false;
     for (const act of schedule) {
       if (!act || !act.edited) continue;
-      if (act.specialMomentStatus && act.specialMomentStatus !== 'pending') continue;
+
       const startMin = toMin(act.startTime);
       const endMin = toMin(act.endTime);
       if (startMin === null || endMin === null || endMin <= startMin) continue; // 跨午夜条目不进队列
 
+      if (act.specialMomentStatus === 'generating') {
+        // 本进程领取中（生成进行时）：保持现状，下轮再看
+        if (inFlight.has(momentKey(row.character_id, act.startTime))) continue;
+        // 遗留孤儿（上个进程标记后中断）：已出窗 → 过时不候
+        if (nowMin >= endMin) {
+          act.specialMomentStatus = 'expired';
+          changed = true;
+          console.log(`[specialMoment] Expired orphan (skipped) for ${row.display_name}: ${act.startTime}-${act.endTime} ${act.activity}`);
+          continue;
+        }
+        // 还在窗口内：重置为待发，落到下方正常流程重新领取（重启后马上补发）
+        act.specialMomentStatus = 'pending';
+        console.log(`[specialMoment] Recovered orphan for ${row.display_name}: ${act.startTime}-${act.endTime} ${act.activity}`);
+      } else if (act.specialMomentStatus && act.specialMomentStatus !== 'pending') {
+        continue; // sent / expired 等终态
+      }
+
       if (nowMin >= startMin && nowMin < endMin) {
         act.specialMomentStatus = 'generating';
         changed = true;
+        inFlight.add(momentKey(row.character_id, act.startTime));
         due.push({
           characterId: row.character_id,
           displayName: row.display_name,
@@ -109,6 +141,9 @@ export async function processSpecialMoments() {
       } catch (err) {
         console.error(`[specialMoment] Failed for ${item.displayName}:`, err.message);
         updateSpecialMomentStatus(item.characterId, item.activity.startTime, 'pending');
+      } finally {
+        // 本条目处理完毕（sent / 失败回退 pending）：离开「进行中」集合
+        inFlight.delete(momentKey(item.characterId, item.activity.startTime));
       }
     }
   } finally {
