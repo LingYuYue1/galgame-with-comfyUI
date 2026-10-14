@@ -251,7 +251,6 @@
                         <span style="flex:1"></span>
                         <linshe-button
                           variant="secondary" size="sm"
-                          :loading="traitCatalogLoading"
                           @click="openTraitPicker"
                         >＋ 选标签</linshe-button>
                       </div>
@@ -661,6 +660,8 @@ import { bustUrlIfOverwritten, overwriteBustTick } from '../utils/imageUrlRefres
 import { splitBodyGarment } from '../utils/appearanceSplit.js'
 import { useImageEditTasksStore } from '../stores/imageEditTasks.js'
 import { emitCharacterDisplayNameChanged } from '../utils/characterReactionProducers.js'
+import { createGeneration } from '../utils/loadGeneration.js'
+import { canRemoveSceneStanding } from '../utils/standingRemovable.js'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -704,7 +705,7 @@ const detail = reactive({
   aliasGenerating: false,
   editPersona: '',        // 人设（= base_prompt 去掉「## 你的外观」段）
   appearanceTail: '',     // 外观段之后的内容（罕见；保留以免重组时丢段）
-  originalAppearance: '', // 打开时的原外观段：工装被误清空时用它兜底，避免生图链路失去外观
+  originalAppearance: '', // 打开时的原外观段：常服被误清空时用它兜底，避免生图链路失去外观
   body: '',               // 身体描述（五套共用，单一真源）—— 发色/发型/瞳色/肤色/体型…
   bodyLoaded: '',         // 打开时从库里读到的 body（用于区分"用户主动清空"与"没读到"，避免误清库）
   sceneOutfits: [],       // 五套场景外观 [{ scene, sceneLabel, name, description }]，description 只存"衣服"
@@ -726,7 +727,7 @@ const detail = reactive({
 })
 
 // ── 人格 / 外观拆分（口径与后端 services/characterPersona.js 的 splitAppearanceSection 一致）──
-// 整卡 = 人设 + 「## 你的外观」段。拆分后人设独立成框，外观段归入「外观服装 · 工装」，
+// 整卡 = 人设 + 「## 你的外观」段。拆分后人设独立成框，外观段归入「外观服装 · 常服」，
 // 于是人设保持纯粹，四套造型也能统一管理。保存时再重组成整卡，后端锚点不变。
 const APPEARANCE_HEADING_RE = /##\s*你的外观/
 
@@ -765,7 +766,7 @@ function composeOutfitText(body, garment) {
   return b || g
 }
 
-/** 工装那一套的**衣服**描述（不含身体 —— 身体在 detail.body 里） */
+/** 常服那一套的**衣服**描述（不含身体 —— 身体在 detail.body 里） */
 function workOutfitDesc() {
   return detail.sceneOutfits.find(o => o.scene === 'work')?.description || ''
 }
@@ -775,9 +776,9 @@ function workOutfitDesc() {
 const activeSceneOutfit = computed(() => detail.sceneOutfits[detail.sceneTab] || null)
 
 /**
- * 实际生效的外观正文 = 身体 + 工装那套衣服。
+ * 实际生效的外观正文 = 身体 + 常服那套衣服。
  *
- * ★ 关键：工装被清空时也要带上身体 —— 否则保存会把角色卡外观段写成一具"没有身体只有衣服"
+ * ★ 关键：常服被清空时也要带上身体 —— 否则保存会把角色卡外观段写成一具"没有身体只有衣服"
  *   的文本，角色会一次性失去发色/瞳色/体型。
  */
 function effectiveAppearance() {
@@ -787,9 +788,6 @@ function effectiveAppearance() {
 
 /** 当前编辑中的整卡（供「修正外观 / 人设润色」弹窗读取，口径与保存完全一致） */
 const fullPrompt = computed(() => composePersona(detail.editPersona, effectiveAppearance(), detail.appearanceTail))
-
-/** 工装（常态外观）当前文本：用于判断"以它为基准"的按钮是否可用 */
-const workOutfitText = computed(() => effectiveAppearance())
 
 // ═══════════════════════════════════════════════════════════
 // 外观特化（常驻种族 / 身体特征）
@@ -812,8 +810,7 @@ const workOutfitText = computed(() => effectiveAppearance())
  *   过滤由后端按唯一真源 `appearanceTagPartition.js` 执行，前端不维护名单。
  */
 const traitPickerOpen = ref(false)
-const traitCatalogLoading = ref(false)
-/** 用户显式点选的特化标签（仅用于 UI 回显/移除；真正生效的是 detail.body 里那串英文） */
+/** 用户显式点选的特化标签（仅用于 UI 回显；真正生效的是 detail.body 里那串英文） */
 const selectedTraits = ref([])
 
 function openTraitPicker() {
@@ -858,12 +855,6 @@ function removeTagFromBody(t) {
   selectedTraits.value = selectedTraits.value.filter(x => x !== t)
 }
 
-/** 从已选胶囊里移除一个标签（走同一个 body 同步逻辑） */
-function removeTrait(i) {
-  const t = selectedTraits.value[i]
-  if (t) removeTagFromBody(t)
-}
-
 /** 各套的输入提示语 */
 // 注意：没有 'nude' 分支 —— 全身那格放的是身体输入框（有自己的 placeholder），
 // 不会走到这里来要"衣服"的占位文案。
@@ -874,10 +865,11 @@ function scenePlaceholder(scene) {
   return '这套的衣服（英文 tag）'
 }
 
-async function loadSceneOutfits(characterId, fallbackWorkDesc = '') {
+async function loadSceneOutfits(characterId, fallbackWorkDesc = '', gen = detailLoadGen.current()) {
   if (!characterId) { detail.sceneOutfits = []; detail.body = ''; detail.bodyLoaded = ''; return }
   try {
     const d = await api.listSceneOutfits(characterId)
+    if (!detailLoadGen.isCurrent(gen)) return   // F-22：已切角色，丢弃迟到响应
     const scenes = d.scenes || []
     const exist = d.outfits || []
     // 身体：五套共用同一份，取任意一条即可（后端写入时会同步到所有行）。
@@ -889,7 +881,7 @@ async function loadSceneOutfits(characterId, fallbackWorkDesc = '') {
       const hit = exist.find(o => o.scene === s.key)
       /**
        * 各套都只取库里的 **衣服** 描述。
-       * 唯一例外：**工装还没建行时**（老数据），用角色卡原外观段兜底 ——
+       * 唯一例外：**常服还没建行时**（老数据），用角色卡原外观段兜底 ——
        * 那段是"身体+衣服"的混合文本，先原样放进来让用户看到，用户拆分后保存即可。
        */
       const desc = hit
@@ -906,6 +898,7 @@ async function loadSceneOutfits(characterId, fallbackWorkDesc = '') {
       }
     })
   } catch (err) {
+    if (!detailLoadGen.isCurrent(gen)) return
     console.error('loadSceneOutfits failed:', err)
     detail.sceneOutfits = []
   }
@@ -1065,6 +1058,11 @@ function _parseCharLoras(raw) {
 // 详情弹窗
 // ═══════════════════════════════════════
 
+// ── 详情异步加载的世代号（F-22 竞态防护）──
+// 每次打开/切换角色 init() 都会取新世代；迟到的旧世代响应凭它自我作废，
+// 不会把上一个角色的数据覆盖到当前界面（详见 utils/loadGeneration.js）。
+const detailLoadGen = createGeneration()
+
 watch(() => [props.visible, props.character], ([v, c]) => {
   if (v && c) {
     init(c)
@@ -1073,12 +1071,20 @@ watch(() => [props.visible, props.character], ([v, c]) => {
 
 function refreshRelationships() {
   if (!props.character) return
+  loadRelationships(props.character.id)
+}
+
+/** 读关系网（带世代校验：切角色后迟到的响应不写界面） */
+function loadRelationships(characterId, gen = detailLoadGen.current()) {
   detail.relationshipsLoading = true
-  api.getRelationships(props.character.id).then(res => {
+  api.getRelationships(characterId).then(res => {
+    if (!detailLoadGen.isCurrent(gen)) return
     detail.relationships = res.relationships || []
   }).catch(() => {
+    if (!detailLoadGen.isCurrent(gen)) return
     detail.relationships = []
   }).finally(() => {
+    if (!detailLoadGen.isCurrent(gen)) return
     detail.relationshipsLoading = false
   })
 }
@@ -1086,21 +1092,23 @@ function refreshRelationships() {
 defineExpose({ refreshRelationships })
 
 function init(c) {
+  // 进入新世代：作废上一个角色尚未返回的加载，避免迟到响应覆盖当前界面（F-22 竞态）
+  const gen = detailLoadGen.next()
   detail.editCharName = c.name || ''
   detail.editName = c.display_name || ''
   detail.forumAlias = c.forum_alias || ''
   detail.forumPersona = c.forum_persona || ''
   detail.aliasGenerating = false
   // 人格提示词拆两半：人设（前文）+ 外观（「## 你的外观」段）。
-  // 外观段归入「外观服装 · 工装」，于是人设保持纯粹，四套造型也能统一管理。
+  // 外观段归入「外观服装 · 常服」，于是人设保持纯粹，四套造型也能统一管理。
   const split = splitPersona(c.base_prompt || '')
   detail.editPersona = split.persona
   detail.appearanceTail = split.tail
   detail.originalAppearance = split.appearance
-  detail.sceneTab = 0          // 每次打开都停在「工装」（用户最常改的那套）
+  detail.sceneTab = 0          // 每次打开都停在第一格「全身」（它承载身体，用户最常改的就是它）
   detail.relOpen = false       // 关系列表默认折叠，把纵向空间让给人设与外观
-  loadSceneOutfits(c.id, split.appearance)
-  loadSceneStandings(c.id)
+  loadSceneOutfits(c.id, split.appearance, gen)
+  loadSceneStandings(c.id, gen)
   detail.momentsDisabled = !!c.moments_disabled
   detail.proactiveDisabled = !!c.proactive_disabled
   detail.eventsDisabled = !!c.events_disabled
@@ -1113,14 +1121,8 @@ function init(c) {
   standingFuncOpen.value = false
   standingRequirement.value = ''
   standingPrompt.value = ''
-  fetchOutfits()
-  api.getRelationships(c.id).then(res => {
-    detail.relationships = res.relationships || []
-  }).catch(() => {
-    detail.relationships = []
-  }).finally(() => {
-    detail.relationshipsLoading = false
-  })
+  fetchOutfits(gen)
+  loadRelationships(c.id, gen)
 }
 
 async function removeOath() {
@@ -1178,7 +1180,7 @@ async function saveCharDetail() {
   //    本地是整卡重组。两者互不冲突，**合并保留**。
   if (!c || !detail.dirty) return
   const previousName = c.display_name || ''
-  // 重组整卡：人设 + 「## 你的外观」（= 工装描述）+ 外观段之后的残留段。
+  // 重组整卡：人设 + 「## 你的外观」（= 常服描述）+ 外观段之后的残留段。
   // 后端仍按「## 你的外观」锚点做外观注入，口径完全不变。
   const composed = composePersona(detail.editPersona, effectiveAppearance(), detail.appearanceTail)
   await api.updateCharacter(c.id, {
@@ -1198,7 +1200,7 @@ async function saveCharDetail() {
   c.forum_alias = detail.forumAlias.trim() || null
   c.forum_persona = detail.forumPersona.trim() || null
 
-  // 四套场景服装一并保存（只提交填了描述的；工装内容与 base_prompt 外观段一致）。
+  // 四套场景服装一并保存（只提交填了描述的；常服内容与 base_prompt 外观段一致）。
   // 名称由前端自动补（沿用已有 / 场景默认名）—— 界面不暴露该字段，它只服务日程标注的匹配。
   const payload = detail.sceneOutfits
     /**
@@ -1491,12 +1493,15 @@ async function saveLora() {
 // 外观 / 形态弹窗
 // ═══════════════════════════════════════
 
-async function fetchOutfits() {
-  if (!props.character) return
+async function fetchOutfits(gen = detailLoadGen.current()) {
+  const c = props.character
+  if (!c) return
   try {
-    const list = await api.listCharacterOutfits(props.character.id)
+    const list = await api.listCharacterOutfits(c.id)
+    if (!detailLoadGen.isCurrent(gen)) return   // F-22：已切角色，丢弃迟到响应
     outfitItems.value = (Array.isArray(list) ? list : []).map(o => ({ ...o, _deleted: false }))
   } catch {
+    if (!detailLoadGen.isCurrent(gen)) return
     outfitItems.value = []
   }
 }
@@ -1587,7 +1592,7 @@ async function saveOutfits() {
 const showRefineModal = ref(false)
 const showPersonaRefineModal = ref(false)
 
-// ── 修正外观：跟随「外观服装」当前选中的那一套（工装/私服/居家/睡衣）──
+// ── 修正外观：跟随「外观服装」当前选中的那一套（全身/常服/私服/居家/睡衣）──
 // 打开时记下场景索引（弹窗期间主弹窗关闭、标签页切不了，取快照即可）；
 // 传给弹窗的是「人设 + 该场景描述放在外观段位置」的整卡，
 // 于是后端重写出来的外观段就是这一套，应用时写回同一套。
@@ -1745,15 +1750,10 @@ const standingRequirement = ref('')
 // 本轮弹窗会话中已生成的立绘提示词：存在时功能区拆为「重新生成提示词 / 再次生成」
 const standingPrompt = ref('')
 const standingHasPrompt = computed(() => standingPrompt.value.trim().length > 0)
-// 生图请求以角色 id 记账：弹窗关闭再打开时，进行中的生成仍能接回画面
-const standingGenCharId = ref(null)
-const standingRegenCharId = ref(null)
-const standingGenerating = computed(() =>
-  standingGenCharId.value != null && standingGenCharId.value === props.character?.id
-)
-const standingReimageing = computed(() =>
-  standingRegenCharId.value != null && standingRegenCharId.value === props.character?.id
-)
+// 生图请求的记账已并入 imageEditTasks 任务表（见下方 standingTaskRunning）——弹窗关闭再打开时，
+// 进行中的生成仍能接回画面。★ F-21：原先另有一套本地 ref 记账（standingGenCharId /
+// standingRegenCharId），其赋值随旧的 generateStanding/regenerateStanding 一并被移除
+// （并入上游堆叠 PR 时改为「场景化生成」），只留下读方 → 恒为 null 的死项，已清除。
 // 后台出图任务：立绘画完前一直算忙碌（扫描线要持续到待确认 / 失败才算结束）
 const standingTaskRunning = computed(() => {
   const c = props.character
@@ -1770,17 +1770,15 @@ const standingTaskRunning = computed(() => {
     )))
   )
 })
-const standingBusy = computed(() =>
-  standingGenCharId.value != null || standingRegenCharId.value != null || standingTaskRunning.value || sceneGenerating.value
-)
-const standingBusyForChar = computed(() =>
-  standingGenerating.value || standingReimageing.value || standingTaskRunning.value || sceneGenerating.value
-)
+// 忙碌态唯一真源 =「后台出图任务表」+「场景立绘生成中」。任务表本就按角色过滤，
+// 故 busy 与 busyForChar 在当前口径下等价；保留两个键只为不破坏立绘面板的对外接口。
+const standingBusy = computed(() => standingTaskRunning.value || sceneGenerating.value)
+const standingBusyForChar = computed(() => standingTaskRunning.value || sceneGenerating.value)
 const standingLightboxVisible = ref(false)
 
-// ── 四套场景立绘（工装 / 私服 / 居家 / 睡衣）──
-// 形象面板左右切换查看角色在不同场合的样子。工装槽由 characters.standing_url 兜底，
-// 于是「用户已有的那张立绘」天然就是工装形象，切过去不会是空白。
+// ── 四套场景立绘（常服 / 私服 / 居家 / 睡衣；不含「全身」/nude，见后端 services/characterStanding.js）──
+// 形象面板左右切换查看角色在不同场合的样子。常服槽由 characters.standing_url 兜底，
+// 于是「用户已有的那张立绘」天然就是常服形象，切过去不会是空白。
 const standingScenes = ref([])
 const standingSceneIdx = ref(0)
 const sceneGenerating = ref(false)
@@ -1789,6 +1787,9 @@ const currentSceneLabel = computed(() => currentStandingScene.value?.sceneLabel 
 const currentSceneKey = computed(() => currentStandingScene.value?.scene || null)
 const currentSceneImage = computed(() => currentStandingScene.value?.image_url || '')
 const standingHasScenes = computed(() => standingScenes.value.length > 0)
+// F-25：仅当当前场景存在**显式**立绘才允许「删除形象」。work（常服）槽以默认立绘兜底时不
+// 可删 —— 后端 `DELETE /standings/:scene` 只清显式记录且 0 行也返回 ok，前端会"报成功却没变"＝假成功。
+const currentSceneRemovable = computed(() => canRemoveSceneStanding(currentStandingScene.value))
 
 // 立绘展示 URL：跟随当前选中场景；覆盖确认后经共享登记表补 ?_t= 防浏览器缓存旧图
 const standingDisplayUrl = computed(() => {
@@ -1857,12 +1858,7 @@ watch(standingBusyForChar, (busy) => {
   }
 })
 
-// 后台任务跑到终点后收起本地记账，扫描线随之停止
-watch(standingTaskRunning, (running) => {
-  if (running) return
-  standingGenCharId.value = null
-  standingRegenCharId.value = null
-})
+// 后台任务跑到终点后扫描线随之停止（记账在任务表里，无需本地收尾）
 
 onUnmounted(() => {
   stopStandingTips()
@@ -1900,17 +1896,19 @@ function onStandingStageClick() {
 
 // ── 四套场景立绘：加载 / 切换 / 生成 ──
 
-/** 读四套场景立绘（工装槽由后端以默认立绘兜底） */
-async function loadSceneStandings(characterId) {
+/** 读四套场景立绘（常服槽由后端以默认立绘兜底） */
+async function loadSceneStandings(characterId, gen = detailLoadGen.current()) {
   if (!characterId) { standingScenes.value = []; return }
   try {
     const d = await api.listSceneStandings(characterId)
+    if (!detailLoadGen.isCurrent(gen)) return   // F-22：已切角色，丢弃迟到响应
     standingScenes.value = d.standings || []
-    // 默认停在工装（多数情况就是想看角色的常态形象）
+    // 默认停在常服（多数情况就是想看角色的常态形象）
     const idx = standingScenes.value.findIndex(s => s.scene === 'work')
     standingSceneIdx.value = idx >= 0 ? idx : 0
     syncPromptFromScene()
   } catch (err) {
+    if (!detailLoadGen.isCurrent(gen)) return
     console.error('loadSceneStandings failed:', err)
     standingScenes.value = []
   }
@@ -1963,12 +1961,14 @@ function onStandingOverwritten(e) {
   c.standing_url = e.detail.url
 }
 
-/** 清掉**当前场景**的显式立绘（工装会回落到默认立绘，不再是空白） */
+/** 清掉**当前场景**的显式立绘（常服会回落到默认立绘，不再是空白）。
+ *  F-25：仅当存在显式立绘（非兜底）才可删 —— 兜底态下"删"没有对象（后端只清显式记录，
+ *  0 行也返回 ok）；按钮已在面板侧按同一判据隐藏，这里再守一道防程序化调用。 */
 async function removeSceneStanding() {
   const c = props.character
   const scene = currentSceneKey.value
   if (!c || !scene || sceneGenerating.value) return
-  if (!currentSceneImage.value) return
+  if (!canRemoveSceneStanding(currentStandingScene.value)) return
   const ok = await confirmFn({
     title: '删除形象',
     message: `确定删除「${c.display_name}」的「${currentSceneLabel.value}」形象吗？\n删除后可以重新生成。`,
@@ -2048,11 +2048,12 @@ const standingPanel = reactive({
   tip: standingTip,
   displayUrl: standingDisplayUrl,
   mode: standingMode,
-  // 四套场景形象（工装/私服/居家/睡衣）
+  // 四套场景形象（常服/私服/居家/睡衣）
   scenes: standingScenes,
   sceneIndex: standingSceneIdx,
   sceneLabel: currentSceneLabel,
   hasScenes: standingHasScenes,
+  canRemove: currentSceneRemovable,
   toggleFunc: toggleStandingFunc,
   onStageClick: onStandingStageClick,
   toggleMode: toggleStandingMode,
@@ -2410,13 +2411,8 @@ const standingPanel = reactive({
 .scene-edit > .scene-edit-desc { flex: 1 1 auto; min-height: 96px; }
 .scene-auto-note { flex: 1 1 auto; min-height: 0; }
 .scene-auto-note > .scene-edit-desc { flex: 1 1 auto; min-height: 96px; }
-.scene-edit-note {
-  margin: 0; font-size: 11px; line-height: 1.6;
-  color: var(--text-secondary);
-}
 /* 全身那一套的只读说明（没有可填的东西，解释清楚就行） */
 .scene-auto-note { display: flex; flex-direction: column; gap: 5px; }
-.scene-auto-lead { margin: 0; font-size: 12px; font-weight: 600; color: var(--text-primary); }
 .scene-auto-body { margin: 0; font-size: 11.5px; line-height: 1.75; color: var(--text-secondary); }
 .scene-auto-body code {
   display: inline-block; padding: 1px 6px; border-radius: 5px;
@@ -2432,53 +2428,8 @@ const standingPanel = reactive({
 .trait-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .trait-title { font-size: 12px; font-weight: 600; color: var(--text-primary); }
 .trait-hint { font-size: 11px; color: var(--text-secondary); }
-.trait-picked { display: flex; flex-wrap: wrap; gap: 6px; }
-.trait-chip {
-  display: inline-flex; align-items: center; gap: 3px;
-  padding: 2px 4px 2px 9px; border-radius: 999px;
-  background: var(--accent-soft, rgba(120,120,255,.14)); color: var(--text-primary);
-  font-size: 11.5px; font-family: ui-monospace, monospace;
-}
-.trait-chip-x {
-  border: 0; background: transparent; cursor: pointer; padding: 0 3px;
-  color: var(--text-secondary); font-size: 13px; line-height: 1;
-}
-.trait-chip-x:hover { color: var(--accent); }
-.trait-empty { margin: 0; font-size: 11.5px; color: var(--text-secondary); }
-.trait-panel {
-  max-height: 240px; overflow-y: auto;
-  border: 1px solid var(--glass-border); border-radius: 9px;
-  padding: 8px; background: var(--glass-bg);
-}
-.trait-sec { display: flex; flex-direction: column; gap: 4px; }
-.trait-sec + .trait-sec { margin-top: 8px; }
-.trait-group { display: flex; flex-direction: column; }
-.trait-group-head {
-  display: flex; align-items: center; gap: 7px;
-  border: 0; background: transparent; cursor: pointer; text-align: left;
-  padding: 4px 6px; border-radius: 6px; color: var(--text-primary);
-}
-.trait-group-head:hover { background: var(--glass-bg-hover, rgba(255,255,255,.06)); }
-.trait-group-head.open { color: var(--accent); }
-.trait-sec-name { font-size: 10.5px; color: var(--text-secondary); }
-.trait-group-name { font-size: 12px; font-weight: 600; }
-.trait-group-n {
-  margin-left: auto; font-size: 10.5px; color: var(--text-secondary);
-  background: var(--glass-bg); border-radius: 999px; padding: 0 6px;
-}
-.trait-tags { display: flex; flex-wrap: wrap; gap: 5px; padding: 5px 6px 8px; }
-.trait-tag {
-  border: 1px solid var(--glass-border); background: transparent;
-  border-radius: 999px; padding: 2px 9px; cursor: pointer;
-  font-size: 11px; color: var(--text-secondary);
-}
-.trait-tag:hover { color: var(--text-primary); border-color: var(--accent); }
-.trait-tag.on {
-  /* ⚠ 实心强调底 + 白字必须用 --accent-solid（暗夜下会被压深）；
-     用裸 --accent 在暗夜里白字会糊（项目既有红线，darkThemeReadability 测试钉着）。 */
-  background: var(--accent-solid); border-color: var(--accent-solid);
-  color: var(--on-accent, #fff);
-}
+/* ★ F-21 已移除：外观特化旧内嵌面板与「已选胶囊行」的死样式（连同其移除函数）。
+   标签选择现走独立弹窗 components/AppearanceTraitPicker.vue（自带 tp-* 作用域样式）。 */
 .scene-auto-body b { color: var(--text-primary); }
 .scene-edit-empty { font-size: 12px; color: var(--text-secondary); padding: 8px 0; }
 

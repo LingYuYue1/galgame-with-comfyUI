@@ -19,7 +19,7 @@
           <polyline points="6 9 12 15 18 9" />
         </svg>
       </div>
-      <!-- 四套形象（工装/私服/居家/睡衣）左右切换 -->
+      <!-- 四套形象（常服/私服/居家/睡衣）左右切换 -->
       <div v-if="ctl.hasScenes" class="standing-switch">
         <button
           class="standing-switch-arrow"
@@ -96,7 +96,7 @@
           </div>
           <div class="standing-manage-btns">
             <linshe-button variant="secondary" :size="controlSize" :disabled="ctl.busy || ctl.uploading" @click="pickFile">上传形象</linshe-button>
-            <linshe-button v-if="ctl.displayUrl" variant="ghost" :size="controlSize" :disabled="ctl.busy" @click="ctl.remove">删除形象</linshe-button>
+            <linshe-button v-if="ctl.canRemove" variant="ghost" :size="controlSize" :disabled="ctl.busy" @click="ctl.remove">删除形象</linshe-button>
           </div>
         </div>
       </Transition>

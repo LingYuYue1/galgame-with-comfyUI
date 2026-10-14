@@ -192,14 +192,19 @@ const form = ref(null)
  * 先用一份**静态兜底**，挂载后再向 `/media/layouts` 取权威清单 —— 这样：
  *   · 后端是旧代码（没这个接口）时，弹窗仍可用（不会因为拿不到选项而空掉）；
  *   · 后端加了新形态时，界面自动跟上，不用改前端。
+ *
+ * ★ 本兜底清单必须与后端 `OUTLET_LAYOUTS`（mediaService.js）**逐字一致**
+ *   —— 有跨端一致性测试钉住（web-ui/test/layoutCatalogSync.test.js F-33）；
+ *   曾因两处手抄在引入之日就漂移（photos/gallery 标签 + poster 说明 5 处对不上），
+ *   改动要**整段同步**。
  */
 const FALLBACK_LAYOUTS = [
   { key: 'feed', label: '社交平台', hint: '一批独立帖子（瀑布流）· 一次生成多条' },
   { key: 'forum', label: '网络论坛', hint: '版聊主题帖（标题 + 正文 + 楼层回复）· 文字为主、少量图片' },
   { key: 'photos', label: '图片站（全年龄）', hint: '城市风光 / 美少女自拍 / 美食打卡 / 宣传海报 · 画面确定性生成' },
-  { key: 'gallery', label: '图片站（成人）', hint: '图集条目 · 每条随机画师串与题材组合' },
+  { key: 'gallery', label: '图片站（成人）', hint: '图集条目（1 排 4 张）· 每条随机画师串与题材组合' },
   { key: 'portal', label: '数字报刊', hint: '按「期」出刊：门户版 + 板块正文（点开才生成）' },
-  { key: 'poster', label: '海报', hint: '一张只讲一个瓜：热点速报条 → 大标题 → 主图 → 短文案' },
+  { key: 'poster', label: '海报', hint: '一张只讲一个瓜：热点速报条 → 大标题 → 主图 → 爆点气泡 → 短文案 → 小图组' },
 ]
 const layoutDefs = ref([...FALLBACK_LAYOUTS])
 const layoutOptions = computed(() => layoutDefs.value.map(l => ({ label: l.label, value: l.key })))

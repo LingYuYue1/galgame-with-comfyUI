@@ -145,6 +145,12 @@
         备份：{{ lastResult.backup.path?.split(/[\\/]/).pop() }}
         <span v-if="lastResult.backup.verified" class="cl-ok">已校验</span>
       </div>
+      <div v-if="lastResult.partial" class="cl-result-errors">
+        <div class="cl-result-errors-title">{{ lastResult.errors?.length || 0 }} 处未能清理（可稍后重试，或检查该表是否被占用）：</div>
+        <ul>
+          <li v-for="(e, i) in (lastResult.errors || [])" :key="i">{{ e.table }}：{{ e.message }}</li>
+        </ul>
+      </div>
     </div>
   </div>
 </template>
@@ -242,7 +248,15 @@ async function runPurge() {
   try {
     const r = await api.purgeCleanup({ days: days.value, targets: pickedKeys.value })
     lastResult.value = r
-    toastFn?.(`已删除 ${r.totalRows} 行记录、${r.totalFiles} 个图片，释放 ${fmtBytes(r.totalBytes)}`, 'success')
+    const okMsg = `已删除 ${r.totalRows} 行记录、${r.totalFiles} 个图片，释放 ${fmtBytes(r.totalBytes)}`
+    // ★ F-43 修复（2026-10-14）：后端在有失败时如实返回 partial + errors（见 dataCleanup.js
+    //   的「不再假成功」注释——「前端据此提示」）——此前这里恒报成功，用户看不到失败。
+    //   现在如实分档：部分失败时红色提示，明细在下方「上次清理」卡片里列出。
+    if (r.partial) {
+      toastFn?.(`${okMsg}，但 ${r.errors?.length || 0} 处失败`, 'error')
+    } else {
+      toastFn?.(okMsg, 'success')
+    }
     confirmOpen.value = false
     confirmText.value = ''
     await scan()   // 重新扫描，反映清理后的状态
@@ -352,6 +366,13 @@ onMounted(() => { scan() })
 .cl-result-body { font-size: 12px; color: var(--text-secondary); }
 .cl-result-body b { color: var(--text-primary); }
 .cl-result-backup { font-size: 11px; color: var(--text-secondary); }
+.cl-result-errors {
+  margin-top: 6px; padding: 6px 8px; border-radius: 8px;
+  background: rgba(192, 57, 43, 0.08);
+  font-size: 11px; line-height: 1.6; color: var(--danger, #c0392b);
+}
+.cl-result-errors-title { font-weight: 600; }
+.cl-result-errors ul { margin: 4px 0 0; padding-left: 16px; }
 .cl-ok { margin-left: 6px; color: var(--success, #3f9c5a); font-weight: 600; }
 
 @media (max-width: 767px) {

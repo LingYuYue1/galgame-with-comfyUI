@@ -176,7 +176,7 @@ export function deleteCharacterOutfit(characterId, outfitId) {
   return request(`/characters/${characterId}/outfits/${outfitId}`, { method: 'DELETE' })
 }
 
-// ── 场景服装（工装/外出/居家/睡眠，由日程决定穿哪套）──
+// ── 场景服装（常服/私服/居家/睡衣/全身，由日程决定穿哪套）──
 
 /** 该角色的场景服装 + 场景定义 */
 export function listSceneOutfits(characterId) {
@@ -225,9 +225,10 @@ export function saveSceneOutfits(characterId, outfits, body) {
   })
 }
 
-// ── 场景立绘（工装/私服/居家/睡衣四套形象，详情页左右切换）──
+// ── 场景立绘（常服/私服/居家/睡衣四套形象，详情页左右切换）──
+// ⚠ 立绘是四套，不含「全身」/nude（与场景服装的五套不同口径，见后端 services/characterStanding.js）
 
-/** 四套场景立绘（未生成的场景返回空图；工装槽以默认立绘兜底） */
+/** 四套场景立绘（未生成的场景返回空图；常服槽以默认立绘兜底） */
 export function listSceneStandings(characterId) {
   return request(`/characters/${characterId}/standings`)
 }
@@ -242,7 +243,7 @@ export function uploadSceneStanding(characterId, scene, base64) {
   return request(`/characters/${characterId}/standings/upload`, { method: 'POST', body: { scene, base64 } })
 }
 
-/** 清掉某场景的显式立绘（工装槽会回落到默认立绘） */
+/** 清掉某场景的显式立绘（常服槽会回落到默认立绘） */
 export function deleteSceneStanding(characterId, scene) {
   return request(`/characters/${characterId}/standings/${encodeURIComponent(scene)}`, { method: 'DELETE' })
 }
@@ -1209,7 +1210,8 @@ export function listGalleryImages(limit = 100, offset = 0, folder = '', characte
 
 /**
  * 批量删除图片（相册多选用）。后端逐张删除、只失效一次相册缓存。
- * @returns {Promise<{success:boolean, deleted:number, failed:number, failedItems:Array}>}
+ * `deleted` 只计真删了文件的；`missing` 是「本就已不存在、幂等通过」的（F-41 起区分）。
+ * @returns {Promise<{success:boolean, deleted:number, missing:number, failed:number, failedItems:Array}>}
  */
 export function deleteImagesBatch(urls) {
   return request(`/images/delete-batch`, { method: 'POST', body: { urls } })
@@ -1565,35 +1567,59 @@ export function peekSnapshot(characterId, genImage = true, activityContext = nul
   return request(`/schedule/${characterId}/peek`, { method: 'POST', body })
 }
 
-/** 瞄一眼再拍一张：使用已生成的 prompt 重新提交 ComfyUI 生图 */
-export function retakePeekSnapshot(characterId, prompt) {
-  return request(`/schedule/${characterId}/peek/retake`, { method: 'POST', body: { prompt } })
+/** 瞄一眼再拍一张：使用已生成的 prompt 重新提交 ComfyUI 生图。
+ *  activityContext：被瞄的活动上下文（可选）——后端据此钉时段锚点（F-15：凌晨活动不画成白天）、
+ *  并保持与原图同一时段；不带时后端回退到「当前活动」。 */
+export function retakePeekSnapshot(characterId, prompt, activityContext = null) {
+  const body = { prompt }
+  if (activityContext) body.activity = activityContext
+  return request(`/schedule/${characterId}/peek/retake`, { method: 'POST', body })
 }
 
 /**
  * 重新生成单个角色的日程。
  * @param {number} characterId
  * @param {string} [direction] 补充说明（原「日程方向」文本框）
- * @param {object} [options]  本次编排约束：{ areas, areaStrict, nsfwRatio, sleepType, mapId }
+ * @param {object} [options]  本次编排约束：{ areas, areaStrict, mapId, nsfwRatio, sleepType,
+ *                            transitMode, dayType, excludedByArea, pickedPlaces,
+ *                            homePlace, homeArea, sleepPlace }
  *                            **全部省略时请求体与旧版完全一致**（行为不变）
  */
 export function regenerateSchedule(characterId, direction, options = {}) {
   const body = {}
   if (direction) body.direction = direction
   if (options && typeof options === 'object') {
+    // ★ F-03 修复（2026-10-12）：本函数是**白名单透传**，而 ScheduleView 的
+    //   regenOptionsPayload() 早已把下列字段组装好（用户真的在弹窗里选了）——
+    //   之前 transitMode / dayType / excludedByArea / pickedPlaces 在这里被静默吞掉：
+    //   「选了日型 / 划掉了地点后重生成，后端实际没收到」。以后加新字段记得同步这里。
+    // mapId：独立透传（不依赖 areas 是否勾选 —— 后端还要用它生成 accessNotes / transitEdges）
+    if (options.mapId) body.mapId = options.mapId
     if (Array.isArray(options.areas) && options.areas.length) {
       body.areas = options.areas
       if (options.areaStrict) body.areaStrict = true
-      if (options.mapId) body.mapId = options.mapId
     }
     if (options.nsfwRatio !== undefined && options.nsfwRatio !== null) body.nsfwRatio = options.nsfwRatio
     if (options.sleepType && options.sleepType !== 'auto') body.sleepType = options.sleepType
+    // 移动方式（仅豁免档位才传；`normal` 不传 = 与「未设置」同行为）
+    if (options.transitMode) body.transitMode = options.transitMode
+    // 日子类型（工作日/休息日各生成一套；不传 = 写默认日历，与从前一致）
+    if (options.dayType) body.dayType = options.dayType
+    // 地点级排除（划掉的默认勾选点）与显式放行（点选的受限地点）
+    if (options.excludedByArea && typeof options.excludedByArea === 'object'
+      && !Array.isArray(options.excludedByArea) && Object.keys(options.excludedByArea).length) {
+      body.excludedByArea = options.excludedByArea
+    }
+    if (Array.isArray(options.pickedPlaces) && options.pickedPlaces.length) {
+      body.pickedPlaces = options.pickedPlaces
+    }
     // 固定居家/睡眠地点（人类侧指定）：跟随本次生成
+    // ★ F-03 顺带：sleepPlace 原先嵌在 homePlace 条件里 —— 只设睡眠地点不设家时会被吞，改为独立透传
     if (options.homePlace) {
       body.homePlace = options.homePlace
       if (options.homeArea) body.homeArea = options.homeArea
-      if (options.sleepPlace) body.sleepPlace = options.sleepPlace
     }
+    if (options.sleepPlace) body.sleepPlace = options.sleepPlace
   }
   return request(`/schedule/${characterId}/regenerate`, { method: 'POST', body })
 }
@@ -2422,6 +2448,8 @@ export function surveyCleanup(days = 7) {
 
 /**
  * 执行清理。**必须显式传 targets**；执行前会自动备份数据库（路径随响应返回）。
+ * 有失败时如实返回 `partial: true` + `errors[]`（{table, message} 列表）——
+ * 调用方必须据此提示，勿恒报成功（F-43）。
  * @param {{days:number, targets:string[]}} body
  */
 export function purgeCleanup(body) {

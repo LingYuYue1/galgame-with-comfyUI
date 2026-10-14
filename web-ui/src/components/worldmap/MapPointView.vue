@@ -149,8 +149,13 @@
             <text :x="24" :y="overview.scaleBar.y + 15" class="mpt-scale-text">
               比例尺 1 格 ≈ {{ overview.scaleBar.mPerPx.toFixed(1) }} m · 本段 {{ overview.scaleBar.km }} km
             </text>
+            <!-- ⚠ F-40（2026-10-13）：点名必须取自**图上可指认的点位**（REGION_LAYOUT 的 n）——
+                 「二维市→珠星大厦」即 2026-10-05 反解约束里用户口语的「泊地站→珠星站」：
+                 泊地站是「二维市」大区下的节点（见 erxiangCoords.json），全域图只画大区点。
+                 原先直接写字口语站名，用户在图上找不到「泊地站/珠星站/海原站」。
+                 护栏：web-ui/test/mapPointScaleRefsCopy.test.js 自动校验点名 ⊆ 图上点位表。 -->
             <text :x="24" :y="overview.scaleBar.y + 27" class="mpt-scale-text">
-              参考：泊地站 → 珠星站 {{ overview.refs.zhuxing }} 分 · → 海原站 {{ overview.refs.haiyuan }} 分 · → 观览云岛站 {{ overview.refs.guanlan }} 分（轨道制式）
+              参考：二维市 → 珠星大厦 {{ overview.refs.zhuxing }} 分 · → 海原市 {{ overview.refs.haiyuan }} 分 · → 观览云岛站 {{ overview.refs.guanlan }} 分（轨道制式）
             </text>
           </g>
         </g>
@@ -641,7 +646,14 @@ function onPointerUp() {
   window.removeEventListener('pointerup', onPointerUp)
   window.removeEventListener('pointercancel', onPointerUp)
 }
-onBeforeUnmount(onPointerUp)
+// ★ F-39（2026-10-13）：卸载不止要收尾「进行中的拖拽」，还要把「已排队等去抖」的批次
+//   立即冲掉 —— 只挂 onPointerUp 时，正常卸载（切视图/切路由）后这批坐标还得靠一个
+//   组件已销毁、最多再活 500ms 的全局 setTimeout 去赌；环境先一步销毁（整页刷新/关闭）
+//   就静默丢失。已知边界：整页刷新/关闭不经过 Vue 卸载，需 pagehide + keepalive 另行处理。
+onBeforeUnmount(() => {
+  onPointerUp()                                              // ① 收尾进行中的拖拽（其内部 queueSave 会把最后坐标入队）
+  if (saveTimer) { clearTimeout(saveTimer); flushSaves() }   // ② 取消去抖、立即落库，不等 500ms
+})
 
 /** 本片区被手动调过的标点数 */
 const areaMovedCount = computed(() => {

@@ -131,7 +131,10 @@ const PAGE_SIZE = 60
 
 const emit = defineEmits(['loaded', 'select-mode-change'])
 
-const confirmFn = inject('confirmFn', null)
+// ★ F-06 修复（2026-10-12）：键名原为 'confirmFn' —— 但应用全局提供的是 'confirm'
+//   （App.vue，全仓 19 处 inject 都用这个名字），本处恒注入不到（null）→ 多选删除
+//   回落到浏览器原生 window.confirm。改回统一键名。
+const confirmFn = inject('confirm', null)
 const toastFn = inject('toast', null)
 
 const images = ref([])
@@ -311,8 +314,13 @@ async function doBatchDelete() {
   try {
     const res = await deleteImagesBatch(urls)
     const n = res?.deleted ?? urls.length
-    if (res?.failed) toastFn?.(`已删除 ${n} 张，${res.failed} 张失败`, 'warning')
-    else toastFn?.(`已删除 ${n} 张`, 'success')
+    const missing = res?.missing ?? 0
+    // ★ F-41：后端区分 deleted / missing —— 「本就已不存在」的幽灵图不算删除数，
+    //   但其引用已被一并清掉（卡片同样从相册消失）。如实并报，避免用户看到数字变小后
+    //   误以为"还有几张没删掉"。
+    const head = missing > 0 ? `已删除 ${n} 张（另有 ${missing} 张本就已不存在）` : `已删除 ${n} 张`
+    if (res?.failed) toastFn?.(`${head}，${res.failed} 张失败`, 'warning')
+    else toastFn?.(head, 'success')
     clearSelection()
     // 必须重载：本地移除会让 loadMore 的 offset 基准失真（重复或漏加载）
     await reloadKeepingCount()

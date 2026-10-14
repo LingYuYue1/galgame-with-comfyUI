@@ -13,9 +13,9 @@
               </svg>
               <div class="header-titles">
                 <h3>背包</h3>
-                <p class="header-subtitle">宝箱与道具</p>
+                <p class="header-subtitle">道具与橱窗</p>
               </div>
-              <!-- 背包 / 橱窗 视图切换：宝箱开箱演出仍是共用入口，这里只切右侧内容。
+              <!-- 背包 / 橱窗 视图切换（F-30 后移动端整页 BackpackView 同款）。
                    ★ 放在标题旁而不是右上角 —— 右上角留给关闭按钮独占：
                    两者挨在一起时，想点「橱窗」很容易手滑点到 ✕ 直接把弹窗关掉。 -->
               <linshe-tabs v-model="view" :options="VIEW_OPTIONS" size="sm" class="header-tabs" aria-label="背包视图切换" />
@@ -147,7 +147,7 @@
                   <path d="M10 13h4"/>
                 </svg>
                 <p class="empty-title">背包还是空的</p>
-                <p class="empty-hint">去左边的宝箱看看吧</p>
+                <p class="empty-hint">去「橱窗」看看有什么好东西吧</p>
               </div>
 
               <TransitionGroup v-else name="item-list" tag="div" class="items-grid">
@@ -282,21 +282,8 @@ const view = ref('backpack')
  */
 const SHOW_CHEST = false
 
-/** 从橱窗带走的商品已进背包，切回背包视图时刷新一下列表 */
-function onLootTaken() {
-  try { store.fetchItems() } catch { /* 失败不阻塞，SSE 会兜底刷新 */ }
-}
-
-/**
- * 橱窗里点「使用」：商品已由 LootWindow 带走（进背包拿了 id），
- * 这里用最小 item 结构走**背包同一套**使用流程（选角色 → 确认 → useItem）。
- * status 直接给 'ready'：用户是主动操作，不必等配图生成完。
- */
-function onLootUse({ backpackId, name, kind }) {
-  if (!backpackId) return
-  try { store.fetchItems() } catch { /* ignore */ }
-  startUse({ id: backpackId, name, kind, source_type: 'loot', status: 'ready' })
-}
+// 橱窗接线（onLootTaken / onLootUse）已上移到 useBackpackActions ——
+// ★ F-30：移动端整页（BackpackView）与桌面共享同一条链路，此处只从解构中消费。
 
 const {
   store,
@@ -309,6 +296,7 @@ const {
   detailItem, openDetail, startUse, giftStage,
   showCharPicker, pendingItem, cancelPick, pickCharacter,
   onDiscard, resetUi,
+  onLootTaken, onLootUse,
 } = useBackpackActions({
   confirm: (opts) => confirmRef.value.show(opts),
   toast,

@@ -1025,7 +1025,6 @@ async function onPublish() {
         `《${outletNameOf(activeOutlet.value)}》今天已经出过第 ${first.issue} 期了。\n\n要再出一期吗？（加刊）`
       )
       if (!ok) { toastFn?.(`今天已出第 ${first.issue} 期`, 'info'); return }
-      publishing.value = true
       const again = await api.publishMediaIssue(activeOutlet.value, true)
       toastFn?.(`已加刊：第 ${again.issue} 期`, 'success')
     } else {
@@ -1439,6 +1438,8 @@ async function onRefresh() {
 // ── SSE ──
 let unsubNew = null
 let unsubImg = null
+let unsubPortal = null
+let unsubDeleted = null
 
 onMounted(async () => {
   newspaperStore.startPolling()
@@ -1464,11 +1465,46 @@ onMounted(async () => {
     await reloadAll()
     toastFn?.('新帖已到', 'success')
   })
-  // 配图就绪：只替换那一张，不整页重载
-  unsubImg = onEvent('media_image_ready', ({ postId, image }) => {
-    const p = posts.value.find(x => x.id === postId)
-    if (p) p.image = image
-    if (detailPost.value?.id === postId) detailPost.value.image = image
+  // 配图就绪：★ F-07 修复（2026-10-12）——本事件此前根本没注册进 unifiedStream 的
+  // handlers 表、到不了这里（只有 60s 兜底轮询，图不会"秒级上屏"）。注册后按载荷形态分流：
+  //   · 主图形态   { postId, image }                     → 换封面
+  //   · 门户分节   { postId, image, sectionKey }          → 写进 payload.sections[key].image（不动封面）
+  //   · 海报面板   { postId, image, panel:true, panelIndex } → 写进 payload.panels[panelIndex].image
+  unsubImg = onEvent('media_image_ready', ({ postId, image, sectionKey, panel, panelIndex }) => {
+    const apply = (t) => {
+      if (!t) return
+      if (sectionKey) {
+        const sec = t.payload?.sections?.find(s => s.key === sectionKey)
+        if (sec) sec.image = image
+        return
+      }
+      if (panel === true && Number.isInteger(panelIndex)) {
+        const pn = t.payload?.panels?.[panelIndex]
+        if (pn) pn.image = image
+        return
+      }
+      t.image = image
+    }
+    apply(posts.value.find(x => x.id === postId))
+    apply(detailPost.value?.id === postId ? detailPost.value : null)
+  })
+  // 门户整期完成：后端把「第一块头图」写为封面，但事件不带 URL —— 从本地 payload 推导
+  unsubPortal = onEvent('media_portal_ready', ({ postId }) => {
+    const apply = (t) => {
+      const cover = t?.payload?.sections?.find(s => s.image)?.image
+      if (cover) t.image = cover
+    }
+    apply(posts.value.find(x => x.id === postId))
+    apply(detailPost.value?.id === postId ? detailPost.value : null)
+  })
+  // 帖子被删（可能是别的标签页/设备删的）：本地同步移除，避免点到幽灵帖
+  unsubDeleted = onEvent('media_post_deleted', ({ postId }) => {
+    const i = posts.value.findIndex(x => x.id === postId)
+    if (i >= 0) {
+      posts.value.splice(i, 1)
+      total.value = Math.max(0, (total.value || 1) - 1)
+    }
+    if (detailPost.value?.id === postId) detailPost.value = null
   })
 })
 
@@ -1477,6 +1513,8 @@ onUnmounted(() => {
   newspaperStore.stopPolling()
   if (unsubNew) unsubNew()
   if (unsubImg) unsubImg()
+  if (unsubPortal) unsubPortal()
+  if (unsubDeleted) unsubDeleted()
 })
 </script>
 

@@ -158,7 +158,7 @@ const props = defineProps({
   displayName: { type: String, default: '' },
   /** 当前整卡文本（待重写「## 你的外观」的草稿/编辑中人格卡） */
   basePrompt: { type: String, default: '' },
-  /** 目标场景名（工装/私服/居家/睡衣）；留空＝旧口径（改人格卡的外观段）。仅用于标题与说明文案 */
+  /** 目标场景名（全身/常服/私服/居家/睡衣）；留空＝旧口径（改人格卡的外观段）。仅用于标题与说明文案 */
   sceneLabel: { type: String, default: '' },
   /** 应用按钮文案 / 底部提示（草稿卡场景父级可改写） */
   applyText: { type: String, default: '应用并保存' },

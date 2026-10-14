@@ -10,6 +10,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import * as api from '../api/index.js'
+import { createGeneration } from '../utils/loadGeneration.js'
 
 /** 未分类分组在前端的统一 key（后端对应 folder_id = null） */
 export const UNCATEGORIZED_KEY = 'uncategorized'
@@ -21,50 +22,67 @@ export function folderGroupKey(folderId) {
 
 export const useCharacterFoldersStore = defineStore('characterFolders', () => {
   const folders = ref([])
+  // ⚠ 口径为「含归档」（后端 /folders 的 uncategorized 未排除 archived），
+  // 且当前**没有任何视图消费它** —— 展示用的未分类计数请走 utils/folderCounts.js，
+  // 不要把这里的值直接渲染到界面上（否则又是一处口径打架，见 F-20）。
   const uncategorizedCount = ref(0)
   /** 接口就绪前不渲染分组 UI，避免后端未更新时出现半坏状态 */
   const ready = ref(false)
 
   let inflight = null
+  /** F-23：文件夹列表加载的「世代号」守卫 —— 作废被写后刷新取代的旧读响应 */
+  const loadGen = createGeneration()
 
-  /** 拉取文件夹列表（含各组成员数）；并发调用合并成一次请求 */
-  function load() {
-    if (inflight) return inflight
-    inflight = (async () => {
+  /**
+   * 拉取文件夹列表（含各组成员数）。
+   *
+   * ★ 并发合并 + 写后强制刷新（F-23 修订）：**纯读**场景仍合并同一飞行中的请求；
+   *   **写后刷新**（移动 / 新建 / 改名 / 删除文件夹）必须传 `{ force: true }`，
+   *   跳过合并真发新请求 —— 否则会复用写之前发出的旧请求、拿回写之前的计数，
+   *   界面表现为「移动了计数没变 / 改名后还是旧名」。响应写入前先校验世代，
+   *   迟到的旧响应一律丢弃。
+   *
+   * @param {{ force?: boolean }} [opts] force=true 用于写后刷新（绕过飞行中合并）
+   */
+  function load({ force = false } = {}) {
+    if (!force && inflight) return inflight
+    const gen = loadGen.next()
+    let p
+    p = (async () => {
       try {
         const data = await api.listCharacterFolders()
+        if (!loadGen.isCurrent(gen)) return  // 迟到响应：已被更新的加载取代
         folders.value = data.folders || []
         uncategorizedCount.value = data.uncategorized || 0
         ready.value = true
       } catch {
         // 接口不可用（例如后端还是旧版本）时保持上一次状态，列表退化为平铺
-      } finally {
-        inflight = null
       }
-    })()
-    return inflight
+    })().finally(() => { if (inflight === p) inflight = null })
+    inflight = p
+    return p
   }
 
   /** 把角色移入文件夹（folderId 传 null = 移回未分类），成功后刷新计数 */
   async function moveCharacter(characterId, folderId) {
     await api.moveCharacterToFolder(characterId, folderId)
-    await load()
+    await load({ force: true })   // F-23：写后刷新须真发新请求
   }
 
   async function createFolder(name) {
     const created = await api.createCharacterFolder(name)
-    await load()
+    await load({ force: true })   // F-23：写后刷新须真发新请求
     return created
   }
 
   async function renameFolder(id, name) {
     await api.renameCharacterFolder(id, name)
-    await load()
+    await load({ force: true })   // F-23：写后刷新须真发新请求
   }
 
   async function removeFolder(id) {
     await api.deleteCharacterFolder(id)
-    await load()
+    await load({ force: true })   // F-23：写后刷新须真发新请求
   }
 
   /**

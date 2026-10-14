@@ -762,7 +762,7 @@ async function toggleAllSchedules(next) {
   scheduleAllToggling.value = true
   try {
     const r = await api.setAllCharactersScheduleEnabled(next)
-    await chatStore.loadCharacters()
+    await chatStore.loadCharacters({ force: true })   // F-23：批量改日程开关后刷新须真发新请求
     toastFn(
       next
         ? `已停止 ${r?.changed ?? 0} 个角色的日程生成，之后不再消耗日程额度`
@@ -1591,14 +1591,11 @@ function onPeek() {
   store.peekSnapshot(detailChar.value.id)
 }
 
-function onPeekAt(act: any) {
-  if (!detailChar.value || !act) return
-  peekChar.value = detailChar.value
-  peekAct.value = act
-  peekImage.value = null; peekError.value = null; peekPrompt.value = null
-  peekOpen.value = true; peekBusy.value = true; peekLoading.value = true
-  startFakeProgress()
-  store.peekSnapshot(detailChar.value.id, {
+/** 构造「被瞄活动」上下文（peek / retake 共用）。
+ *  后端据此选着装（outfit）与钉时段锚点（startTime，F-15：凌晨活动不画成白天）。 */
+function buildPeekActivityCtx(act: any) {
+  if (!act) return null
+  return {
     activity: act.activity,
     location: act.location,
     replyDelay: act.replyDelay,
@@ -1610,7 +1607,17 @@ function onPeekAt(act: any) {
     // ★ 必须带上该时段的 outfit 标注 —— 后端据此选装。
     //   漏了它，后端会退回"按当前时刻"选装：白天点「夜间安睡」会画成穿常服睡觉。
     outfit: act.outfit,
-  })
+  }
+}
+
+function onPeekAt(act: any) {
+  if (!detailChar.value || !act) return
+  peekChar.value = detailChar.value
+  peekAct.value = act
+  peekImage.value = null; peekError.value = null; peekPrompt.value = null
+  peekOpen.value = true; peekBusy.value = true; peekLoading.value = true
+  startFakeProgress()
+  store.peekSnapshot(detailChar.value.id, buildPeekActivityCtx(act))
 }
 
 async function onRegenerate() {
@@ -1927,7 +1934,8 @@ async function retakePeek() {
   peekLoading.value = true; peekBusy.value = true
   startFakeProgress()
   try {
-    await api.retakePeekSnapshot(peekChar.value.id, peekPrompt.value)
+    // ★ F-15：带上被瞄活动上下文 —— 「再拍一张」保持与原图同时段（凌晨不画成白天）、同着装
+    await api.retakePeekSnapshot(peekChar.value.id, peekPrompt.value, buildPeekActivityCtx(peekAct.value))
   } catch (err: any) {
     peekError.value = err.message
     peekLoading.value = false

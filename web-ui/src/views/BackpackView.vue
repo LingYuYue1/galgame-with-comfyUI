@@ -8,22 +8,26 @@
         </svg>
       </linshe-button>
       <span class="topbar-title">背包</span>
-      <!-- 宝箱冷却中：大卡收起，顶栏只显示剩余时间 -->
-      <div v-if="!store.chest.canOpen" class="topbar-chest-timer" title="宝箱冷却中">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M4 9a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v1H4V9z"/>
-          <path d="M4 10h16v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8z"/>
-          <path d="M10 13h4"/>
-        </svg>
-        <span>{{ countdownText }}</span>
+      <div class="topbar-right">
+        <!-- 宝箱冷却中：大卡收起，顶栏只显示剩余时间（F-30 后宝箱隐藏，常态不再出现） -->
+        <div v-if="SHOW_CHEST && !store.chest.canOpen" class="topbar-chest-timer" title="宝箱冷却中">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 9a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v1H4V9z"/>
+            <path d="M4 10h16v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8z"/>
+            <path d="M10 13h4"/>
+          </svg>
+          <span>{{ countdownText }}</span>
+        </div>
+        <!-- 背包 / 橱窗 视图切换（与桌面弹窗同款心智，F-30） -->
+        <linshe-tabs v-model="view" :options="VIEW_OPTIONS" size="sm" aria-label="背包视图切换" />
       </div>
     </div>
 
     <!-- ══ Content ══ -->
     <div class="bp-scroll">
       <div class="bp-content">
-        <!-- ── 每日宝箱（就绪时展示，冷却中缩到顶栏只显示时间） ── -->
-        <section v-if="store.chest.canOpen" class="bp-chest">
+        <!-- ── 每日宝箱（就绪时展示；F-30：与桌面同口径隐藏，改回 SHOW_CHEST=true 即恢复） ── -->
+        <section v-if="SHOW_CHEST && store.chest.canOpen" class="bp-chest">
           <div
             class="bp-chest-stage"
             :class="{ 'is-ready': store.chest.canOpen }"
@@ -47,6 +51,10 @@
           <p class="bp-chest-hint">{{ formatChestCooldown(store.chest.cooldownSeconds) }}</p>
         </section>
 
+        <!-- ── 橱窗视图：按分类浏览商品 → 挑选 → 带走进背包（与桌面弹窗共享接线，F-30） ── -->
+        <LootWindow v-if="view === 'loot'" @taken="onLootTaken" @use="onLootUse" />
+
+        <template v-else>
         <!-- ── 此刻的角色状态 ── -->
         <section class="bp-section" aria-labelledby="bp-effects-title">
           <div class="bp-heading">
@@ -137,7 +145,7 @@
               <path d="M10 13h4"/>
             </svg>
             <p class="empty-title">背包还是空的</p>
-            <p class="empty-hint">{{ store.chest.canOpen ? '去上面的宝箱看看吧' : '宝箱冷却中，就绪后再来看看吧' }}</p>
+            <p class="empty-hint">去「橱窗」看看有什么好东西吧</p>
           </div>
 
           <TransitionGroup v-else name="item-list" tag="div" class="bp-items-grid">
@@ -160,6 +168,7 @@
             </div>
           </TransitionGroup>
         </section>
+        </template>
       </div>
     </div>
 
@@ -214,6 +223,7 @@
     <TownServiceStage :open="giftStage.open" :session="giftStage.session" @close="giftStage.open = false" />
 
     <ChestRevealOverlay
+      v-if="SHOW_CHEST"
       :show="fullscreen"
       :chest-anim="chestAnim"
       :flash-on="flashOn"
@@ -226,9 +236,11 @@
 </template>
 
 <script setup>
-import { computed, inject, onMounted, onUnmounted } from 'vue'
+import { computed, inject, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import LinsheButton from '../components/ui/LinsheButton.vue'
+import LinsheTabs from '../components/ui/LinsheTabs.vue'
+import LootWindow from '../components/LootWindow.vue'
 import ChestSvg from '../components/ChestSvg.vue'
 import ItemFallbackIcon from '../components/ItemFallbackIcon.vue'
 import ChestRevealOverlay from '../components/ChestRevealOverlay.vue'
@@ -244,6 +256,26 @@ const isMobile = inject('isMobile')
 const toggleMobileSidebar = inject('toggleMobileSidebar')
 const chat = useChatStore()
 
+// 内容视图：背包（角色状态 + 道具网格） / 橱窗（分页浏览商品）—— 与桌面弹窗同款（F-30）
+const VIEW_OPTIONS = [
+  { value: 'backpack', label: '背包' },
+  { value: 'loot', label: '橱窗' },
+]
+const view = ref('backpack')
+
+/**
+ * 是否显示「每日宝箱」面板。
+ *
+ * ★ F-30（2026-10-13）：与桌面弹窗（BackpackModal）对齐 —— 宝箱已被「橱窗」取代
+ *   （2026-10-04 桌面决策），移动端此前没跟上：宝箱当主入口、没有橱窗入口。
+ *   同口径隐藏（大卡 / 顶栏计时 / 开箱演出三面都受此开关约束），改回 true 即恢复。
+ *
+ * 隐藏后仍保留的部分：`store.startPolling()` 不能一起停 —— 它负责背包道具的轮询与
+ * `item_ready` 事件，橱窗带走的道具也靠它刷新。
+ * 随宝箱一起停掉的：开箱冷却倒计时、未完成开箱演出的恢复。
+ */
+const SHOW_CHEST = false
+
 const {
   store,
   fullscreen, chestAnim, chestProcessActive, chargeBoost, flashOn,
@@ -255,6 +287,7 @@ const {
   detailItem, openDetail, startUse, giftStage,
   showCharPicker, pendingItem, cancelPick, pickCharacter,
   onDiscard,
+  onLootTaken, onLootUse,
 } = useBackpackActions({ confirm, toast })
 
 const sortedCharacters = computed(() =>
@@ -265,13 +298,16 @@ const sortedCharacters = computed(() =>
 
 onMounted(() => {
   store.startPolling()
-  startCountdown()
-  // 刷新/中途离开留下的未收下道具：进页面时续播揭示演出
-  resumePendingReveal()
+  // 宝箱相关：隐藏宝箱时不必空转（startPolling 不能停，背包与橱窗都依赖它）
+  if (SHOW_CHEST) {
+    startCountdown()
+    // 刷新/中途离开留下的未收下道具：进页面时续播揭示演出
+    resumePendingReveal()
+  }
 })
 onUnmounted(() => {
   store.stopPolling()
-  stopCountdown()
+  if (SHOW_CHEST) stopCountdown()
 })
 
 function onBack() {
@@ -315,6 +351,11 @@ function onBack() {
   font-size: 17px; font-weight: 600; color: var(--text-bright);
   letter-spacing: 0.02em;
   white-space: nowrap;
+}
+.topbar-right {
+  display: flex; align-items: center; gap: 8px;
+  margin-left: auto;
+  flex-shrink: 0;
 }
 .topbar-chest-timer {
   display: flex; align-items: center; gap: 5px;

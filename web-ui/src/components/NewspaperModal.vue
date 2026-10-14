@@ -33,26 +33,6 @@
           </div>
         </div>
 
-
-        <!-- 加载骨架 -->
-        <div v-if="loading" class="np-gate">
-          <div class="np-skeletons">
-            <div class="skeleton np-sk-line"></div>
-            <div class="skeleton np-sk-block"></div>
-            <div class="skeleton np-sk-block"></div>
-          </div>
-        </div>
-
-        <!-- 还没印好 -->
-        <div v-else-if="!paper" class="np-gate">
-          <div class="empty np-empty">
-            <div class="np-empty-icon">📰</div>
-            <p class="np-empty-title">今天的报纸还没印好</p>
-            <p class="np-empty-hint">每天零点由镇口公告站准时印发</p>
-            <linshe-button size="sm" :loading="urging" @click="urgePrint">催一下印刷机</linshe-button>
-          </div>
-        </div>
-
         <!-- 报纸版面：一整版铺满视口，内容压在一页内 -->
         <article v-else ref="paperEl" class="np-paper" :class="{ 'is-past-view': !isToday }">
       <!-- 报头 -->

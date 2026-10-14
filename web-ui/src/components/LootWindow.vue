@@ -16,7 +16,7 @@
       >{{ p.label }}</button>
     </div>
 
-    <div v-if="!pages.length" class="loot-empty">还没有商品清单，请先在外部运行「导入道具清单」。</div>
+    <div v-if="!pages.length" class="loot-empty">还没有商品清单。请在 agent-core 目录运行：node scripts/import-loot.mjs 清单文件.json</div>
 
     <template v-else>
       <!-- 工具行 -->
@@ -115,7 +115,7 @@ const activePage = ref('')
 const slots = ref([])
 const selectedSlots = ref([])
 const rolling = ref(false)
-/** 「使用」进行中的格子下标（取走 + 交给父级走使用流程） */
+/** 「使用」流程中正在执行「带走」（写库）的格子下标 —— F-29 后写库发生在用户确认之后，此处只覆盖那一小段 */
 const usingSlot = ref(null)
 const busy = computed(() => rolling.value || taking.value || usingSlot.value !== null)
 const taking = ref(false)
@@ -237,33 +237,53 @@ async function discardCell(idx) {
 }
 
 /**
- * 直接使用一格：先带走（进背包拿 id），再交给父级走「选角色 → 确认 → 使用」流程。
- * 复用背包那一套，不另写一份使用逻辑。
+ * 直接使用一格。
+ *
+ * ★ F-29 修复（2026-10-13）：不再「先带走，再弹角色选择器」—— 旧流程点下「使用」就立刻
+ *   写库（takeLootItems），用户在后续的角色选择/确认里取消时，商品已静默入包、无法回滚。
+ *   现在只把「带走」包装成 ensureReady 回调交给父级（BackpackModal → useBackpackActions），
+ *   **用户确认使用之后**才真正执行；取消则橱窗格子原样保留、背包零变化。
+ *   配图还没生成完的格子不进入流程（此时根本没法正常使用，先提示等图）。
  */
-async function useCell(idx) {
+function useCell(idx) {
   if (busy.value) return
   const cell = slots.value[idx]
   if (!cell) return
+  if (!isCellReady(cell)) {
+    toast('配图还在生成，完成后才能使用；想先收进背包可勾选后点「带走」', 'info')
+    return
+  }
+  emit('use', {
+    name: cell.name,
+    kind: cell.kind,
+    cat: cell.cat,
+    // 延迟物化钩子：父级在用户确认使用后调用它 —— 这时才真正把商品带走
+    ensureReady: () => takeCellForUse(idx),
+  })
+}
+
+/** 格子是否已就绪（与后端 takeItems 的 status 判定同口径：已有图，或这类条目本就不需要图） */
+function isCellReady(cell) {
+  return !!(cell && (cell.imageUrl || cell.needsImage === false))
+}
+
+/** F-29：确认使用后由父级调用 —— 真正把该格商品带进背包（写库），返回后端记录 { backpackId, name, status } */
+async function takeCellForUse(idx) {
   usingSlot.value = idx
   try {
     const d = await api.takeLootItems(activePage.value, [idx])
     const taken = (d.taken || [])[0]
-    if (!taken) throw new Error('带走失败')
+    if (!taken) throw new Error('后端未返回商品记录')
     // 本地同步：该格已空
     const next = [...slots.value]
     next[idx] = null
     slots.value = next
     selectedSlots.value = selectedSlots.value.filter(i => i !== idx)
     emit('taken', d.taken || [])
-    // 交给父级（BackpackModal）弹出角色选择器并完成使用
-    emit('use', {
-      backpackId: taken.backpackId,
-      name: taken.name,
-      kind: cell.kind,
-      cat: cell.cat,
-    })
+    return taken
   } catch (err) {
-    toast('使用失败: ' + (err?.message || ''), 'error')
+    // 包一层前缀，让「使用失败：带走失败：xxx」能看出失败发生在带走这一步
+    throw new Error('带走失败：' + (err?.message || '未知错误'))
   } finally {
     usingSlot.value = null
   }

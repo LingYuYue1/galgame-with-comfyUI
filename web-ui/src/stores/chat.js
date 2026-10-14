@@ -4,6 +4,7 @@ import * as api from '../api/index.js'
 import { useMessageWindow } from '../composables/useMessageWindow.js'
 import { useProactiveStore } from './notifications.js'
 import { emitCharacterAvatarChanged } from '../utils/characterReactionProducers.js'
+import { createGeneration } from '../utils/loadGeneration.js'
 
 let _seq = Date.now()
 function uid() { return ++_seq }
@@ -42,6 +43,8 @@ export const useChatStore = defineStore('chat', () => {
 
   /** loadCharacters 的飞行中 Promise（并发合并用；见该函数的注释） */
   let _loadCharactersInflight = null
+  /** F-23：角色列表加载的「世代号」守卫 —— 作废被写后刷新取代的旧读响应 */
+  const _charactersLoadGen = createGeneration()
 
   // 客户端渲染窗口：messages 已全量加载，窗口策略统一由 useMessageWindow 提供
   const { visibleMessages, hasMoreOlder, expandOlder, resetToLatest, anchorToLatest, keepTailPinned } =
@@ -50,25 +53,39 @@ export const useChatStore = defineStore('chat', () => {
   /**
    * 拉取角色列表。
    *
-   * ★ **并发合并**：同一时刻的多次调用共用一个请求。
+   * ★ **并发合并 + 写后强制刷新**（F-23 修订）。
    *
    *   启动阶段有多个入口会碰角色列表（App.vue 的初始化、SSE 首帧、消息加载后的刷新、
    *   视图进入时的补刷…），它们**几乎同时**发生 —— 实测首屏 `/api/characters` 被请求了 2 次，
    *   内容完全一样。角色列表是启动路径上最重的一个接口（要带最后消息时间等），
-   *   重复请求既浪费又拖慢首屏。
+   *   重复请求既浪费又拖慢首屏。为此**纯读场景**合并同一飞行中的请求（`inflight` 复用）。
    *
-   *   写法与 `stores/characterFolders.js` 的 `load()` 一致：**只在请求飞行中复用**，
-   *   完成后立刻清空 —— 所以"改完角色要刷新"这类语义不受影响，不会拿到旧数据。
+   *   ⚠ 但合并**不能吞掉写后刷新**：若一个在**写操作之前**发出的请求仍在飞行，
+   *   写路径再调本函数若复用了那个旧请求，就会拿回**写之前**的数据 →
+   *   界面「删了还在 / 改了还是旧名」，要等下一次真实刷新才恢复。
+   *   所以**写路径**（改名 / 删除 / 生成 / 换头像 / 发消息等 mutation 之后）必须传
+   *   `{ force: true }`：跳过合并、**真发一次新请求**。
    *
+   *   无论纯读还是强制，响应回来写入前都先校验世代号 —— 迟到（后发先至）的旧响应
+   *   一律丢弃，绝不会覆盖更新的数据。
+   *
+   * @param {{ force?: boolean }} [opts] force=true 用于写后刷新（绕过飞行中合并）
    * @returns {Promise<void>}
    */
-  function loadCharacters() {
-    if (_loadCharactersInflight) return _loadCharactersInflight
-    _loadCharactersInflight = (async () => {
-      try { const d = await api.listCharacters(); characters.value = d.characters || [] } catch { /* 后端未就绪时保持上一次列表 */ }
-      sortCharactersByPin()
-    })().finally(() => { _loadCharactersInflight = null })
-    return _loadCharactersInflight
+  function loadCharacters({ force = false } = {}) {
+    if (!force && _loadCharactersInflight) return _loadCharactersInflight
+    const gen = _charactersLoadGen.next()
+    let p
+    p = (async () => {
+      try {
+        const d = await api.listCharacters()
+        if (!_charactersLoadGen.isCurrent(gen)) return  // 迟到响应：已被更新的加载取代
+        characters.value = d.characters || []
+        sortCharactersByPin()
+      } catch { /* 后端未就绪时保持上一次列表 */ }
+    })().finally(() => { if (_loadCharactersInflight === p) _loadCharactersInflight = null })
+    _loadCharactersInflight = p
+    return p
   }
 
   // 置顶优先 + 最近消息时间降序（置顶组内部仍按消息时间排）
@@ -152,14 +169,22 @@ export const useChatStore = defineStore('chat', () => {
         continue;
       }
 
+      // ★ F-17：用户消息的图（发图 / 参考图，可能混着表情）在实时链路统一按
+      //   sticker_images 渲染（msg_saved → scheduleSticker → sticker 气泡）——
+      //   历史重建必须同口径，否则刷新后用户图凭空消失：过去只把 emoji 归入
+      //   sticker_images，`/images/chat/...` 的附件图被当成助手生成图（genImages）、
+      //   又被下面 `role === 'assistant'` 的门挡掉 → 纯图整条消失、带文消息丢图。
+      const isUser = msg.role !== 'assistant';
+      const bubbleImages = isUser ? [...emojiImages, ...genImages] : emojiImages;
       // 图即回复（深度思考 standalone）：空文本消息只是图片载体，不渲染文本气泡，仅出图
-      const isImageCarrier = !content && emojiImages.length === 0 && genImages.length > 0;
+      // （仅助手侧；用户侧的图片载体本身就是 sticker 气泡，不能跳过整条）
+      const isImageCarrier = !isUser && !content && emojiImages.length === 0 && genImages.length > 0;
       if (!isImageCarrier) {
         result.push({
           ...msg,
           content,
           type: msg.type || 'text',
-          sticker_images: emojiImages.map(url => ({ url, base64: null })),
+          sticker_images: bubbleImages.map(url => ({ url, base64: null })),
         });
       }
       if (msg.role === 'assistant' && genImages.length > 0) {
@@ -225,7 +250,7 @@ export const useChatStore = defineStore('chat', () => {
     const id = activeCharId.value
     if (!id) return
     await api.updateCharacter(id, data)
-    await loadCharacters()
+    await loadCharacters({ force: true })   // F-23：写后刷新须真发新请求
   }
 
   async function clearActiveMessages() {
@@ -295,7 +320,7 @@ export const useChatStore = defineStore('chat', () => {
   // 在设置页面调用：AI 生成角色并直接入库
   async function generateCharacter(description) {
     const result = await api.generateCharacter(description)
-    await loadCharacters()
+    await loadCharacters({ force: true })   // F-23：写后刷新须真发新请求
     return result
   }
 
@@ -304,7 +329,7 @@ export const useChatStore = defineStore('chat', () => {
     if (!id) return
     const before = characters.value.find(c => c.id === id)?.avatar_path || ''
     const r = await api.uploadAvatar(id, base64 || '')
-    await loadCharacters()
+    await loadCharacters({ force: true })   // F-23：写后刷新须真发新请求
     const after = characters.value.find(c => c.id === id)?.avatar_path || ''
     // P1：只有版本确实变化且保存成功才反馈；移除头像（after 为空）静默
     emitCharacterAvatarChanged({ characterId: id, previousVersion: before, nextVersion: after, ok: true })
@@ -329,7 +354,7 @@ export const useChatStore = defineStore('chat', () => {
     messages.value = []
     resetToLatest()
     activeCharId.value = null
-    await loadCharacters()
+    await loadCharacters({ force: true })   // F-23：写后刷新须真发新请求（否则删了还在）
   }
 
   function findGenMsg(genId) { return messages.value.find(m => m.genId === genId) }
@@ -824,7 +849,7 @@ export const useChatStore = defineStore('chat', () => {
     if (isCurrentStream(sessionId)) {
       streaming.value = false; streamingContent.value = ''; showTypingDots.value = false
       activeStream = null
-      if (!admissionError) await loadCharacters()
+      if (!admissionError) await loadCharacters({ force: true })   // F-23：写出消息后刷新（last_message / 计数）
     }
     if (admissionError) throw admissionError
   }

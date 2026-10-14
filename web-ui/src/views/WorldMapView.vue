@@ -1144,7 +1144,9 @@ async function onAiAddPois() {
     const got = Array.isArray(r?.pois) ? r.pois : []
     for (const p of got) selPois.value.push({ type: p.type || '配套', name: p.name || '', blurb: p.blurb || '' })
     poisDirty.value = true
-    toastFn?.(`AI 补了 ${got.length} 个生活地点，确认后点「保存生活地点」`, 'success')
+    // ⚠ 文案必须指向顶部「保存」——「保存生活地点」独立按钮已在 2026-10-07 一站式编辑中删除
+    //   （见本文件 L344 区与 L922 区注释），此处曾残留旧指引、用户照着找不到按钮（F-38）。
+    toastFn?.(`AI 补了 ${got.length} 个生活地点，确认后点右上角「保存」一并提交`, 'success')
   } catch (err) {
     // 服务端在"全是重复"时会给 502 带明确原因 —— 原样透出，别改写成"失败"
     toastFn?.(err?.message || 'AI 添加失败', 'error')

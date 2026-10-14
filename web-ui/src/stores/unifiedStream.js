@@ -88,6 +88,14 @@ function _connect() {
     schedule_reset_progress: d => _dispatch('schedule_reset_progress', d),
     schedule_state_change: d => _dispatch('schedule_state_change', d),
     schedule_changed: d => _dispatch('schedule_changed', d),
+    // ★ F-07 修复（2026-10-12）：传媒（媒体站）四事件此前**未注册** —— 后端有广播、
+    //   前端收到即丢（下方 consumeSSE 回调查 `handlers[event]` 查不到 → 静默忽略），
+    //   传媒页只能等 60s 兜底轮询。这里补齐；MediaView 按载荷形态分流更新
+    //   （主图 / 分节 sectionKey / 面板 panelIndex / 整期 portal_ready / 删除）。
+    media_new_posts:    d => _dispatch('media_new_posts', d),
+    media_image_ready:  d => _dispatch('media_image_ready', d),
+    media_portal_ready: d => _dispatch('media_portal_ready', d),
+    media_post_deleted: d => _dispatch('media_post_deleted', d),
     // 角色日记（日程页入口 → 全屏日记本；生成走后台 + 右下角生成提示）
     diary_start:       d => _dispatch('diary_start', d),
     diary_progress:    d => _dispatch('diary_progress', d),
@@ -97,6 +105,9 @@ function _connect() {
     image_compress_progress: d => _dispatch('image_compress_progress', d),
     group_message:     d => _dispatch('group_message', d),
     group_message_update: d => _dispatch('group_message_update', d),
+    // ★ F-07 附带（2026-10-12）：群聊撤回事件同样是「后端有广播、前端有订阅者
+    //   （stores/groups.js）、但 handlers 表没注册」→ 撤回不生效。顺带补上。
+    group_round_undone: d => _dispatch('group_round_undone', d),
     group_created:     d => _dispatch('group_created', d),
     group_image_start: d => _dispatch('group_image_start', d),
     group_image_done:  d => _dispatch('group_image_done', d),
@@ -126,6 +137,13 @@ function _connect() {
     // 小镇货摊买来的道具送给角色：礼物叙事（图片 + 描述）
     item_gift_ready:           d => _dispatch('item_gift_ready', d),
     item_gift_progress:        d => _dispatch('item_gift_progress', d),
+    // ★ F-12/F-27 修复（2026-10-12）：道具出图相关三事件补齐注册 ——
+    //   · item_ready：背包道具（含橱窗带走的 loot 款）出图完成 / 失败降级，backpack store 已在订阅
+    //   · loot_image_ready：橱窗商品图完成，LootWindow 商品卡回填已在订阅（此前是死订阅）
+    //   · loot_taken：橱窗「带走」的广播（当前无消费者，注册以保持「后端广播必有前端入口」契约）
+    item_ready:                d => _dispatch('item_ready', d),
+    loot_image_ready:          d => _dispatch('loot_image_ready', d),
+    loot_taken:                d => _dispatch('loot_taken', d),
   }, {
     onClose: _scheduleReconnect,
   })

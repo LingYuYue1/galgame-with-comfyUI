@@ -981,7 +981,8 @@ async function onWakeChar() {
   } finally {
     // 每次 API 调用后刷新数据，使 wake_attempts 反映最新值
     try { await scheduleStore.fetchOverview(true) } catch {}
-    try { await chat.loadCharacters() } catch {}
+    // F-23：叫醒是服务端写操作，写后刷新须真发新请求（否则可能复用写前的旧读）
+    try { await chat.loadCharacters({ force: true }) } catch {}
     wakeShaking.value = false
     wakeBusy.value = false
   }
@@ -1414,12 +1415,12 @@ function closeCharEditor() {
 }
 
 async function onCharSaved(c) {
-  await chat.loadCharacters()
+  await chat.loadCharacters({ force: true })   // F-23：写后刷新须真发新请求
 }
 
 async function onCharDeleted(c) {
   showEditor.value = false
-  await chat.loadCharacters()
+  await chat.loadCharacters({ force: true })   // F-23：写后刷新须真发新请求
   router.push('/tavern')
 }
 
@@ -2234,6 +2235,12 @@ function renderContent(text) {
   opacity: 0; transition: opacity 0.15s ease;
 }
 .chat-img-thumb:hover .chat-img-del { opacity: 1; }
+/* F-24：触屏没有 hover —— 移除按钮改常显，否则手机上永久 opacity:0、用户看不见也想不到能删。
+   桌面（hover: hover）不命中此查询，保持上面的 :hover 显隐行为不变。
+   同型先例：BackpackModal.vue(L923) / MediaView.vue(L1891) / TavernView.vue(L3170)。 */
+@media (hover: none), (pointer: coarse) {
+  .chat-img-del { opacity: 1; }
+}
 .chat-img-hint { font-size: 12px; color: var(--text-secondary); }
 .chat-img-preview-enter-active,
 .chat-img-preview-leave-active { transition: opacity 0.2s ease, transform 0.2s ease; }

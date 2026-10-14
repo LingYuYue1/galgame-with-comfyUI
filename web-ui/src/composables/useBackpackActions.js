@@ -277,11 +277,45 @@ export function useBackpackActions({ confirm, toast }) {
     detailItem.value = item
   }
 
+  /**
+   * 进入「使用」流程：弹出角色选择器。
+   * item 可自带 `_ensureReady`（橱窗来源）—— 此时商品**尚未带走**，
+   * 由 pickCharacter 在用户确认后才调用它执行带走（F-29 延迟物化）。
+   */
   function startUse(item) {
     if (!item || item.status !== 'ready') return
     detailItem.value = null
     pendingItem.value = item
     showCharPicker.value = true
+  }
+
+  // ── 橱窗 ↔ 背包接线（桌面弹窗 / 移动端整页共享）──
+  // ★ F-30：这两个函数原只存在于 BackpackModal 内、移动端整页没有橱窗入口自然也没有它们。
+  //   上移到本 composable 后，两端只消费、不重写 —— F-29 的「延迟物化」时序天然两端一致。
+
+  /** 从橱窗带走的商品已进背包 → 刷新背包列表（失败不阻塞，SSE 会兜底刷新） */
+  function onLootTaken() {
+    try { store.fetchItems() } catch { /* 失败不阻塞，SSE 会兜底刷新 */ }
+  }
+
+  /**
+   * 橱窗里点「使用」：**商品尚未带走** ——「带走」被包装成 ensureReady 回调，
+   * 交给 pickCharacter 在用户确认使用之后才真正执行（F-29 延迟物化）。
+   *
+   * ★ F-29 修复（2026-10-13）：旧流程是「先带走（takeLootItems 写库）→ 再弹选择器 → 确认」，
+   *   用户在取消时商品已静默入包、橱窗格子已空，且无法回滚。现在时序反转为
+   *   「先挑角色确认 → 确认后才带走」；取消（✕ / 遮罩 / 确认框取消）则格子原样保留、背包零变化。
+   *   带走后若配图未就绪，仍按 F-05 口径分流（已入包 + 提示等图，见 pickCharacter）。
+   */
+  function onLootUse({ name, kind, ensureReady }) {
+    startUse({
+      id: null,                // 真实 id 在确认后由 ensureReady 带走时取得（此时尚无背包记录）
+      name,
+      kind,
+      source_type: 'loot',
+      status: 'ready',         // 点击前已预判就绪；真实状态由确认后 take 的结果兜底校验
+      _ensureReady: ensureReady,
+    })
   }
 
   function cancelPick() {
@@ -316,7 +350,21 @@ export function useBackpackActions({ confirm, toast }) {
     })
     if (!ok) { pendingItem.value = null; return }
     try {
-      const result = await store.useItem(item.id, char.id)
+      // ★ F-29：橱窗来源的「延迟物化」—— 商品在确认之前**尚未带走**（橱窗格子还挂着），
+      //   确认通过后才由 _ensureReady 真正执行带走（takeLootItems 写库）并拿到真实 backpackId。
+      //   取消（✕ / 遮罩 / 确认框取消）时它根本不会被调用 → 橱窗零副作用，格子原样保留。
+      let itemId = item.id
+      if (typeof item._ensureReady === 'function') {
+        const taken = await item._ensureReady()
+        if (!taken || taken.backpackId == null) throw new Error('带走失败')
+        itemId = taken.backpackId
+        // F-05 口径保留：以带走时后端返回的**真实状态**为准 —— 未就绪不进入 useItem，提示等图
+        if (taken.status !== 'ready') {
+          toast?.('已放入背包：配图还在生成，完成后可在背包里直接使用', 'info')
+          return
+        }
+      }
+      const result = await store.useItem(itemId, char.id)
       if (result.ok && result.gift) {
         giftStage.value = { open: true, session: {
           sessionId: result.sessionId, kind: 'gift',
@@ -421,6 +469,8 @@ export function useBackpackActions({ confirm, toast }) {
     detailItem, openDetail, startUse, giftStage,
     showCharPicker, pendingItem, cancelPick, pickCharacter,
     onDiscard,
+    // 橱窗接线（桌面弹窗 / 移动端整页共享，F-30 上移）
+    onLootTaken, onLootUse,
     resetUi,
   }
 }

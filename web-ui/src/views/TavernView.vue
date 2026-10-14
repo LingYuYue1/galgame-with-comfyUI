@@ -916,7 +916,7 @@
           @keydown.space.prevent="doMoveToFolder(f.id)"
         >
           <span class="folder-pick-name">{{ f.name }}</span>
-          <span class="folder-pick-count">{{ f.count }}</span>
+          <span class="folder-pick-count">{{ folderCountOf(f.id) }}</span>
         </div>
         <p v-if="!folders.length" class="folder-pick-hint">还没有文件夹，点下面「新建文件夹」建一个。</p>
       </div>
@@ -948,6 +948,8 @@ import AppearanceRefineModal from '../components/AppearanceRefineModal.vue'
 import FactionManagerModal from '../components/FactionManagerModal.vue'
 import LinsheButton from '../components/ui/LinsheButton.vue'
 import { emitCharacterAvatarChanged, emitCharacterPinEnabled } from '../utils/characterReactionProducers.js'
+import { computeArchiveScope } from '../utils/archiveScope.js'
+import { activeCountInFolder, activeUncategorizedCount, archivedCountInFolder, detachFolderFromCharacters } from '../utils/folderCounts.js'
 import LinsheInput from '../components/ui/LinsheInput.vue'
 import LinsheModal from '../components/ui/LinsheModal.vue'
 import LinsheSwitch from '../components/ui/LinsheSwitch.vue'
@@ -1002,11 +1004,13 @@ const folders = computed(() => folderStore.folders)
 const archivedCharacters = computed(() => chat.characters.filter(c => c.archived))
 const activeCharacters = computed(() => chat.characters.filter(c => !c.archived))
 
-// 计数按「活跃角色」算 —— 与视图里实际渲染的一致（归档角色另有「归档管理」入口）
-const uncategorizedCount = computed(() => activeCharacters.value.filter(c => !c.folder_id).length)
-/** 各文件夹的活跃角色数（后端返回的 f.count 含归档，会与实际看到的不符） */
+// 计数按「活跃角色」算 —— 与视图里实际渲染的一致（归档角色另有「归档管理」入口）。
+// 口径统一收在 utils/folderCounts.js：分类栏 chip、移动弹窗、未分类计数走同一套，
+// 不再裸用后端 /folders 的 f.count（那个口径含归档，曾与 chip 打架，见 F-20）。
+const uncategorizedCount = computed(() => activeUncategorizedCount(chat.characters))
+/** 各文件夹的活跃角色数（与分类栏 chip 同一口径） */
 function folderCountOf(id) {
-  return activeCharacters.value.filter(c => c.folder_id === id).length
+  return activeCountInFolder(chat.characters, id)
 }
 // 文件夹接口就绪后才显示分类 UI，接口不可用时保持原样（不出现半坏的筛选栏）
 const folderFeatureReady = computed(() => folderStore.ready)
@@ -1111,12 +1115,19 @@ const batchScopeCharacters = computed(() => {
     ? base.filter(c => (c.display_name || '').toLowerCase().includes(kw))
     : base
 })
-const scopeCount = computed(() => batchScopeCharacters.value.length)
-const scopeArchivedCount = computed(() => batchScopeCharacters.value.filter(c => c.archived).length)
+// 批量开关/计数/「本分类全部恢复」按钮的统一口径 —— 详见 utils/archiveScope.js（F-18）：
+// 统计必须与后端 /archived-all 的动作范围对齐（普通分类含**不可见**的归档成员），
+// 否则「已归档数」在普通视图结构性恒 0 → 直达恢复按钮永不显示、分类全归档时开关也被禁用。
+const archiveScope = computed(() => computeArchiveScope({
+  folderFilter: folderFilter.value,
+  search: charSearch.value,
+  characters: chat.characters || [],
+  visibleBatch: batchScopeCharacters.value,
+}))
+const scopeCount = computed(() => archiveScope.value.totalCount)
+const scopeArchivedCount = computed(() => archiveScope.value.archivedCount)
 // 该作用域内全部归档才算「开」；部分归档时开关显示为关，点一下 = 把剩下的也归档
-const allArchived = computed(() =>
-  scopeCount.value > 0 && scopeArchivedCount.value === scopeCount.value
-)
+const allArchived = computed(() => archiveScope.value.allArchived)
 /** 当前作用域的人话描述（用于标题与提示，避免用户不知道会动到谁） */
 const scopeLabel = computed(() => {
   if (folderFilter.value === 'archived') return '「归档管理」里的角色'
@@ -1141,7 +1152,10 @@ function currentScope() {
 
 async function toggleAllArchived(next) {
   if (archiveAllToggling.value) return
-  const targets = batchScopeCharacters.value
+  // 归档方向：命中当前可见的活跃批（所见即所改）；
+  // 恢复方向：命中作用域内的归档成员 —— 普通视图里它们不可见，但后端按 scope 恢复的
+  //          正是这一批，本地同步也必须覆盖它们（否则点完「全部恢复」界面不更新）(F-18)
+  const targets = next ? batchScopeCharacters.value : archiveScope.value.archivedMembers
   if (!targets.length) {
     showToast(`当前${scopeLabel.value}没有角色`, 'error')
     return
@@ -1288,15 +1302,24 @@ async function submitFolderEditor() {
 
 // ── 删除文件夹（成员回到未分类，不删角色） ──
 async function askDeleteFolder(f) {
+  // 删除会把**全部**成员（含归档）退回未分类（后端不带 archived 条件），
+  // 所以这里的数字要与动作范围同口径，并把「含几个归档」显式讲出来 ——
+  // 否则 chip 是活跃数、弹窗是含归档数，用户会以为哪一处坏了（F-20）。
+  const archivedN = archivedCountInFolder(chat.characters, f.id)
+  const totalN = activeCountInFolder(chat.characters, f.id) + archivedN
   const ok = await confirmFn({
     title: '删除文件夹',
-    message: `确定删除「${f.name}」吗？里面的 ${f.count} 个角色会回到「未分类」，角色本身不会被删除。`,
+    message: archivedN > 0
+      ? `确定删除「${f.name}」吗？里面的 ${totalN} 个角色（含 ${archivedN} 个已归档）会回到「未分类」，角色本身不会被删除。`
+      : `确定删除「${f.name}」吗？里面的 ${totalN} 个角色会回到「未分类」，角色本身不会被删除。`,
     okText: '删除',
     danger: true,
   })
   if (!ok) return
   try {
     await folderStore.removeFolder(f.id)
+    // 本地归属同步：否则成员残留旧 folder_id → 侧栏分组里「无处可归」而消失（F-20）
+    detachFolderFromCharacters(chat.characters, f.id)
     if (folderFilter.value === f.id) folderFilter.value = 'all'
     showToast(`已删除文件夹「${f.name}」`, 'success')
   } catch (err) {
@@ -1648,7 +1671,7 @@ async function confirmRecruit() {
     }
     // 成功：关闭弹窗，刷新角色列表
     recruit.show = false
-    await chat.loadCharacters()
+    await chat.loadCharacters({ force: true })   // F-23：创建角色后刷新须真发新请求
   } catch (err) {
     recruit.error = '入库失败: ' + (err.message || '网络错误')
   } finally {
@@ -1734,7 +1757,7 @@ const detailModalRef = ref(null)
 // 关闭关系图后刷新关系数据
 watch(showRelationGraph, async (val) => {
   if (!val && detailChar.value) {
-    await chat.loadCharacters()
+    await chat.loadCharacters({ force: true })   // F-23：关系编辑后刷新须真发新请求
     const updated = chat.characters.find(x => x.id === detailChar.value.id)
     if (updated) detailChar.value = updated
     detailModalRef.value?.refreshRelationships()
@@ -2065,7 +2088,7 @@ function closeCharDetail() {
 }
 
 async function onCharSaved(c) {
-  await chat.loadCharacters()
+  await chat.loadCharacters({ force: true })   // F-23：写后刷新须真发新请求
   const updated = chat.characters.find(x => x.id === c.id)
   if (updated) detailChar.value = updated
 }
@@ -2073,7 +2096,7 @@ async function onCharSaved(c) {
 async function onCharDeleted(c) {
   detailVisible.value = false
   detailChar.value = null
-  await chat.loadCharacters()
+  await chat.loadCharacters({ force: true })   // F-23：写后刷新须真发新请求
 }
 
 function openRelationGraph(c) {
@@ -2095,7 +2118,7 @@ function onGraphAutoDeduce() {
 }
 
 async function onDeductionSaved() {
-  await chat.loadCharacters()
+  await chat.loadCharacters({ force: true })   // F-23：写后刷新须真发新请求
   if (detailChar.value) {
     const updated = chat.characters.find(x => x.id === detailChar.value.id)
     if (updated) detailChar.value = updated
@@ -2127,7 +2150,7 @@ async function onCharAvatarSave(base64) {
   const id = detailChar.value.id
   const before = detailChar.value.avatar_path || ''
   await api.uploadAvatar(id, base64 || '')
-  await chat.loadCharacters()
+  await chat.loadCharacters({ force: true })   // F-23：写后刷新须真发新请求
   const updated = chat.characters.find(x => x.id === id)
   if (updated) detailChar.value = updated
   showCharAvatarPicker.value = false
@@ -2144,7 +2167,7 @@ async function removeCharAvatar() {
   })
   if (!ok) return
   await api.uploadAvatar(detailChar.value.id, '')
-  await chat.loadCharacters()
+  await chat.loadCharacters({ force: true })   // F-23：写后刷新须真发新请求
   const updated = chat.characters.find(x => x.id === detailChar.value.id)
   if (updated) detailChar.value = updated
 }

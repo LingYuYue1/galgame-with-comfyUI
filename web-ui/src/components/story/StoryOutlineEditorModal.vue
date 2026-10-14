@@ -277,7 +277,10 @@ async function loadEditor() {
     suffix.value = String(ed.suffix || '')
     separator.value = String(ed.separator || '\n\n')
     const blocks = Array.isArray(ed.blocks) ? ed.blocks : []
-    nodes.value = ed.beats.map((b, i) => toNode(b, blocks[i] || ''))
+    // ★ 按服务端给的 rawIndex 取各自的原文块 —— raw 里可能存在要素不全的残缺块
+    //   （被解析过滤、不在 beats 里），此时 beats[i] 与 blocks[i] 会整体错位。
+    //   （旧服务端无 rawIndex 时回落 i，行为不变）
+    nodes.value = ed.beats.map((b, i) => toNode(b, blocks[b?.rawIndex ?? i] || ''))
   } catch (err) {
     error.value = err?.message || '读取大纲失败'
   }
