@@ -27,6 +27,10 @@ import { cleanupProjectProcesses, label } from "./lib/projectProcesses.mjs";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
 
+// 是否「直接执行」（node scripts/dev.mjs）；被 import（如测试引用纯函数）时为 false，
+// 主流程与全局副作用（信号处理 / stdin 接管）都以此开关为闸。
+const isMain = Boolean(process.argv[1]) && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
 // ── 终端颜色 ──
 const C = {
   reset: "\x1b[0m",
@@ -49,10 +53,21 @@ function checkModel() {
   return existsSync(MODEL_ONNX);
 }
 
+// ── 向量服务的 Python 解释器解析 ──
+// 优先级：venv（开发环境显式创建）> runtime/python（仓库捆绑的发行运行时）> PATH 的 python（兜底）。
+// 背景：venv 不存在时直接回落 PATH 的 python 有坑——某些机器上 PATH 的 python 缺
+// chromadb / onnxruntime 等依赖，向量服务会起不来（角色记忆检索静默失效）。
+export function resolveVectorPython(root) {
+  const venvPy = resolve(root, "vector-service", "venv", "Scripts", "python.exe");
+  if (existsSync(venvPy)) return venvPy;
+  const runtimePy = resolve(root, "runtime", "python", "python.exe");
+  if (existsSync(runtimePy)) return runtimePy;
+  return "python";
+}
+
 function downloadModelBg() {
   return new Promise((resolvePromise) => {
-    const venvPy = resolve(ROOT, "vector-service", "venv", "Scripts", "python.exe");
-    const python = existsSync(venvPy) ? venvPy : "python";
+    const python = resolveVectorPython(ROOT);
     const script = resolve(ROOT, "vector-service", "download_model.py");
 
     console.log(`        ${C.yellow}模型缺失，后台自动下载 (~155MB, hf-mirror.com)...${C.reset}`);
@@ -154,13 +169,16 @@ async function shutdown() {
   setTimeout(() => process.exit(0), 1000);
 }
 
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
+// 仅在「直接执行」时注册全局信号处理（被 import 时不得占用 stdin / 挂监听，否则测试进程可能不退）
+if (isMain) {
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 
-// Windows 终端 Ctrl+C → SIGINT 转发
-if (process.platform === "win32") {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  rl.on("SIGINT", () => process.emit("SIGINT", "SIGINT"));
+  // Windows 终端 Ctrl+C → SIGINT 转发
+  if (process.platform === "win32") {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    rl.on("SIGINT", () => process.emit("SIGINT", "SIGINT"));
+  }
 }
 
 // ── 主流程 ──
@@ -210,10 +228,7 @@ async function main() {
       url: "http://localhost:8765/health",
       cwd: resolve(ROOT, "vector-service"),
       getCmd() {
-        // 优先使用 venv 里的 python
-        const venvPy = resolve(this.cwd, "venv", "Scripts", "python.exe");
-        if (existsSync(venvPy)) return venvPy;
-        return "python";
+        return resolveVectorPython(ROOT);
       },
       args: ["-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8765"],
     },
@@ -292,7 +307,10 @@ async function main() {
   }, 3000);
 }
 
-main().catch((err) => {
-  console.error(`${C.red}Fatal: ${err.message}${C.reset}`);
-  shutdown();
-});
+// 仅在「直接执行」时跑主流程；被 import 时不得有副作用
+if (isMain) {
+  main().catch((err) => {
+    console.error(`${C.red}Fatal: ${err.message}${C.reset}`);
+    shutdown();
+  });
+}

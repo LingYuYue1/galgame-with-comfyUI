@@ -51,3 +51,6 @@ HyperFrames/
 krea2-posters/
 
 # Isolated M1 UI build (screenshots and verification report remain reviewable)
+
+# 本地二创 · 远端接入资料（WireGuard 密钥/二维码/隧道脚本，严禁入库）
+remote-access/
