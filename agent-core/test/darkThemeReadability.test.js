@@ -17,8 +17,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const SRC = 'E:/邻舍.EXE-v2.3.0/web-ui/src';
+// ⚠ 原实现把路径写死为上游开发机的目录名（邻舍.EXE-v2.3.0），换目录/改名后
+//   本测试静默扫到 0 个文件（或直接 ENOENT）。改为相对本文件定位，仓库放哪都能跑。
+const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'web-ui', 'src');
 
 function walk(dir, out = []) {
   for (const f of fs.readdirSync(dir)) {

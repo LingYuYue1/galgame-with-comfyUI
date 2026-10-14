@@ -141,6 +141,41 @@ test('★★ occurrence 跨消息累计，超出总数要拒', () => {
 });
 
 // ─────────────────────────────────────────────────────────
+// ②b F-47：引文带 <chat_log> 行首说话人标记 —— 真实试跑实测 100% 误杀的系统性缺陷
+// ─────────────────────────────────────────────────────────
+
+test('★★ F-47：引文带 [角色名] 前缀（模型照抄整行的真实形态）也应命中', () => {
+  // 现场：memoryExtractor 把窗口消息拼成 `[三月七] 正文` 的行格式喂给模型；模型被要求
+  // 「逐字照抄」时会把整行的**说话人标记一起抄**进 evidenceText —— 而搜索结果源是
+  // raw_messages.content（不含标记）→ 真实数据试跑（2026-10-14，char_4/三月七 55 条）
+  // 5/5 全拒（quote-not-found）。复算前应做「剥离行首标记」的双向兼容。
+  const window = [
+    { id: 11, content: '今天工作好累。' },
+    { id: 12, content: '我想去海边走走，好久没看海了。' },
+  ];
+  const r = gate.verifyQuoteInWindow('[三月七] 我想去海边走走', 1, window);
+  assert.equal(r.ok, true, '带 [角色名] 前缀的引文应能定位（修复前：quote-not-found）');
+  assert.equal(r.msgId, 12, '应定位到正确消息');
+});
+
+test('★★ F-47：引文带 [用户] 前缀同样应命中', () => {
+  const window = [
+    { id: 11, content: '今天工作好累。' },
+    { id: 12, content: '我想去海边走走，好久没看海了。' },
+  ];
+  const r = gate.verifyQuoteInWindow('[用户] 今天工作好累。', 1, window);
+  assert.equal(r.ok, true, '带 [用户] 前缀的引文应能定位（修复前：quote-not-found）');
+  assert.equal(r.msgId, 11, '应定位到正确消息');
+});
+
+test('守卫：剥标记只去行首，正文不匹配仍须拒收（不得借此放行）', () => {
+  const window = [{ id: 11, content: '今天工作好累。' }];
+  const r = gate.verifyQuoteInWindow('[三月七] 完全不相干的一句话', 1, window);
+  assert.equal(r.ok, false, '正文不在窗口内 → 仍须拒收');
+  assert.equal(r.reason, 'quote-not-found');
+});
+
+// ─────────────────────────────────────────────────────────
 // ③ 逐条隔离（不连坐）
 // ─────────────────────────────────────────────────────────
 
