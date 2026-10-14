@@ -3,6 +3,7 @@ import { saveBase64Image } from '../services/imagePaths.js';
 import { getDb, getSystemRules, getSystemRulesWithWorld, getWorldSetting, getGlobalRule } from '../db/index.js';
 import { chatSync } from '../llm/llm-client.js';
 import { config } from '../config.js';
+import { getMomentDelay } from '../services/momentTiming.js';
 import { generateImageRaw } from '../services/imageSkill.js';
 import { charArtistOverrideWithFallback } from '../services/characterImageOpts.js';
 import { buildCharacterPersona } from '../services/characterPersona.js';
@@ -988,10 +989,8 @@ ${userName}的信息：${userDesc || '信息未知，按普通人处理'}
     WHERE id = ?
   `).run(text, imagePrompt, JSON.stringify(imageUrls), opts.postedAt ? toSQLite(opts.postedAt.toISOString()) : null, postId);
 
-  // 5. 设置下次发帖时间：基准 2~8 小时，按 momentFreq 缩放（1=默认，越大越快）
-  //    freq=24（设置页最快档）→ 5~20 分钟；下限 5 分钟兜底，与调度器 5 分钟扫描间隔对齐
-  const momentFreq = Math.max(0.01, config.features.momentFreq ?? 1);
-  const nextDelay = Math.max(5 * 60_000, (2 * 3600_000 + Math.random() * 6 * 3600_000) / momentFreq);
+  // 5. 默认保持原有节奏；具体时间档以所选间隔为中心浮动 ±20%。
+  const nextDelay = getMomentDelay(config.features);
   const nextAt = new Date(Date.now() + nextDelay).toISOString();
   db.prepare('UPDATE characters SET next_moment_at = ? WHERE id = ?')
     .run(toSQLite(nextAt), character.id);

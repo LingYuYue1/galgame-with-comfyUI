@@ -11,6 +11,7 @@ import { isMomentBackfillRunning } from './momentBackfill.js';
 
 import { getDb } from '../db/index.js';
 import { config } from '../config.js';
+import { getMomentDelay, isDefaultMomentTiming } from './momentTiming.js';
 import { getTownMaps } from './town/townService.js';
 import { getPendingComplaint, markComplaintDone, postponeComplaint, buildComplaintTopic } from './newspaperService.js';
 
@@ -25,8 +26,7 @@ export function setTownNpcPostGenerator(fn) {
   townNpcPostGenerator = fn;
 }
 
-// 5 分钟：必须 <= 最快发帖周期（momentFreq=24 时约 5~20 分钟），
-// 否则周期设得再快也会被扫描间隔卡成 10 分钟一条。
+// 调度扫描可能带来最多一个扫描周期的额外等待，生图排队也会延后实际发帖。
 const CHECK_INTERVAL = 5 * 60 * 1000;
 
 let timer = null;
@@ -79,7 +79,7 @@ async function maybePostNewspaperComplaint() {
     const prevNextAt = character.next_moment_at;
     await momentPostGenerator(character, { forcedTopic: topic });
     markComplaintDone(newspaper.id);
-    // generateMomentPost 成功后会把 next_moment_at 推到 2~8 小时后；原值仍在未来则恢复
+    // generateMomentPost 成功后会重排 next_moment_at；原值仍在未来则恢复
     if (prevNextAt && db.prepare(`SELECT datetime(?) > datetime('now') AS is_future`).get(prevNextAt)?.is_future) {
       db.prepare('UPDATE characters SET next_moment_at = ? WHERE id = ?').run(prevNextAt, character.id);
     }
@@ -112,6 +112,15 @@ async function tick() {
   try {
     // 0. 报纸吐槽帖：《小镇早知道》当期主角的额外发圈（优先于常规发帖，处理过就结束本 tick）
     if (await maybePostNewspaperComplaint()) return;
+
+    // 具体时间档先初始化首帖时间，避免 NULL 候选绕过首次等待直接发帖。
+    if (!isDefaultMomentTiming(config.features)) {
+      const unscheduled = db.prepare('SELECT id FROM characters WHERE moments_disabled = 0 AND next_moment_at IS NULL').all();
+      for (const character of unscheduled) {
+        const nextAt = new Date(Date.now() + getMomentDelay(config.features, { initial: true })).toISOString();
+        db.prepare('UPDATE characters SET next_moment_at = ? WHERE id = ?').run(toSQLiteDate(nextAt), character.id);
+      }
+    }
 
     // 找出下一个需要发帖的角色（next_moment_at <= now 或 NULL）
     // 跳过有活跃奇遇事件的角色
@@ -179,10 +188,10 @@ async function tick() {
         console.log(`[momentScheduler] No pending posts. Next: ${nextUp.display_name} at ${nextUp.next_moment_at}`);
       } else {
         console.log('[momentScheduler] No active characters or all have NULL next_moment_at — initializing...');
-        // 首次启动：给所有角色设定首次发帖时间（基准 1~4 小时，按 momentFreq 缩放）
+        // 首次启动：默认 1~4 小时，具体时间档按所选间隔浮动 ±20%。
         const chars = db.prepare('SELECT id FROM characters WHERE moments_disabled = 0 AND next_moment_at IS NULL').all();
         for (const c of chars) {
-          const delay = (1 * 3600_000 + Math.random() * 3 * 3600_000) / Math.max(0.01, momentFreq);
+          const delay = getMomentDelay(config.features, { initial: true });
           const nextAt = new Date(Date.now() + delay).toISOString();
           db.prepare('UPDATE characters SET next_moment_at = ? WHERE id = ?')
             .run(toSQLiteDate(nextAt), c.id);

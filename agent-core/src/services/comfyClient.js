@@ -5,6 +5,7 @@ import { config } from '../config.js';
 
 const getBase = () => config.comfyui.url.replace(/\/+$/, '');
 const getWsBase = () => config.comfyui.url.replace(/^http/, 'ws');
+const EXECUTION_TIMEOUT_MS = 60 * 60 * 1000; // 1 小时，WebSocket 与轮询兜底共用
 
 // ── 节点定义缓存（从 ComfyUI /object_info 获取，~2.8MB，常驻内存）──
 
@@ -499,7 +500,7 @@ function wsProgressAndDownload(clientId, promptId, onProgress) {
   const ws = new WebSocket(wsUrl, wsOpts);
 
   return new Promise((resolve, reject) => {
-    const timeoutMs = 600_000; // 10 分钟
+    const timeoutMs = EXECUTION_TIMEOUT_MS;
     let settled = false;
     let done = false;
     let started = false;
@@ -673,7 +674,7 @@ async function downloadImagesFromHistory(promptId, retries = 3) {
 
 // ── 轮询兜底（WebSocket 不可用时）──
 
-async function pollAndDownload(promptId, onProgress, maxRetries = 600, interval = 1000) {
+async function pollAndDownload(promptId, onProgress, maxRetries = EXECUTION_TIMEOUT_MS / 1000, interval = 1000) {
   console.warn('[comfyClient] Using polling fallback — progress will be rough');
 
   for (let i = 0; i < maxRetries; i++) {
@@ -721,7 +722,7 @@ async function pollAndDownload(promptId, onProgress, maxRetries = 600, interval 
     await sleep(interval);
   }
 
-  throw new Error(`ComfyUI timeout (${maxRetries}s) for prompt ${promptId}`);
+  throw new Error(`ComfyUI timeout (${maxRetries * interval / 1000}s) for prompt ${promptId}`);
 }
 
 export async function downloadImageAsBase64(filename, subfolder = '', type = 'output') {
