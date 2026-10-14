@@ -1019,6 +1019,9 @@ function initSchema(db) {
   //   与可插拔迁移 002 同口径、幂等；写入路径硬依赖这四列，不依赖 registry 是否跑成）
   migrateMemoryEvidenceColumns(db);
 
+  // 迁移: 灵魂系统 —— soul_states 表 + memory_fragments.soul_snapshot 列（见 services/soulEngine.js）
+  migrateSoulSchema(db);
+
   // 迁移: 记忆整理记账表（防同一批候选被反复送进 LLM）+ 整理/审计表维护索引
   migrateMemoryConsolidationMarks(db);
 
@@ -3419,6 +3422,13 @@ function migrateMediaSchema(db) {
     }
     // payload_json：周刊/海报的结构化正文（feed 形态不用，内容仍在 content）
     const pCols = db.prepare(`PRAGMA table_info(media_posts)`).all();
+    if (!pCols.find(c => c.name === 'published_seq')) {
+      // 0 保留旧帖可见性及原 id 已读游标；新生成的草稿显式写 NULL，图齐后再发布。
+      db.exec(`ALTER TABLE media_posts ADD COLUMN published_seq INTEGER DEFAULT 0`);
+    }
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_media_posts_publication
+      ON media_posts(COALESCE(NULLIF(published_seq, 0), id) DESC)
+      WHERE published_seq IS NOT NULL`);
     if (!pCols.find(c => c.name === 'payload_json')) {
       db.exec(`ALTER TABLE media_posts ADD COLUMN payload_json TEXT`);
       console.log('[db] Added media_posts.payload_json column');
@@ -4256,6 +4266,41 @@ function migrateMemoryEvidenceColumns(db) {
     if (added.length) console.log(`[db] memory_fragments 兜底补齐证据列: ${added.join(' / ')}`);
   } catch (err) {
     console.error('[db] migrateMemoryEvidenceColumns error:', err.message);
+  }
+}
+
+// 迁移: 灵魂系统（角色的自我认知状态层，见 services/soulEngine.js）。
+//   - soul_states：四维能量槽按 character_id 键控落库，跨会话/跨重启延续
+//   - memory_fragments.soul_snapshot：记忆落库那一刻的四维 energy 快照，供召回时反向共鸣
+// 默认开启（config.features.soul）；移除设置页开关后，一次性将旧安装的关闭值迁移为开启。
+// 设计依据 .pai/plan/memory/20261010_灵魂系统最小迁移到邻舍.md。
+export function migrateSoulSchema(db) {
+  try {
+    db.transaction(() => {
+      const migrated = db.prepare("SELECT 1 FROM system_settings WHERE setting_key = 'soul_default_enabled_migrated'").get();
+      if (migrated) return;
+      db.prepare("INSERT OR REPLACE INTO system_settings (setting_key, setting_value, updated_at) VALUES ('feature_soul', 'true', CURRENT_TIMESTAMP)").run();
+      db.prepare("INSERT INTO system_settings (setting_key, setting_value) VALUES ('soul_default_enabled_migrated', '1')").run();
+    })();
+
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS soul_states (
+        character_id TEXT PRIMARY KEY,
+        recall_depth REAL NOT NULL DEFAULT 0,
+        impression_depth REAL NOT NULL DEFAULT 0,
+        expression_desire REAL NOT NULL DEFAULT 0,
+        creativity REAL NOT NULL DEFAULT 0,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `).run();
+
+    const columns = new Set(db.prepare(`PRAGMA table_info(memory_fragments)`).all().map(c => c.name));
+    if (!columns.has('soul_snapshot')) {
+      db.prepare(`ALTER TABLE memory_fragments ADD COLUMN soul_snapshot TEXT NOT NULL DEFAULT ''`).run();
+    }
+  } catch (err) {
+    console.error('[db] migrateSoulSchema error:', err.message);
+    throw err;
   }
 }
 

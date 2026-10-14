@@ -31,7 +31,7 @@ const { getDb, closeDb } = await import('../src/db/index.js');
 const { setSetting } = await import('../src/db/settings.js');
 const { config } = await import('../src/config.js');
 const { addClient, removeClient } = await import('../src/services/unifiedStreamBus.js');
-const { normalizePortalDraft, createOutlet, generateMediaBatch, maybeAutoGenerate } = await import('../src/services/mediaService.js');
+const { normalizePortalDraft, createOutlet, generateMediaBatch, maybeAutoGenerate, listPosts, fillPortalImages } = await import('../src/services/mediaService.js');
 
 after(async () => {
   // 出刊后的无配图后台回调结束后再关闭内存数据库。
@@ -141,4 +141,33 @@ test('manual and automatic portal publishing use local numbering, notify the UI,
     config.features.mediaAutoPerNight = 0;
     removeClient(client);
   }
+});
+
+test('generated portal text stays private until all four images have been saved', async () => {
+  const db = getDb();
+  const outlet = createOutlet({ name: '图文完成后发布回归', prompt: 'test', layout: 'portal' });
+  const raw = draft(4);
+  raw.sections.forEach(s => { s.image_prompt = 'a completed illustration'; });
+  responses.push(raw);
+  const events = [];
+  const client = { write: value => events.push(value) };
+  addClient(client);
+  try {
+    const result = await generateMediaBatch({ outletId: outlet.id });
+    assert.equal(listPosts({ outletId: outlet.id }).total, 0);
+    assert.equal(events.filter(e => e.startsWith('event: media_new_posts\n')).length, 0);
+    // 本地口径（与上游「设计级分歧」，见文件头）：generateMediaBatch 门户分支返回**完整 post 行**（非 {postId}）
+    const payload = JSON.parse(db.prepare('SELECT payload_json FROM media_posts WHERE id = ?').pluck().get(result.id));
+    payload.sections.forEach((s, i) => { s.image = `/section-${i}.png`; });
+    // Emulate images durably saved before the completion/recovery callback, without external generation.
+    db.prepare('UPDATE media_posts SET payload_json = ? WHERE id = ?').run(JSON.stringify(payload), result.id);
+    await fillPortalImages(6);
+    const published = listPosts({ outletId: outlet.id });
+    assert.equal(published.total, 1);
+    assert.equal(published.posts[0].image, '/section-0.png');
+    assert.ok(published.posts[0].payload.sections.every(s => s.image));
+    assert.equal(events.filter(e => e.startsWith('event: media_new_posts\n')).length, 1);
+    await fillPortalImages(6);
+    assert.equal(events.filter(e => e.startsWith('event: media_new_posts\n')).length, 1);
+  } finally { removeClient(client); }
 });

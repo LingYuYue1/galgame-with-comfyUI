@@ -11,7 +11,7 @@ import { Router } from 'express';
 import {
   listOutlets, getOutlet, createOutlet, updateOutlet, deleteOutlet, OUTLET_LAYOUTS,
   listBoards, createBoard, updateBoard, deleteBoard,
-  listPosts, generateMediaBatch, fillPendingImages, fillPortalImages, getAutoState,
+  listPosts, getMediaUnread, generateMediaBatch, fillPendingImages, fillPortalImages, getAutoState,
   cleanupOrphanMediaImages, resetStaleMediaGenerating,
   regeneratePostImage, deletePost,
   deletePosts, regeneratePostImages, MAX_BATCH_POSTS,
@@ -22,6 +22,8 @@ import {
 import { config, updateMediaAutoPerNight } from '../config.js';
 // T5/T7：媒体操作日志（查询删除/创建痕迹 —— 墓碑是给补种逻辑看的，此处流水是给人看的）
 import { listMediaOps, countMediaOps, MEDIA_OP_TYPES, MEDIA_TARGET_TYPES } from '../services/mediaOpLog.js';
+// 上游 v3.8.1（185de14 报刊生成助手）：媒体表单草稿生成
+import { generateMediaOutletDraft } from '../services/mediaOutletDesigner.js';
 
 const router = Router();
 
@@ -33,6 +35,13 @@ function fail(res, err) {
 }
 
 // ── 媒体 ──
+
+// 仅生成表单草稿，不创建媒体、不触发出刊或生图。
+router.post('/outlets/draft', async (req, res) => {
+  try {
+    res.json({ draft: await generateMediaOutletDraft(req.body || {}) });
+  } catch (err) { fail(res, err); }
+});
 
 // GET /api/media/outlets — 全部媒体（含板块数/帖子数）
 router.get('/outlets', (req, res) => {
@@ -132,6 +141,13 @@ router.delete('/boards/:boardId', (req, res) => {
 });
 
 // ── 帖子 ──
+
+// 上游 v3.8.1：媒体未读数（社交 / 报刊）
+router.get('/unread-count', (req, res) => {
+  try {
+    res.json(getMediaUnread({ digital: req.query.digital, social: req.query.social }));
+  } catch (err) { fail(res, err); }
+});
 
 // GET /api/media/posts?outlet=&board=&category=&limit=&offset=
 router.get('/posts', (req, res) => {

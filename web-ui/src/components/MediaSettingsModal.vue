@@ -71,6 +71,32 @@
           <div v-if="!form" class="ms-form-empty">左侧选一个媒体，或点「新建」</div>
 
           <template v-else>
+            <!-- 栏目生成助手（吸收自上游 v3.8.1）：仅新建时出现，从一个想法出发设计媒体 -->
+            <section v-if="isNew" class="ms-assistant" aria-labelledby="media-assistant-title">
+              <div class="ms-label-row">
+                <h4 id="media-assistant-title">✦ 栏目生成助手</h4>
+                <span>从一个想法开始</span>
+              </div>
+              <p class="ms-hint">描述主题、读者和语气，助手会结合当前世界观设计名称、介绍、编辑风格和四个板块。</p>
+              <linshe-input ref="assistantInput" v-model="assistantBrief" type="textarea" :rows="3" maxlength="2000" aria-label="栏目想法" placeholder="例如：一家面向小镇居民的深夜电台，温柔又有点幽默，聊生活烦恼、街坊故事和匿名来信。" :disabled="designing" />
+              <linshe-select v-model="assistantLayout" :options="layoutOptions" aria-label="生成的媒体类型" :disabled="designing" />
+              <div class="ms-assistant-actions">
+                <linshe-button size="sm" :loading="designing" :disabled="!assistantBrief.trim()" @click="generateDraft">{{ designing ? '正在构思…' : assistantDraft ? '重新生成草稿' : '生成栏目草稿' }}</linshe-button>
+                <span v-if="designing" class="ms-hint" role="status">正在设计，通常需要几十秒…</span>
+              </div>
+              <p v-if="assistantError" class="ms-assistant-error" role="alert">{{ assistantError }}</p>
+              <Transition name="ms-fade" mode="out-in">
+                <div v-if="assistantDraft" :key="draftVersion" class="ms-draft-preview">
+                  <strong>{{ assistantDraft.icon }} {{ assistantDraft.name }}</strong>
+                  <p>{{ assistantDraft.tagline }}</p>
+                  <ul><li v-for="b in assistantDraft.boards" :key="b.name"><strong>{{ b.name }}</strong> · {{ b.desc }}</li></ul>
+                  <details><summary>查看编辑风格</summary><p class="ms-draft-prompt">{{ assistantDraft.prompt }}</p></details>
+                  <linshe-button size="sm" :disabled="designing" @click="applyDraft">填入新建表单</linshe-button>
+                  <span class="ms-hint">将替换下方表单与板块，填入后可以继续修改。</span>
+                </div>
+              </Transition>
+            </section>
+
             <div class="ms-row">
               <label class="ms-label">名称</label>
               <linshe-input v-model="form.name" class="fi" maxlength="24" placeholder="如「网络热门」" />
@@ -162,7 +188,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, inject } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, inject } from 'vue'
 import * as api from '../api/index.js'
 import LinsheButton from './ui/LinsheButton.vue'
 import LinsheInput from './ui/LinsheInput.vue'
@@ -196,6 +222,61 @@ const isNew = ref(false)
 const saving = ref(false)
 const newBoardName = ref('')
 const form = ref(null)
+const assistantInput = ref(null)
+const assistantBrief = ref('')
+const assistantLayout = ref('portal')
+const assistantDraft = ref(null)
+const assistantError = ref('')
+const designing = ref(false)
+const draftVersion = ref(0)
+let designController = null
+let localBoardId = 0
+
+function cancelDesign() {
+  designController?.abort()
+  designController = null
+  designing.value = false
+}
+onBeforeUnmount(cancelDesign)
+
+function resetAssistant() {
+  cancelDesign()
+  assistantBrief.value = ''
+  assistantDraft.value = null
+  assistantError.value = ''
+}
+
+function focusNewForm(el) {
+  if (!isNew.value) return
+  el.scrollTop = 0
+  assistantInput.value?.focus()
+}
+
+async function generateDraft() {
+  if (designing.value || saving.value || !assistantBrief.value.trim()) return
+  const controller = new AbortController()
+  designController = controller
+  designing.value = true
+  assistantError.value = ''
+  try {
+    const result = await api.generateMediaOutletDraft({ brief: assistantBrief.value.trim(), layout: assistantLayout.value }, controller.signal)
+    if (controller !== designController || !isNew.value || !props.modelValue) return
+    assistantDraft.value = result.draft
+    draftVersion.value++
+  } catch (err) {
+    if (controller === designController && !controller.signal.aborted) assistantError.value = err?.message || '生成失败，请重试'
+  } finally {
+    if (controller === designController) { designing.value = false; designController = null }
+  }
+}
+
+function applyDraft() {
+  if (!assistantDraft.value || !isNew.value || saving.value || designing.value) return
+  const { boards: draftBoards, ...fields } = assistantDraft.value
+  form.value = { ...form.value, ...fields }
+  boards.value = draftBoards.map(b => ({ ...b, id: `draft-${++localBoardId}` }))
+  toastFn?.('草稿已填入，可继续修改；点击「创建媒体」后保存', 'success')
+}
 
 /**
  * 可选的媒体形态。
@@ -357,6 +438,9 @@ async function selectOutlet(o) {
 }
 
 function startCreate() {
+  if (saving.value) return
+  resetAssistant()
+  assistantLayout.value = 'portal'
   editingId.value = null
   isNew.value = true
   boards.value = []
@@ -390,9 +474,11 @@ async function save() {
       layout: form.value.layout || 'feed',
     }
     if (isNew.value) {
-      const created = await api.createMediaOutlet(payload)
+      cancelDesign()
+      const created = await api.createMediaOutlet({ ...payload, boards: boards.value.map(({ name, desc }) => ({ name, desc: desc || '' })) })
       editingId.value = created.id
       isNew.value = false
+      await reloadBoards()
       toastFn?.('媒体已创建', 'success')
     } else {
       await api.updateMediaOutlet(editingId.value, payload)
@@ -437,7 +523,14 @@ async function refreshList() {
 // ── 板块 ──
 async function addBoard() {
   const name = newBoardName.value.trim()
-  if (!name || !editingId.value) return
+  if (!name || saving.value) return
+  if (isNew.value) {
+    if (boards.value.length >= 12 || boards.value.some(b => b.name === name)) return
+    boards.value.push({ id: `draft-${++localBoardId}`, name, desc: '' })
+    newBoardName.value = ''
+    return
+  }
+  if (!editingId.value) return
   try {
     await api.createMediaBoard(editingId.value, { name })
     newBoardName.value = ''
@@ -452,6 +545,7 @@ async function addBoard() {
 async function renameBoard(b, name) {
   const nm = String(name || '').trim()
   if (!nm || nm === b.name) return
+  if (isNew.value) { b.name = nm; return }
   try {
     await api.updateMediaBoard(b.id, { name: nm })
     await reloadBoards()
@@ -462,6 +556,7 @@ async function renameBoard(b, name) {
 }
 
 async function removeBoard(b) {
+  if (isNew.value) { boards.value = boards.value.filter(board => board.id !== b.id); return }
   const ok = await confirmRemoval(
     `删除板块「${b.name}」？\n该板块下的帖子不会被删除，只是变成未分类。`
   )
@@ -616,6 +711,50 @@ async function removeBoard(b) {
 .ms-board-add .fi { max-width: 180px; }
 .ms-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
 .ms-new-hint { margin: 0; font-size: 11px; color: var(--text-secondary); }
+
+/* ── 栏目生成助手（吸收自上游 v3.8.1）── */
+.ms-label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.ms-label-row h4 {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.ms-label-row > span {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+.ms-hint {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  line-height: 1.8;
+}
+.ms-assistant { display: flex; flex-direction: column; gap: 12px; padding-bottom: 22px; border-bottom: 1px solid var(--border); }
+.ms-assistant-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.ms-assistant-error { color: var(--danger); font-size: var(--fs-sm); margin: 0; }
+.ms-draft-preview { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 16px; background: var(--bg-sunken); border-radius: var(--radius-md); overflow-wrap: anywhere; font-size: var(--fs-sm); line-height: 1.7; }
+.ms-draft-preview p { margin: 0; }
+.ms-draft-preview ul { margin: 0; padding-left: 20px; }
+.ms-draft-preview details { width: 100%; }
+.ms-draft-preview summary { cursor: pointer; color: var(--accent-hover); }
+.ms-draft-prompt { white-space: pre-wrap; max-height: 260px; overflow-y: auto; }
+.ms-fade-enter-active,
+.ms-fade-leave-active {
+  transition:
+    opacity 0.3s ease,
+    transform 0.3s ease;
+}
+.ms-fade-enter-from,
+.ms-fade-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
+}
 
 @media (max-width: 767px) {
   .ms-layout { flex-direction: column; }

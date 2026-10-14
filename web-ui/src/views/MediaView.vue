@@ -34,6 +34,7 @@
           @click="onCategoryChange(c.key)"
         >
           <span class="cat-icon">{{ c.icon }}</span>{{ c.label }}
+          <span v-if="categoryUnread[c.key]" class="cat-unread" aria-label="有未读更新"></span>
           <span class="cat-num">{{ categoryCount(c.key) }}</span>
         </button>
       </div>
@@ -661,6 +662,7 @@ import { bustUrlIfOverwritten } from '../utils/imageUrlRefresh.js'
 import { ENV_DIM_ORDER, envDimLabel } from '../utils/galleryEnvelopeLabels.js'
 import { onEvent } from '../stores/unifiedStream.js'
 import { useNewspaperStore } from '../stores/newspaper.js'
+import { useMediaStore } from '../stores/media.js'
 
 const isMobile = inject('isMobile')
 const toggleMobileSidebar = inject('toggleMobileSidebar')
@@ -676,6 +678,15 @@ const newspaperUnread = computed(() => newspaperStore.unread)
 function onNewspaperRead(paper) {
   try { newspaperStore.markRead(paper) } catch { /* 失败不阻塞，轮询会兜底 */ }
 }
+
+// ── 媒体未读（承接上游 v3.8.1 的 Pinia 机制）──
+// store 只跟踪 digital / social 两档的新帖计数（与 NavBar 角标同源）；
+// SSE 连接与后台刷新由 NavBar 负责（它最先挂载），这里只负责「看过即清」。
+const mediaStore = useMediaStore()
+const categoryUnread = computed(() => ({
+  digital: mediaStore.categories.digital.count > 0,
+  social: mediaStore.categories.social.count > 0,
+}))
 
 const PAGE_SIZE = 24
 
@@ -1298,6 +1309,14 @@ async function loadPage(offset = 0) {
     if (offset === 0) posts.value = d.posts || []
     else posts.value.push(...(d.posts || []))
     total.value = d.total || 0
+    // 未读闭环（承接上游 v3.8.1 的 Pinia 未读机制）：浏览「全部」的数字报刊 /
+    // 社交平台首页时，把该分类的已读游标推到已加载到的最新一篇，使 NavBar 角标可清零。
+    // 口径与上游一致 —— 只认 digital / social 两个 feed 分类；带 outlet/board 过滤时不误清。
+    if (offset === 0 && !activeOutlet.value && !activeBoard.value
+        && (activeCategory.value === 'digital' || activeCategory.value === 'social')) {
+      const latestId = Math.max(0, ...posts.value.map(p => p.id))
+      if (latestId > 0) mediaStore.markSeen(activeCategory.value, latestId)
+    }
   } catch (err) {
     console.error('[media] 读取帖子失败:', err)
     if (seq !== loadSeq) return
@@ -1661,6 +1680,12 @@ onUnmounted(() => {
   background: var(--bg-tertiary);
 }
 .cat-tab.active .cat-num { background: rgba(var(--accent-rgb), 0.16); opacity: 1; }
+/* 未读点：与 NavBar 角标同源（store 只跟踪 digital / social 两档） */
+.cat-unread {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--danger, #e05a5a);
+  flex: 0 0 auto;
+}
 
 /* ── 传统报纸：日报入口卡 ── */
 .np-entry-wrap { padding: 16px 20px; }

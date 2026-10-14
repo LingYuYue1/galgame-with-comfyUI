@@ -282,7 +282,7 @@ const issueNo = computed(() => String(data.value?.issueNo || 1).padStart(2, '0')
   transform: rotate(-1deg);
 }
 .po-panel:nth-child(even) .po-panel-img { transform: rotate(1deg); }
-.po-panel-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.po-panel-img img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .po-panel-label {
   font-size: 10.5px; font-weight: 700;
   padding: 3px 8px; border-radius: 999px;

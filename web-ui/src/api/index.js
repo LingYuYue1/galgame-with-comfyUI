@@ -2355,6 +2355,10 @@ export function createMediaOutlet(body) {
   return request('/media/outlets', { method: 'POST', body })
 }
 
+export function generateMediaOutletDraft(body, signal) {
+  return request('/media/outlets/draft', { method: 'POST', body, signal })
+}
+
 export function updateMediaOutlet(id, body) {
   return request(`/media/outlets/${id}`, { method: 'PUT', body })
 }
@@ -2378,6 +2382,12 @@ export function updateMediaBoard(boardId, body) {
 
 export function deleteMediaBoard(boardId) {
   return request(`/media/boards/${boardId}`, { method: 'DELETE' })
+}
+
+/** 轻量未读计数，沿用媒体页的设备级已读游标。 */
+export function getMediaUnread(seen = {}) {
+  const query = new URLSearchParams({ digital: seen.digital || 0, social: seen.social || 0 })
+  return request(`/media/unread-count?${query}`)
 }
 
 /** 帖子分页（不传 outlet 则跨媒体） */
