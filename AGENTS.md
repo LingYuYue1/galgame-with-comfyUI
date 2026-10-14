@@ -158,3 +158,16 @@ web-ui 中所有弹窗统一使用组件 `web-ui/src/components/ui/LinsheModal.v
 1. 数据源两张表：`character_outfits`（角色专属形态/装甲/衣服，每角色同时只启用一套，启用互斥由 `outfitService` 保证；详情卡 UI 入口暂注释隐藏在 `CharacterDetailModal.vue`，搜「暂时隐藏」）、`global_outfits`（通用限时服饰如女仆装 tag 组合，可多套叠加；管理方式未定，`condition_json` 预留注入条件，当前 `enabled` 即生效）
 2. 查询生效外观只走 `outfitService.getActiveOutfits(characterId)`；注入文本格式与着装优先级说明（两者都有 / 只有限时 / 只有专属三种）只改 `buildOutfitInjectionBlocks`，不要在调用点拼
 3. 修改拼接口径（正则、连接符、注入格式）只改 `characterPersona.js`，并同步维护 `agent-core/test/characterPersona.test.js`（含无外观时与旧口径逐字节一致的回归断言）
+
+## 本地二创改动记录（强制）
+
+本仓库是个人自用的二创分支：基于上游 v3.7.0 并入朋友的 Pr/1~Pr/6 堆栈，仅供本人使用，不对外二次传播。`upstream` = 原作者（icecranberry），`origin` = 工作远端（LingYuYue1）。**所有本地改动必须登记到 `docs/二创更新日志.md`**：
+
+1. 每完成一笔改动，在日志「改动记录」顶部新增条目：日期 / 提交 / 分支 / 推送状态 / 改动说明 / **逐文件代码位置** / 验证情况 / 可PR性
+2. 代码位置写到「文件路径 + 函数/组件/符号 + 时点行号」粒度；涉及数据库迁移的必须写明迁移函数、新增列与默认值
+3. 可PR性逐笔评估：✅可PR（通用机制/修复，diff 干净）／🔶需剥离后PR（机制可复用但含本地内容）／❌仅本地（个人口味、露骨内容、本地定制），结论同步到日志「可 PR 候选清单」
+4. 向上游提 PR 时：从 `upstream/main` 另起分支、只挑干净提交（cherry-pick），不整支推送，不混入本地定制与朋友堆栈的未合并内容
+5. 提交信息写全「摘要 + 要点列表」，与日志条目一一对应
+6. 上游同步策略：主干固定为「v3.7.0 + Pr/1~Pr/6 基线」，上游新版本**不整体替换基线**（全量 v3.8.x 与 6 个 PR 不兼容）；上游更新以**兼容合并**方式并入本版本，冲突取舍以本项目需求为准，合并结果登记到日志
+7. **每完成一项修复/任务后的汇报，必须完整描述「下一个待修项」**（编号 / 位置 / 问题 / 影响 / 修复方向 / 验收要点）——用户常以手机远程查看、看不到文档，需要据此判断下一步；描述写在对话回复里即可，不需额外改文档
+8. **「重启邻舍」= 双服务检查**（agent-core 3099 + vector-service 8765）：重启/拉起后端时**必须同步探活向量服务**，缺则用项目捆绑 Python 拉起——`cd vector-service && ../runtime/python/python.exe -m uvicorn server:app --host 0.0.0.0 --port 8765`（冷启动较慢，chromadb 懒加载，探活需等 30-60 秒以上）；向量服务停掉 = **角色记忆检索静默失效**（用户 2026-10-13 亲嘱「别忘了项目自带的向量服务，不然角色记忆都是乱的」）；验证：`curl --noproxy '*' localhost:8765/health` + 后端 `GET /api/health` 的 `vector_service` 字段
