@@ -87,6 +87,7 @@ export const SETTING_TO_CONFIG = {
   feature_events:                    { obj: 'features', key: 'events',               type: 'bool' },
   feature_eventFreq:                 { obj: 'features', key: 'eventFreq',          type: 'float' },
   feature_momentFreq:                { obj: 'features', key: 'momentFreq',         type: 'float' },
+  feature_momentFreqMode:            { obj: 'features', key: 'momentFreqMode',     type: 'string' },
   // 传媒内容页自动抓帖的间隔（分钟）；0 = 关闭自动、只手动刷新
   feature_mediaAutoMinutes:          { obj: 'features', key: 'mediaAutoMinutes',    type: 'int' },
   feature_disturbMode:              { obj: 'features', key: 'disturbMode',         type: 'bool' },

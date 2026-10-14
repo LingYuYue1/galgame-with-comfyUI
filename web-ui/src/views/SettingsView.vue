@@ -1336,28 +1336,34 @@ const chatFreqLabel = computed(() => freqSlider.value <= 0
   ? '关闭' : frequencyTimeLabel(Math.round(8 + (1 - freqSlider.value) / 0.9 * 112)))
 const eventFreqLabel = computed(() => eventFreqSlider.value <= 0
   ? '关闭' : frequencyTimeLabel(Math.round(30 / eventFreqSlider.value)))
-// 朋友圈发帖频率档位：value 是 momentFreq（周期 = 基准 2~8 小时 / value）。
-// 用档位而不是连续滑块：周期跨度从 5 分钟到 32 小时，连续拖动既拖不准也说不清。
+// 具体时间档以 2 小时 / value 为中心浮动 ±20%；默认档保留原有节奏。
 // 时间档从慢到快排列，最右侧额外提供沿用原有频率的「默认」档。
 const MOMENT_FREQ_STEPS = [
   { value: 0,    label: '关闭',    hint: '关闭自动发帖（仍可手动发）。' },
-  { value: 0.25, label: '8 小时',  hint: '每个角色约 8~32 小时一条。' },
-  { value: 0.5,  label: '4 小时',  hint: '每个角色约 4~16 小时一条。' },
-  { value: 1,    label: '2 小时',  hint: '每个角色约 2~8 小时一条。' },
-  { value: 2,    label: '1 小时',  hint: '每个角色约 1~4 小时一条。' },
-  { value: 4,    label: '30 分钟', hint: '每个角色约 30 分钟~2 小时一条。' },
-  { value: 8,    label: '15 分钟', hint: '每个角色约 15~60 分钟一条。' },
-  { value: 24,   label: '5 分钟',  hint: '每个角色约 5~20 分钟一条，LLM 与生图消耗很高。' },
-  { value: 1,    label: '默认',    hint: '沿用原有频率：每个角色约 2~8 小时一条，首次等待 1~4 小时。' },
+  { value: 1 / 12, label: '24 小时', hint: '每个角色以 24 小时为中心，随机间隔 19.2~28.8 小时。' },
+  { value: 1 / 8, label: '16 小时', hint: '每个角色以 16 小时为中心，随机间隔 12.8~19.2 小时。' },
+  { value: 1 / 6, label: '12 小时', hint: '每个角色以 12 小时为中心，随机间隔 9.6~14.4 小时。' },
+  { value: 0.25, label: '8 小时',  hint: '每个角色以 8 小时为中心，随机间隔 6.4~9.6 小时。' },
+  { value: 0.5,  label: '4 小时',  hint: '每个角色以 4 小时为中心，随机间隔 3.2~4.8 小时。' },
+  { value: 1,    label: '2 小时',  hint: '每个角色以 2 小时为中心，随机间隔 1.6~2.4 小时。' },
+  { value: 2,    label: '1 小时',  hint: '每个角色以 1 小时为中心，随机间隔 48~72 分钟。' },
+  { value: 4,    label: '30 分钟', hint: '每个角色以 30 分钟为中心，随机间隔 24~36 分钟。' },
+  { value: 8,    label: '15 分钟', hint: '每个角色以 15 分钟为中心，随机间隔 12~18 分钟。' },
+  { value: 24,   label: '5 分钟',  hint: '每个角色以 5 分钟为中心，随机间隔 4~6 分钟，LLM 与生图消耗很高。' },
+  { value: 1, mode: 'default', label: '默认', hint: '沿用原有频率：每个角色约 2~8 小时一条，首次等待 1~4 小时。' },
 ]
 const DEFAULT_MOMENT_STEP = MOMENT_FREQ_STEPS.length - 1
 const momentFreqStepIdx = ref(DEFAULT_MOMENT_STEP)
-const momentFreqHint = computed(() => MOMENT_FREQ_STEPS[momentFreqStepIdx.value]?.hint || '')
+const momentFreqHint = computed(() => {
+  const step = MOMENT_FREQ_STEPS[momentFreqStepIdx.value]
+  if (!step) return ''
+  return step.hint + (step.value > 0 && step.mode !== 'default' ? ' 首次等待相同；调度扫描与生成排队可能延后发帖。' : '')
+})
 const momentFreqLabel = computed(() => MOMENT_FREQ_STEPS[momentFreqStepIdx.value]?.label || '')
 /** 库里存的 momentFreq → 最接近的档位下标（老值可能是任意数） */
-function momentStepFromValue(v) {
+function momentStepFromValue(v, mode) {
   if (v == null) return DEFAULT_MOMENT_STEP
-  if (Number(v) === 1) return DEFAULT_MOMENT_STEP
+  if (Number(v) === 1 && mode !== 'interval') return DEFAULT_MOMENT_STEP
   let best = 0
   let bestDiff = Infinity
   MOMENT_FREQ_STEPS.forEach((s, i) => {
@@ -1868,7 +1874,7 @@ async function switchProfile(id) {
         backgroundConcurrency.value = cfg.features.backgroundLLMMaxConcurrency ?? 3
         freqSlider.value = cfg.features.proactiveChatFreq ?? 0.5
         eventFreqSlider.value = cfg.features.eventFreq ?? 1
-        momentFreqStepIdx.value = momentStepFromValue(cfg.features.momentFreq)
+        momentFreqStepIdx.value = momentStepFromValue(cfg.features.momentFreq, cfg.features.momentFreqMode)
       }
     }
   } catch (err) {
@@ -1986,7 +1992,7 @@ onMounted(async () => {
     Object.assign(features, data.features)
     freqSlider.value = features.proactiveChatFreq ?? 0.5
     eventFreqSlider.value = features.eventFreq ?? 1
-    momentFreqStepIdx.value = momentStepFromValue(features.momentFreq)
+    momentFreqStepIdx.value = momentStepFromValue(features.momentFreq, features.momentFreqMode)
     backgroundConcurrency.value = features.backgroundLLMMaxConcurrency ?? 3
     // 防打扰模式
     if (data.disturb) {
@@ -2354,8 +2360,9 @@ async function onMomentFreqChange() {
   if (!step) return
   const v = step.value
   features.momentFreq = v
+  features.momentFreqMode = step.mode || 'interval'
   try {
-    await updateMomentFreq(v)
+    await updateMomentFreq(v, features.momentFreqMode)
     toastFn?.(v <= 0 ? '已关闭自动发帖' : `朋友圈频率已设为「${step.label}」`, 'success')
   } catch (err) {
     toastFn?.('保存失败: ' + (err?.message || '未知错误'), 'error')

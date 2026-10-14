@@ -655,9 +655,9 @@ export async function updateEventFreq(value) {
   await request(`/config/event-freq`, { method: 'PUT', body: { value } })
 }
 
-/** 更新朋友圈发帖频率（0~3，1=默认 2~8 小时一条，0=关闭自动发帖） */
-export async function updateMomentFreq(value) {
-  await request(`/config/moment-freq`, { method: 'PUT', body: { value } })
+/** 更新朋友圈频率（0~24）；mode 区分「默认」与具体时间档。 */
+export async function updateMomentFreq(value, mode) {
+  await request(`/config/moment-freq`, { method: 'PUT', body: { value, mode } })
 }
 
 /** 更新日程刷新周期（天，1~3） */
