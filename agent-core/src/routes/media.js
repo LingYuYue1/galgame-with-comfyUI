@@ -24,6 +24,7 @@ import { config, updateMediaAutoPerNight } from '../config.js';
 import { listMediaOps, countMediaOps, MEDIA_OP_TYPES, MEDIA_TARGET_TYPES } from '../services/mediaOpLog.js';
 // 上游 v3.8.1（185de14 报刊生成助手）：媒体表单草稿生成
 import { generateMediaOutletDraft } from '../services/mediaOutletDesigner.js';
+import { mediaAvatarLibrary } from '../services/mediaAvatarLibrary.js';
 
 const router = Router();
 
@@ -35,6 +36,19 @@ function fail(res, err) {
 }
 
 // ── 媒体 ──
+
+router.get('/avatars', (req, res) => {
+  try { res.json(mediaAvatarLibrary.list()); } catch (err) { fail(res, err); }
+});
+router.post('/avatars/generate', (req, res) => {
+  try { res.status(202).json(mediaAvatarLibrary.start(req.body?.direction, req.body?.artist, req.body?.count)); } catch (err) { fail(res, err); }
+});
+router.delete('/avatars/:id', (req, res) => {
+  try { res.json(mediaAvatarLibrary.remove(Number(req.params.id))); } catch (err) { fail(res, err); }
+});
+router.post('/avatars/:id/regenerate', (req, res) => {
+  try { res.status(202).json(mediaAvatarLibrary.regenerate(Number(req.params.id), req.body?.direction, req.body?.artist)); } catch (err) { fail(res, err); }
+});
 
 // 仅生成表单草稿，不创建媒体、不触发出刊或生图。
 router.post('/outlets/draft', async (req, res) => {
@@ -245,7 +259,7 @@ router.post('/refresh', (req, res) => {
     const category = MEDIA_CATEGORIES.includes(raw) ? raw : null;
     if (outletId && !getOutlet(outletId)) return res.status(404).json({ error: '媒体不存在' });
     // 不 await：LLM 生成要几十秒，占着请求会让前端转圈超时
-    generateMediaBatch({ outletId, count: Math.min(count, MAX_BATCH_SIZE), category })
+    generateMediaBatch({ outletId, count: Math.min(count, MAX_BATCH_SIZE), category, manual: true })
       .then(r => console.log(`[media] refresh done: +${r.inserted}`))
       .catch(err => console.error('[media] refresh failed:', err.message));
     res.json({ started: true, outletId, category, count });

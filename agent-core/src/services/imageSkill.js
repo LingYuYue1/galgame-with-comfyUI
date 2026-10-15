@@ -544,8 +544,9 @@ const MAX_SUBMIT_RETRIES = 2;
 async function submitWithRetry(rawPrompt, {
   artist, width, height, onProgress, submitRetries = MAX_SUBMIT_RETRIES,
   loras, customWorkflow, scene, workflowScene, globalLoraSnapshot, qualityPrompt, negativePrompt,
+  imageProvider = config.comfyui.imageProvider,
 } = {}) {
-  if (config.comfyui.imageProvider === 'novelai') {
+  if (imageProvider === 'novelai') {
     // NovelAI receives the same prepared scene description and artist tags as ComfyUI,
     // but does not use either character or global LoRA data.
     return submitNovelaiImage(rawPrompt, { artist, onProgress });
@@ -627,6 +628,7 @@ async function _execute(rawPrompt, opts) {
     if (preparation.timeOfDay) {
       console.log(`[image] 时段锚点 ${preparation.timeOfDay.label}(${preparation.timeOfDay.key}) scene=${opts.promptScene || opts.scene || 'chat'}`);
     }
+    opts.onPromptPrepared?.(preparation.promptRefined);
     if (_limitEnabled()) {
       await acquireSlot();
       slotAcquired = true;

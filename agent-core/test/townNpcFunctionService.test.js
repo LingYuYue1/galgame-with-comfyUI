@@ -97,6 +97,23 @@ test('gift_giver grants a reward item once per cooldown and writes an experience
   assert.ok(rows.length >= 1);
 });
 
+test('gift from a linked character still writes memory when enabled', t => {
+  const f = fixture(t);
+  const characterId = Number(f.db.prepare('INSERT INTO characters DEFAULT VALUES').run().lastInsertRowid);
+  f.registry.linkNpcCharacter(2, characterId);
+  f.service.receiveGift(2, f.cmd({}));
+  const calls = [];
+  createTownExperienceService({ db: f.db, clock: f.clock, registry: f.registry,
+    memoryEnabled: () => true,
+    writeMemory: input => { calls.push(input); return [{ memoryId: 'gift-memory' }]; },
+  }).drain(f.scope);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].conversationId, `char_${characterId}`);
+  assert.ok(calls[0].actions[0].memory.judgment.includes('小心意'));
+  assert.equal(f.db.prepare('SELECT memory_ids FROM town_experiences WHERE character_id = ?').get(characterId).memory_ids,
+    '["gift-memory"]');
+});
+
 test('non gift_giver refuses gifts', t => {
   const f = fixture(t);
   assert.throws(() => f.service.receiveGift(1, f.cmd({})), err => err.code === 'NOT_A_GIFT_GIVER');

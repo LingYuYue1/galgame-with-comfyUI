@@ -51,6 +51,8 @@ import { listSceneOutfits } from './outfitScene.js';
 import { deriveBuild } from './characterBuild.js';
 // T5：媒体操作日志 —— 删除/创建类操作留审计痕迹（曾有一条真实产物消失无法追溯）
 import { recordMediaOp } from './mediaOpLog.js';
+// 上游 v3.8.3（ac6f521）：媒体路人头像库 —— 匿名作者/评论者头像统一由它解析
+import { mediaAvatarLibrary } from './mediaAvatarLibrary.js';
 
 /** 一次刷新默认抽多少条 */
 export const DEFAULT_BATCH_SIZE = 6;
@@ -196,7 +198,31 @@ function autoPerNight() {
 let generating = null;          // 当前批次生成任务
 let imageQueue = Promise.resolve(); // 配图请求串行排队，忙碌时不丢掉新批次
 let portalImageQueue = Promise.resolve();
+const manualImagePosts = new Set(); // 手动刷新批次由高优通道负责，后台扫描不能抢走。
 let lastAutoAt = 0;             // 上次自动补充时间
+
+function imagePostScope(postIds) {
+  return {
+    sql: `AND p.id ${postIds ? 'IN' : 'NOT IN'} (SELECT value FROM json_each(?))`,
+    ids: JSON.stringify(postIds || [...manualImagePosts]),
+  };
+}
+
+function fillBatchImages(limit, postIds, manual, portal = false) {
+  // 门户延续下一轮事件循环补图的行为，先让文字生成请求完成。
+  const nextTurn = () => new Promise(resolve => setTimeout(resolve, 0));
+  if (!manual) return portal
+    ? nextTurn().then(() => fillPortalImages(limit, postIds))
+    : fillPendingImages(limit, postIds);
+  // 不排在正在等待低优队列的后台批次之后；只提升本次新建内容的所有配图。
+  for (const id of postIds) manualImagePosts.add(id);
+  const task = portal
+    ? nextTurn().then(() => fillPortalImagesNow(limit, postIds, 'high'))
+    : fillPendingImagesNow(limit, postIds, 'high');
+  return task.finally(() => {
+    for (const id of postIds) manualImagePosts.delete(id);
+  });
+}
 
 function safeParse(text, fallback = null) {
   try { return JSON.parse(text); } catch { return fallback; }
@@ -612,10 +638,17 @@ function mapPostRow(r) {
     author_type: r.author_type,
     character_id: r.character_id,
     author_name: r.author_name,
-    author_avatar: r.author_avatar,
+    author_avatar: r.author_type === 'anonymous'
+      ? mediaAvatarLibrary.resolve(r.outlet_id, r.author_name)
+      : r.author_avatar,
     likes: r.likes,
     views: r.views,
-    comments: safeParse(r.comments_json, []) || [],
+    comments: (safeParse(r.comments_json, []) || []).map(comment => ({
+      ...comment,
+      author_avatar: comment.author_type === 'character'
+        ? comment.author_avatar
+        : mediaAvatarLibrary.resolve(r.outlet_id, comment.author),
+    })),
     image: r.image,
     // 配图状态：图库形态要用它区分「排队生图中」与「生成失败」（否则两种都是空白格）
     image_status: r.image_status || null,
@@ -698,7 +731,8 @@ export function listPosts({ outletId = null, boardId = null, category = null, li
 }
 
 /** 待补配图的帖子（供后台补印） */
-export function listPostsNeedingImage(limit = 8) {
+export function listPostsNeedingImage(limit = 8, postIds = null) {
+  const scope = imagePostScope(postIds);
   // ⚠ 必须排除门户：门户由 fillPortalImages 负责逐块补图，而门户帖的 image_prompt 存的是
   //   「第一块的头图提示词」，被这里捞到会**额外多生一张重复的主图**（正是两层设计要避免的浪费）。
   //   ★ 判据用**帖子自身的 `payload.portal`**，而不是媒体当前的 `layout` ——
@@ -710,8 +744,9 @@ export function listPostsNeedingImage(limit = 8) {
     WHERE (p.image_status = 'pending' OR (p.published_seq IS NULL AND p.image_status = 'failed'))
       AND p.image_prompt IS NOT NULL AND p.image_prompt != ''
       AND COALESCE(json_extract(CASE WHEN json_valid(p.payload_json) THEN p.payload_json ELSE '{}' END, '$.portal'), 0) != 1
+      ${scope.sql}
     ORDER BY p.id DESC LIMIT ?
-  `).all(limit);
+  `).all(scope.ids, limit);
 }
 
 /**
@@ -2123,7 +2158,7 @@ ${buildAliasRuleBlock()}${imageRules ? `\n\n生图规则（image_prompt 必须�
  * 生成一期周刊（落库为 1 条 media_post，结构化数据存 payload_json）。
  * @param {object} outlet
  */
-async function generateWeeklyIssue(outlet) {
+async function generateWeeklyIssue(outlet, manual = false) {
   const db = getDb();
   const worldSetting = getWorldSetting();
 
@@ -2175,7 +2210,7 @@ async function generateWeeklyIssue(outlet) {
   );
   console.log(`[media] 《狸狸周刊》Vol.${p.volume}【${p.kind}】出版（${p.columns.length} 栏目）`);
   publishMediaPostIfReady(Number(r.lastInsertRowid));
-  fillPendingImages(1).catch(err => console.error('[media] 本期刊头补图失败:', err.message));
+  fillBatchImages(1, [Number(r.lastInsertRowid)], manual).catch(err => console.error('[media] 本期刊头补图失败:', err.message));
   return { outletId: outlet.id, outletName: outlet.name, batchId, inserted: 1, postId: Number(r.lastInsertRowid) };
 }
 
@@ -2280,7 +2315,7 @@ function buildPosterFormatPrompt() {
 }
 
 /** 生成一张海报（落库为 1 条 media_post；主图走 image，小图存在 payload 里） */
-async function generatePosterIssue(outlet) {
+async function generatePosterIssue(outlet, manual = false) {
   const db = getDb();
   const worldSetting = getWorldSetting();
 
@@ -2328,7 +2363,7 @@ async function generatePosterIssue(outlet) {
   console.log(`[media] 《${outlet.name}》第 ${p.issueNo} 期海报发布（${p.bubbles.length} 气泡 / ${p.panels.length} 小图）`);
   publishMediaPostIfReady(Number(r.lastInsertRowid));
   // 先补主图；小图由 fillPendingImages 的 poster 分支继续补
-  fillPendingImages(1 + p.panels.length).catch(err => console.error('[media] 本期海报补图失败:', err.message));
+  fillBatchImages(1 + p.panels.length, [Number(r.lastInsertRowid)], manual).catch(err => console.error('[media] 本期海报补图失败:', err.message));
   return { outletId: outlet.id, outletName: outlet.name, batchId, inserted: 1, postId: Number(r.lastInsertRowid) };
 }
 
@@ -2507,7 +2542,7 @@ function isPortalPayload(payload) {
  * 生成一期门户草稿（第 1 层）。后台串行补齐所有头图后发布。
  * 返回草稿标识；发布后才通知前端，栏目正文仍按需生成。
  */
-async function generatePortalIssue(outlet) {
+async function generatePortalIssue(outlet, manual = false) {
   const db = getDb();
   const worldSetting = getWorldSetting();
 
@@ -2557,10 +2592,8 @@ async function generatePortalIssue(outlet) {
   publishMediaPostIfReady(Number(r.lastInsertRowid));
 
   // 后台补图不阻塞请求；全部配图完成才对外发布。
-  setTimeout(() => {
-    fillPortalImages(p.sections.length + 1)
-      .catch(err => console.error('[media] 门户补图失败:', err.message));
-  }, 0);
+  fillBatchImages(p.sections.length + 1, [postId], manual, true)
+    .catch(err => console.error('[media] 门户补图失败:', err.message));
 
   return db.prepare('SELECT * FROM media_posts WHERE id = ?').get(postId);
 }
@@ -2571,22 +2604,24 @@ async function generatePortalIssue(outlet) {
  * 与 fillPosterPanelImages 的差别：**每补一张就写回一次库**，而不是攒到整期补完再写。
  * 每张图立即保存，失败后可从剩余图片继续；未发布的草稿不会逐图推送给前端。
  */
-export function fillPortalImages(limit = 6) {
-  const task = portalImageQueue.then(() => fillPortalImagesNow(limit));
+export function fillPortalImages(limit = 6, postIds = null) {
+  const task = portalImageQueue.then(() => fillPortalImagesNow(limit, postIds));
   portalImageQueue = task.catch(() => {});
   return task;
 }
 
-async function fillPortalImagesNow(limit) {
+async function fillPortalImagesNow(limit, postIds = null, priority = 'low') {
   const db = getDb();
+  const scope = imagePostScope(postIds);
   const rows = db.prepare(`
     SELECT p.id, p.payload_json FROM media_posts p
     JOIN media_outlets o ON o.id = p.outlet_id
     WHERE o.layout = 'portal' AND p.payload_json IS NOT NULL
       AND (p.published_seq IS NULL OR p.image_status != 'done')
+      ${scope.sql}
     ORDER BY (p.published_seq IS NULL) DESC, p.id DESC
     LIMIT 12
-  `).all();
+  `).all(scope.ids);
 
   let filled = 0;
   let attempted = 0;
@@ -2600,7 +2635,7 @@ async function fillPortalImagesNow(limit) {
       if (section.image || !section.image_prompt) continue;
       attempted++;
       try {
-        const result = await generateMediaImage(section.image_prompt, null);
+        const result = await generateMediaImage(section.image_prompt, null, priority);
         if (!result) continue;
         // 重新读一次 payload：生成期间可能有别的写入（如用户点了某块生成正文）
         const fresh = safeParse(db.prepare('SELECT payload_json FROM media_posts WHERE id = ?').get(row.id)?.payload_json, null);
@@ -2882,7 +2917,7 @@ export async function maybeGenerateDailyIssues() {
  * @param {string?} [opts.category] - `outletId` 缺省（前端在「全部」档点刷新）时，
  *   **只在当前分类内**随机抽一个媒体。不传 = 全库随机（老调用方语义）。
  */
-export async function generateMediaBatch({ outletId = null, count = DEFAULT_BATCH_SIZE, withCharacters = true, category = null } = {}) {
+export async function generateMediaBatch({ outletId = null, count = DEFAULT_BATCH_SIZE, withCharacters = true, category = null, manual = false } = {}) {
   if (generating) return generating;   // 同一时间只跑一批，避免并发刷爆 LLM
   generating = (async () => {
     const db = getDb();
@@ -2905,9 +2940,9 @@ export async function generateMediaBatch({ outletId = null, count = DEFAULT_BATC
     }
 
     // 按形态分派：周刊/海报/门户一次出一期（刊），都不是「一批帖子」
-    if (outlet.layout === 'portal') return await generatePortalIssue(outlet);
-    if (outlet.layout === 'weekly') return await generateWeeklyIssue(outlet);
-    if (outlet.layout === 'poster') return await generatePosterIssue(outlet);
+    if (outlet.layout === 'portal') return await generatePortalIssue(outlet, manual);
+    if (outlet.layout === 'weekly') return await generateWeeklyIssue(outlet, manual);
+    if (outlet.layout === 'poster') return await generatePosterIssue(outlet, manual);
     // 论坛 / 图库是「一批帖子」的变体，但格式差异大到各走各的规整器
     if (outlet.layout === 'forum') return await generateForumBatch(outlet, n, withCharacters);
     if (outlet.layout === 'photos') return await generatePhotoBatch(outlet, n, withCharacters);
@@ -2963,7 +2998,7 @@ export async function generateMediaBatch({ outletId = null, count = DEFAULT_BATC
     for (const id of postIds) publishMediaPostIfReady(id);
 
     // 按本批数量排队补图，不阻塞请求；忙碌时排队，不丢弃任务。
-    fillPendingImages(inserted).catch(err => console.error('[media] 本批补图失败:', err.message));
+    fillBatchImages(inserted, postIds, manual).catch(err => console.error('[media] 本批补图失败:', err.message));
 
     return { outletId: outlet.id, outletName: outlet.name, batchId, inserted };
   })().finally(() => { generating = null; });
@@ -2988,6 +3023,9 @@ export async function generateMediaBatch({ outletId = null, count = DEFAULT_BATC
  *        用来压制该体位最常见的畸形，如同手同脚、多肢、男脸）
  */
 async function generateMediaImage(prompt, character = null, opts = {}) {
+  // ★ 合并 v3.8.3 归一：补图通道按第三参传优先级字符串（'low'/'high'），
+  //   图库/照片通道传 opts 对象（每条画师串、画幅比例、负向）。两种口径在此兼容。
+  if (typeof opts === 'string') opts = { priority: opts };
   const charArtist = charArtistOverrideWithFallback(character);
   const ownArtist = typeof opts.artist === 'string' && opts.artist.trim() ? opts.artist.trim() : null;
   const loras = parseCharacterLoras(character?.loras);
@@ -3002,7 +3040,7 @@ async function generateMediaImage(prompt, character = null, opts = {}) {
     width: w,
     height: h,
     scene: 'moments',
-    priority: 'low',
+    priority: opts.priority || 'low',
     ...(neg ? { negativePrompt: neg } : {}),
     ...(loras.length ? { customWorkflow: character?.custom_workflow || null, loras } : {}),
   });
@@ -3028,13 +3066,13 @@ function parseCharacterLoras(loras) {
  * 给缺图的帖子补封面（一次最多 limit 张，串行）。返回补上的张数。
  * 由生成批次或用户打开页面/补图时按需调用。
  */
-export function fillPendingImages(limit = 6) {
-  const task = imageQueue.then(() => fillPendingImagesNow(limit));
+export function fillPendingImages(limit = 6, postIds = null) {
+  const task = imageQueue.then(() => fillPendingImagesNow(limit, postIds));
   imageQueue = task.catch(() => {});
   return task;
 }
 
-async function fillPendingImagesNow(limit) {
+async function fillPendingImagesNow(limit, postIds = null, priority = 'low') {
   const db = getDb();
   let filled = 0;
   // 上游 v3.8.1：先把配图已齐的草稿发布掉（补图期间可能刚集齐），再补新一批
@@ -3042,7 +3080,7 @@ async function fillPendingImagesNow(limit) {
   // ⚠️ 这里**不要**调 resetStaleMediaGenerating —— 它每分钟跑一次会把
   // 「正在生成中」的帖子反复重置为 pending，形成无限重生循环（详见该函数注释）。
   // 自愈只在服务启动时做一次（见 startReplyQueueScheduler）。
-  const pending = listPostsNeedingImage(limit);
+  const pending = listPostsNeedingImage(limit, postIds);
   for (const p of pending) {
     // ★ 原子抢占（CAS）：只有仍是 pending 的才抢得到。
     //   这一句是防重复生图的关键 —— 原实现先无条件置 generating，
@@ -3067,6 +3105,7 @@ async function fillPendingImagesNow(limit) {
         width: gal?.width || null,
         height: gal?.height || null,
         negative: gal?.negative || null,
+        priority,
       });
       if (!result) {
         updatePostImage(p.id, { status: 'failed', error: 'ComfyUI 未返回图片' });
@@ -3105,26 +3144,27 @@ async function fillPendingImagesNow(limit) {
 
   // ── 海报的小图（存在 payload.panels 里，一张海报最多 3 张）──
   // 单独一轮、放在主图之后：主图是海报的门面，优先保证。
-  filled += await fillPosterPanelImages(Math.max(0, limit));
+  filled += await fillPosterPanelImages(Math.max(0, limit), postIds, priority);
   return filled;
 }
 
 /**
  * 补海报小图（payload.panels[].image 为空且已有 image_prompt 的）。
  * 用「先写回 payload 再生成」的顺序无法 CAS（payload 是一整块 JSON），
- * 所以由 fillPendingImages 的串行队列统一处理，
- * 且本函数只在同一次调用里跑一遍，不会与自身并发。
+ * 后台由 fillPendingImages 串行处理；手动刷新只处理独占的新批次，后台扫描排除该批次。
  */
-async function fillPosterPanelImages(limit = 3) {
+async function fillPosterPanelImages(limit = 3, postIds = null, priority = 'low') {
   const db = getDb();
+  const scope = imagePostScope(postIds);
   const posts = db.prepare(`
     SELECT p.id, p.payload_json FROM media_posts p
     JOIN media_outlets o ON o.id = p.outlet_id
     WHERE o.layout = 'poster' AND p.payload_json IS NOT NULL
       AND (p.published_seq IS NULL OR p.image_status != 'done')
+      ${scope.sql}
     ORDER BY (p.published_seq IS NULL) DESC, p.id DESC
     LIMIT 12
-  `).all();
+  `).all(scope.ids);
 
   let filled = 0;
   let attempted = 0;
@@ -3142,7 +3182,7 @@ async function fillPosterPanelImages(limit = 3) {
       if (panel.image || !panel.image_prompt) continue;
       attempted++;
       try {
-        const result = await generateMediaImage(panel.image_prompt, null);
+        const result = await generateMediaImage(panel.image_prompt, null, priority);
         if (!result) continue;
         panel.image = result.url;
         touched = true;

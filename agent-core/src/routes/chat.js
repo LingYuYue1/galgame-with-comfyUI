@@ -55,8 +55,6 @@ import { chatStreamStarted, chatStreamEnded } from '../services/chatActivity.js'
 import { createCharacterTownChatGuard, buildCharacterTownSceneBlock } from '../services/characterChatTownContext.js';
 import { buildPrivateMomentContext } from '../services/privateMomentContext.js';
 import { listRecentMailboxLetters } from '../services/privateMailboxContext.js';
-import { createCharacterTownLifeContext } from '../services/characterTownLifeContext.js';
-import { createTownActorRegistry } from '../services/town/townActorRegistry.js';
 import { getTownState } from '../services/town/townService.js';
 import {
   buildPlannerTaskBlock, buildPlannerTriggerLine, prependToLastUserMessage, appendToLastUserMessage,
@@ -1059,14 +1057,6 @@ ${coreRules}
     }
     dynamicBlocks.push(`<time_context>\n${timeBlocks.join('\n')}\n</time_context>`);
     dynamicBlocks.push(buildCharacterTownSceneBlock(req.townAdmission));
-    if (config.features.town) {
-      try {
-        dynamicBlocks.push(createCharacterTownLifeContext({ db, clock: { now: Date.now() }, timeZone: config.town.timeZone,
-          registry: createTownActorRegistry(db) })(character.id));
-      } catch (error) {
-        console.warn('[chat] town life records unavailable:', error.message);
-      }
-    }
 
     // 当日《邻舍日报》人物特稿：仅当天主角的私聊注入，预告ta今天将要经历的事
     const newspaperEventBlock = getCharacterEventBlockFor(characterId);

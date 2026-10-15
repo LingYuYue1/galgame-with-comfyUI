@@ -4,6 +4,7 @@
     :title="kind === 'feed' ? '帖子详情' : '报刊阅读'"
     variant="comic"
     wide
+    panel-class="media-reader-panel"
     :transition-ms="300"
     @close="emit('close')"
   >
@@ -106,7 +107,8 @@
             class="discussion-item"
           >
             <span class="comment-avatar" aria-hidden="true">
-              {{ (comment.author || '匿').slice(0, 1) }}
+              <img v-if="comment.author_avatar" :src="comment.author_avatar" alt="" />
+              <span v-else>{{ (comment.author || '匿').slice(0, 1) }}</span>
             </span>
             <div class="comment-main">
               <div class="comment-heading">
@@ -182,6 +184,15 @@ function zoom() {
 </script>
 
 <style scoped>
+@media (min-width: 768px) {
+  :global(.linshe-modal-overlay:has(> .media-reader-panel)) {
+    padding-block: 10px;
+  }
+  :global(.media-reader-panel) {
+    height: 100dvh;
+    max-height: 100%;
+  }
+}
 .reader {
   color: var(--text-primary);
   overflow-wrap: anywhere;
@@ -243,13 +254,13 @@ function zoom() {
 }
 .reader-avatar,
 .comment-avatar {
-  width: 44px;
-  height: 44px;
+  width: 57.2px;
+  height: 57.2px;
   display: grid;
   place-items: center;
   flex-shrink: 0;
   border: 2px solid var(--media-ink);
-  border-radius: 2px;
+  border-radius: var(--radius-full);
   background: var(--media-light);
   color: var(--media-ink);
   box-shadow: 3px 3px 0 var(--media-ink);
@@ -257,7 +268,8 @@ function zoom() {
   font-weight: 900;
   transform: rotate(-4deg);
 }
-.reader-avatar img {
+.reader-avatar img,
+.comment-avatar img {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -428,8 +440,8 @@ function zoom() {
   margin-left: 28px;
 }
 .comment-avatar {
-  width: 36px;
-  height: 36px;
+  width: 54px;
+  height: 54px;
   font-size: 14px;
   background: var(--accent);
 }

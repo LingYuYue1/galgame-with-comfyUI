@@ -24,8 +24,6 @@ import {
 import { broadcast } from './unifiedStreamBus.js';
 import { getStandingDisplay } from './standingDisplay.js';
 import { getFreshUnsharedDream, markDreamShared } from './dreamService.js';
-import { createCharacterTownLifeContext } from './characterTownLifeContext.js';
-import { createTownActorRegistry } from './town/townActorRegistry.js';
 import { maybeGenerateDailyNewspaper } from './newspaperService.js';
 // 本地口径（反删除）：保留本地媒体清理/日报链 + loot 状态自愈（上游侧仅为「未含这些」，非新增）
 import { maybeAutoGenerate as maybeAutoGenerateMedia, resetStaleMediaGenerating, cleanupOrphanMediaImages, maybeGenerateDailyIssues } from './mediaService.js';
@@ -417,17 +415,6 @@ function buildDelayedReplyContext(entry, allPending, isSleepWakeup, dream = null
       role: 'system',
       content: `[系统说明] 你刚睡醒，昨晚做了个梦：「${dream.content}」。回复时可以自然提一句，不强求。`,
     });
-  }
-
-  // Read current records at generation time; never persist scene/context into queued user text.
-  if (config.features.town) {
-    try {
-      const lifeContext = createCharacterTownLifeContext({ db, clock: { now: Date.now },
-        registry: createTownActorRegistry(db), timeZone: config.town.timeZone })(characterId);
-      if (lifeContext) msgs.push({ role: 'system', content: lifeContext });
-    } catch (error) {
-      console.warn('[replyQueue] town life records unavailable:', error.message);
-    }
   }
 
   // 历史消息（最近的对话上下文）

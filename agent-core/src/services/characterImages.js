@@ -102,7 +102,16 @@ export function collectCharacterImageUrls(characterId, { limit = 120 } = {}) {
     push(row.illustration_path);
   }
 
-  // 8. 角色当前头像与立绘
+  // 8. 角色形象面板的场景立绘（包含「默认」work 槽）。生成/上传直接写此表，
+  //    不登记 image_tasks；直接读取也能补齐已生成的历史图片。
+  const standingRows = db.prepare(`
+    SELECT image_url FROM character_standings
+    WHERE character_id = ? AND image_url IS NOT NULL AND image_url != ''
+    ORDER BY updated_at DESC, id DESC LIMIT ?
+  `).all(characterIdNum, limit);
+  for (const row of standingRows) push(row.image_url);
+
+  // 9. 角色当前头像与旧版默认立绘（work 槽未显式设置图片时的兜底）
   const char = db.prepare('SELECT avatar_path, standing_url FROM characters WHERE id = ?').get(characterIdNum);
   if (char) {
     push(char.avatar_path);

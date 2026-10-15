@@ -193,6 +193,31 @@ router.get('/tasks/:id/status', (req, res) => {
 // mode: 'chat' (对话配图) | 'moments' (朋友圈配图) | 'event' (奇遇配图)，默认 'chat'
 // sceneDesc: 自由画面描述（可选）→ 分层 LLM 生图链路完善为 prompt 后再生图
 router.post('/test-style', async (req, res) => {
+  // 实验室可选流式返回提示词；其他调用方保留原 JSON 响应。
+  const streaming = req.body.stream === true;
+  const send = (event, data) => {
+    if (streaming && !res.destroyed && !res.writableEnded) {
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    }
+  };
+  const finish = (data, status = 200) => {
+    if (!streaming) return status === 200 ? res.json(data) : res.status(status).json(data);
+    send('result', data);
+    res.end();
+  };
+  if (streaming) {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+    res.flushHeaders();
+    const heartbeat = setInterval(() => {
+      if (!res.destroyed && !res.writableEnded) res.write(':keepalive\n\n');
+    }, 15000);
+    res.on('close', () => clearInterval(heartbeat));
+  }
   const { artist, width, height, mode = 'chat', prompt: customPrompt, sceneDesc, reuseSceneLoras, alreadyPrepared } = req.body;
 
   /**
@@ -249,7 +274,8 @@ router.post('/test-style', async (req, res) => {
 
   const isMoments = mode === 'moments';
   const isEvent = mode === 'event';
-  const finalArtist = artist || (isEvent ? config.comfyui.eventArtist : (isMoments ? config.comfyui.momentsArtist : config.comfyui.artist));
+  // 测试时显式留空也要生效，与正式生图的空画师串语义一致。
+  const finalArtist = artist ?? (isEvent ? config.comfyui.eventArtist : (isMoments ? config.comfyui.momentsArtist : config.comfyui.artist));
   const finalWidth = width || (isEvent ? config.comfyui.eventWidth : (isMoments ? config.comfyui.momentsWidth : config.comfyui.width));
   const finalHeight = height || (isEvent ? config.comfyui.eventHeight : (isMoments ? config.comfyui.momentsHeight : config.comfyui.height));
 
@@ -264,9 +290,10 @@ router.post('/test-style', async (req, res) => {
       ({ prompt, loras: sceneLoras } = await generateScenePrompt(freeScene));
     } catch (err) {
       console.error('[test-style] scene prompt generation error:', err.message);
-      return res.status(500).json({ success: false, error: '提示词生成失败: ' + err.message });
+      return finish({ success: false, error: '提示词生成失败: ' + err.message }, 500);
     }
     generatedPrompt = prompt;
+    send('prompt', { generatedPrompt, stage: 'preparing' });
     console.log(`[test-style] sceneDesc → prompt in ${Math.round(performance.now() - tPrompt)}ms${sceneLoras.length > 0 ? ` (+${sceneLoras.length} lora(s))` : ''}: ${prompt.slice(0, 80)}...`);
   } else {
     // 自定义 prompt 优先，否则用默认
@@ -294,6 +321,10 @@ router.post('/test-style', async (req, res) => {
       // 实验室沿用 event 模式名；LoRA 过滤与工作流配置使用 events 场景。
       scene: isEvent ? 'events' : mode,
       persistPreparation: false,
+      onPromptPrepared: (preparedPrompt) => {
+        generatedPrompt = preparedPrompt;
+        send('prompt', { generatedPrompt, stage: 'generating' });
+      },
       ...(sceneLoras.length > 0 ? { loras: sceneLoras } : {}),
       onProgress: (p) => {
         // 捕获各阶段时间戳用于 timing breakdown
@@ -336,7 +367,7 @@ router.post('/test-style', async (req, res) => {
         wfMode: result.wfMode,
         sceneLoras,
       };
-      res.json({
+      finish({
         success: true, images: result.images, promptId: result.promptId, elapsed,
         generatedPrompt,
         timing: {
@@ -348,12 +379,12 @@ router.post('/test-style', async (req, res) => {
         },
       });
     } else {
-      res.json({ success: false, error: result.error || 'No image generated', elapsed });
+      finish({ success: false, error: result.error || 'No image generated', generatedPrompt, elapsed });
     }
   } catch (err) {
     const elapsed = Math.round(performance.now() - t0);
     console.error('[test-style] error:', err.message);
-    res.status(500).json({ success: false, error: err.message, elapsed });
+    finish({ success: false, error: err.message, generatedPrompt, elapsed }, 500);
   }
 });
 

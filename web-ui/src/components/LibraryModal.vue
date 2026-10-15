@@ -3,7 +3,7 @@
       :model-value="modelValue"
       :title="title"
       full
-      @update:model-value="$emit('update:modelValue', $event)"
+      @update:model-value="onLibraryVisibilityChange"
     >
       <template #header-extra>
         <span class="lib-count">{{ items.length }} 条<span v-if="!isEvents"> · 已勾选 {{ checkedCount }}</span></span>
@@ -123,6 +123,8 @@
                   :item="item"
                   :is-events="isEvents"
                   :selectable="!isEvents"
+                  :publishing="publishing"
+                  @publish="openPublish"
                   @edit="startEdit"
                   @cancel="cancelEdit"
                   @save="saveItem"
@@ -152,6 +154,8 @@
                   :item="item"
                   :is-events="isEvents"
                   :selectable="!isEvents"
+                  :publishing="publishing"
+                  @publish="openPublish"
                   @edit="startEdit"
                   @cancel="cancelEdit"
                   @save="saveItem"
@@ -164,6 +168,31 @@
           </div>
       </div>
     </linshe-modal>
+    <linshe-modal v-model="publishOpen" title="选择角色" :transition-ms="300">
+      <div class="publish-fields">
+        <p class="publish-topic">{{ isEvents ? '奇遇话题' : '朋友圈话题' }}：{{ publishItem?.name }}</p>
+        <p v-if="charactersLoading" class="publish-hint" role="status">正在加载角色…</p>
+        <template v-else-if="charactersError">
+          <p class="publish-hint" role="alert">{{ charactersError }}</p>
+          <linshe-button size="sm" @click="loadPublishCharacters">重新加载</linshe-button>
+        </template>
+        <p v-else-if="!publishCharacters.length" class="publish-hint">还没有角色，先去酒馆招募吧。</p>
+        <linshe-select
+          v-else
+          v-model="publishCharacterId"
+          :options="publishCharacterOptions"
+          :disabled="publishing"
+          searchable
+          placeholder="选择发送的角色"
+          aria-label="发送角色"
+        />
+        <p class="publish-hint" role="status">{{ publishing ? '正在生成，完成后会出现在列表中，可关闭此窗口等待。' : '角色将使用这个话题立即生成一条' + (isEvents ? '奇遇。' : '朋友圈。') }}</p>
+      </div>
+      <template #footer>
+        <linshe-button @click="publishOpen = false">{{ publishing ? '关闭' : '取消' }}</linshe-button>
+        <linshe-button variant="primary" :loading="publishing" :disabled="!publishCharacterId || charactersLoading || !!charactersError || publishing" @click="publishSelected">立即发送</linshe-button>
+      </template>
+    </linshe-modal>
 </template>
 
 <script setup>
@@ -175,18 +204,82 @@ import CardHeightTransition from './CardHeightTransition.vue'
 import LinsheModal from './ui/LinsheModal.vue'
 import LinsheInput from './ui/LinsheInput.vue'
 import LinsheButton from './ui/LinsheButton.vue'
+import LinsheSelect from './ui/LinsheSelect.vue'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
   type: { type: String, default: 'event-types' }, // 'event-types' | 'topics'
 })
-const emit = defineEmits(['update:modelValue'])
+const emit = defineEmits(['update:modelValue', 'published'])
 
 const toastFn = inject('toast')
 const confirmFn = inject('confirm')
 
 const isEvents = computed(() => props.type === 'event-types')
 const title = computed(() => (isEvents.value ? '奇遇事件库' : '朋友圈话题库'))
+
+const publishOpen = ref(false)
+const publishItem = ref(null)
+const publishCharacterId = ref(null)
+const publishCharacters = ref([])
+const charactersLoading = ref(false)
+const charactersError = ref('')
+const publishing = ref(false)
+const publishCharacterOptions = computed(() => publishCharacters.value.map(c => ({ label: c.display_name, value: c.id })))
+
+// 嵌套弹窗按 Esc 时只关闭角色选择窗，保留话题库。
+function onLibraryVisibilityChange(value) {
+  if (!value && publishOpen.value) return
+  emit('update:modelValue', value)
+}
+
+watch(() => [props.modelValue, props.type], () => { publishOpen.value = false })
+
+async function loadPublishCharacters() {
+  if (charactersLoading.value) return
+  charactersLoading.value = true
+  charactersError.value = ''
+  try {
+    const result = await api.listCharacters()
+    publishCharacters.value = result.characters || []
+  } catch (err) {
+    charactersError.value = err.message || '角色加载失败，请重试'
+  } finally {
+    charactersLoading.value = false
+  }
+}
+
+function openPublish(item) {
+  if (publishing.value || !item.id) return
+  publishItem.value = { ...item }
+  publishCharacterId.value = null
+  publishOpen.value = true
+  loadPublishCharacters()
+}
+
+async function publishSelected() {
+  if (publishing.value || !publishItem.value || !publishCharacterId.value || charactersLoading.value || charactersError.value) return
+  const item = publishItem.value
+  const characterId = publishCharacterId.value
+  const eventMode = isEvents.value
+  publishing.value = true
+  try {
+    if (eventMode) await api.generateEvent(characterId, item.key)
+    else await api.generateMoment(characterId, item.id)
+    publishOpen.value = false
+    toastFn(eventMode ? '奇遇已生成，可前往奇遇列表查看' : '朋友圈已发送', 'success')
+    emit('published')
+  } catch (err) {
+    const errorMessages = {
+      already_active_event: '这个角色还有未结束的奇遇，请先完成或取消后再试',
+      events_disabled: '奇遇功能尚未启用，请先在设置中开启',
+      character_not_found: '这个角色已不存在，请重新选择',
+    }
+    toastFn(errorMessages[err.message] || err.message || '发送失败，请重试', 'error')
+  } finally {
+    publishing.value = false
+  }
+}
 
 const items = ref([])
 const loading = ref(false)
@@ -536,6 +629,10 @@ function addItem() {
 .lib-body {
   padding: 0 4px 12px;
 }
+
+.publish-fields { display: flex; flex-direction: column; gap: 12px; }
+.publish-topic { margin: 0; color: var(--text-primary); overflow-wrap: anywhere; }
+.publish-hint { margin: 0; color: var(--text-secondary); font-size: var(--fs-sm); line-height: 1.6; }
 
 /* 生成器 */
 .gen-section { margin-bottom: 20px; }

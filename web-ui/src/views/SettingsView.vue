@@ -155,7 +155,7 @@
             <div
               v-if="generatedPrompt && !promptEditing"
               class="generated-prompt-box editable"
-              title="点击编辑提示词"
+              :title="styleTesting ? '正在生成，提示词可选中复制' : '点击编辑提示词'"
               @click="startPromptEdit"
             >
 {{ generatedPrompt }}
@@ -164,6 +164,7 @@
               v-else
               ref="promptEditRef"
               v-model="generatedPrompt"
+              :disabled="styleTesting"
               class="generated-prompt-box generated-prompt-editor"
               placeholder="直接输入或粘贴生图提示词，留空使用默认提示词"
               @focus="promptEditing = true"
@@ -177,7 +178,9 @@
 
         <div v-if="styleTesting" class="style-loading">
           <span class="style-spinner"></span>
-          <span>{{ imageProvider === 'novelai' ? 'NovelAI 正在生成图片，请耐心等待...' : 'ComfyUI 正在生成图片，请耐心等待...' }}</span>
+          <Transition name="prompt-reveal" mode="out-in">
+            <span :key="styleStage" aria-live="polite">{{ styleStage === 'prompt' ? '正在生成提示词，请稍候...' : styleStage === 'preparing' ? '正在完善提示词，准备生成图片...' : imageProvider === 'novelai' ? 'NovelAI 正在生成图片，请耐心等待...' : 'ComfyUI 正在生成图片，请耐心等待...' }}</span>
+          </Transition>
         </div>
 
         <div v-if="styleImages.length > 0" class="style-result">
@@ -2076,10 +2079,11 @@ onMounted(async () => {
     const data = await getConfig()
     form.value = {
       artist: data.comfy.artist, width: data.comfy.width, height: data.comfy.height,
-      momentsArtist: data.comfy.momentsArtist || data.comfy.artist,
+      // 空字符串表示明确不注入画师串；只有缺失字段才回退。
+      momentsArtist: data.comfy.momentsArtist ?? data.comfy.artist,
       momentsWidth: data.comfy.momentsWidth || 1600,
       momentsHeight: data.comfy.momentsHeight || 1200,
-      eventArtist: data.comfy.eventArtist || data.comfy.momentsArtist || data.comfy.artist,
+      eventArtist: data.comfy.eventArtist ?? data.comfy.momentsArtist ?? data.comfy.artist,
       eventWidth: data.comfy.eventWidth || 1600,
       eventHeight: data.comfy.eventHeight || 1200,
     }
@@ -2586,6 +2590,8 @@ const testModes = [
   { value: 'event', label: '奇遇参数' },
 ]
 const styleTesting = ref(false)
+const styleStage = ref('prompt')
+const generatedPromptPrepared = ref(true)
 const styleError = ref('')
 const styleImages = ref([])
 const styleElapsed = ref(null)  // ms
@@ -2599,6 +2605,7 @@ const promptEditRef = ref(null)
 // 切换参数组后重新使用对应的默认提示词，避免沿用上一组的编辑结果。（v3.8.2 吸收）
 watch(testMode, () => {
   generatedPrompt.value = ''
+  generatedPromptPrepared.value = true
   promptEditing.value = false
 })
 
@@ -2610,6 +2617,7 @@ function submitOnEnter(event, action) {
 
 // 点击 prompt 框进入编辑：光标定位到末尾
 async function startPromptEdit() {
+  if (styleTesting.value) return
   promptEditing.value = true
   await nextTick()
   promptEditRef.value?.focusToEnd()
@@ -2759,6 +2767,7 @@ function formatElapsed(ms) {
 
 async function executeStyleTest({ prompt = '', sceneDesc = '', reuseSceneLoras = false, alreadyPrepared = false } = {}) {
   styleTesting.value = true
+  styleStage.value = sceneDesc ? 'prompt' : alreadyPrepared ? 'generating' : 'preparing'
   styleError.value = ''
   styleImages.value = []
   styleElapsed.value = null
@@ -2777,8 +2786,17 @@ async function executeStyleTest({ prompt = '', sceneDesc = '', reuseSceneLoras =
       sceneDesc,
       reuseSceneLoras,
       alreadyPrepared,
+    }, {
+      onPrompt: ({ generatedPrompt: prompt, stage }) => {
+        generatedPrompt.value = prompt
+        generatedPromptPrepared.value = stage === 'generating'
+        styleStage.value = stage
+      },
     })
-    if (result.generatedPrompt) generatedPrompt.value = result.generatedPrompt
+    if (result.generatedPrompt) {
+      generatedPrompt.value = result.generatedPrompt
+      if (result.success) generatedPromptPrepared.value = true
+    }
     if (result.elapsed != null) styleElapsed.value = result.elapsed
     if (result.timing) styleTiming.value = result.timing
     if (result.success && result.images?.length > 0) {
@@ -2819,7 +2837,7 @@ function runGeneratedPromptTest() {
   return executeStyleTest({
     prompt,
     reuseSceneLoras: Boolean(freeSceneDesc.value.trim()),
-    alreadyPrepared: true,
+    alreadyPrepared: generatedPromptPrepared.value,
   })
 }
 

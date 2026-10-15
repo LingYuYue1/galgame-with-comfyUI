@@ -15,14 +15,16 @@ test('character and requirements changes preserve the entire reusable prompt pre
   assert.deepEqual(a.slice(0, 3), c.slice(0, 3));
 });
 
-test('complete slot example round trips emoji-style escaped identity and appearance tags', () => {
+test('complete slot example round trips escaped identity tags and natural-language appearance', () => {
   const messages = buildStandingPromptMessages(input);
   const content = messages[3].content;
   const json = content.slice(content.indexOf('{'));
   const example = JSON.parse(json);
   assert.deepEqual(example.prompts.map(p => p.slotId), ['normal', 'emoji:42']);
   const sharedExample = JSON.parse(messages[2].content.slice(messages[2].content.indexOf('{')));
-  assert.match(sharedExample.prompts[0].prompt, /Name \\\(Series\\\) \\\(/);
+  assert.ok(sharedExample.prompts[0].prompt.startsWith(String.raw`Name \(Series\) has `));
+  assert.equal((sharedExample.prompts[0].prompt.match(/\\\(/g) || []).length, 1);
+  assert.ok(example.prompts.every(p => p.prompt === sharedExample.prompts[0].prompt));
   const parsed = parseStandingPrompts(json, input.slots);
   assert.equal(parsed.get('normal'), `${STANDING_PREFIX}, ${example.prompts[0].prompt}`);
   assert.ok(messages[2].content.includes('不超过 80 个英文词'));

@@ -11,8 +11,8 @@
  *                  永不挤占聊天）由 config.features.townAutoLLM 统一控制，且只在聚焦图消耗：
  *                  关闭或无观看时这些演出跳过，但相遇仍发生并按规则结算；玩家主动发起的
  *                  NPC 交谈与互动奇遇不受影响，仍由 config.features.townLLM 决定。
- *   L3 记忆回写：  相遇规则结算入账为 town.encounter.happened 事件 → townExperienceService
- *                  沉淀双方经历与角色记忆；NPC 对话历史由 townNpcService 落库
+ *   L3 经历入账：  相遇规则结算入账为 town.encounter.happened 事件 → townExperienceService
+ *                  仅沉淀双方小镇经历，不写角色长期记忆；NPC 对话历史由 townNpcService 落库
  *
  * 状态原则：服务端权威 + 内存为准；坐标只在换目标/换活动时落库，
  * 进程重启后由「作息/日程 + 当前时刻」重建（town_agent_state 仅是恢复快照）。

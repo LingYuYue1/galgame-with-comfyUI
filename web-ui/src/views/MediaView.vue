@@ -51,6 +51,13 @@
           </svg>媒体设置
         </linshe-button>
 
+        <!-- 头像设置（v3.8.3）：管理「路人头像库」—— 给没有专属角色头像的作者统一换头像 -->
+        <linshe-button class="btn-op" variant="secondary" @click="showAvatarSettings = true">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:3px">
+            <circle cx="12" cy="8" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/>
+          </svg>头像设置
+        </linshe-button>
+
         <!-- 批量操作：原先单独占一行（在分类/板块栏下面），和「媒体设置」挤成两处、
              顶部显得很乱。现在并进右上角按钮区，紧挨「媒体设置」——
              未进入批量模式时只是一个同尺寸的按钮，不再多占一行。
@@ -639,6 +646,9 @@
     <!-- 媒体设置 -->
     <MediaSettingsModal v-model="showSettings" :outlets="outlets" @changed="reloadOutlets" />
 
+    <!-- 头像设置（v3.8.3）：管理路人头像库；改完由 @changed 触发重载让新头像立即上屏 -->
+    <MediaAvatarSettingsModal v-model="showAvatarSettings" @changed="reloadAll" />
+
     <!-- 《邻舍日报》：沿用原有整版报纸界面（报头 / 三栏 / 期号切换 / 新闻详情） -->
     <NewspaperModal v-model="showNewspaper" @read="onNewspaperRead" />
   </div>
@@ -650,6 +660,7 @@ import * as api from '../api/index.js'
 import LinsheButton from '../components/ui/LinsheButton.vue'
 import LinsheModal from '../components/ui/LinsheModal.vue'
 import MediaSettingsModal from '../components/MediaSettingsModal.vue'
+import MediaAvatarSettingsModal from '../components/MediaAvatarSettingsModal.vue'
 import NewspaperModal from '../components/NewspaperModal.vue'
 import MediaWeekly from '../components/media/MediaWeekly.vue'
 import MediaPoster from '../components/media/MediaPoster.vue'
@@ -700,6 +711,7 @@ const loadError = ref('')
 const loadingMore = ref(false)
 const refreshing = ref(false)
 const showSettings = ref(false)
+const showAvatarSettings = ref(false)
 const detailPost = ref(null)
 /** 图片放大（点版式里的图 → 与《邻舍日报》详情同口径） */
 const zoomSrc = ref('')
@@ -1459,6 +1471,7 @@ let unsubNew = null
 let unsubImg = null
 let unsubPortal = null
 let unsubDeleted = null
+let unsubAvatars = null
 
 onMounted(async () => {
   newspaperStore.startPolling()
@@ -1525,6 +1538,8 @@ onMounted(async () => {
     }
     if (detailPost.value?.id === postId) detailPost.value = null
   })
+  // 路人头像库更新（v3.8.3）：重新拉一遍，让卡片上的作者头像立刻换成新头像
+  unsubAvatars = onEvent('media_avatars_updated', () => reloadAll())
 })
 
 onUnmounted(() => {
@@ -1534,6 +1549,7 @@ onUnmounted(() => {
   if (unsubImg) unsubImg()
   if (unsubPortal) unsubPortal()
   if (unsubDeleted) unsubDeleted()
+  if (unsubAvatars) unsubAvatars()
 })
 </script>
 
@@ -1838,14 +1854,14 @@ onUnmounted(() => {
 @media (max-width: 700px)  { .masonry { column-count: 1; } }
 
 .post-card {
+  position: relative;
   break-inside: avoid;
   margin-bottom: 14px;
   border-radius: 14px;
   overflow: hidden;
-  background: var(--glass-bg-strong);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  border: 1px solid var(--glass-border);
+  background: var(--media-paper);
+  border: 2px solid var(--media-rule);
+  box-shadow: 3px 3px 0 var(--media-ink);
   cursor: pointer;
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
 }
@@ -1864,6 +1880,7 @@ onUnmounted(() => {
   aspect-ratio: 3 / 2;
   overflow: hidden;
   background: var(--bg-tertiary);
+  border-bottom: 2px solid var(--media-rule);
 }
 .post-cover img { display: block; width: 100%; height: 100%; object-fit: cover; }
 /* 无图占位：与图片封面同尺寸，内容垂直居中（否则字挤在顶部、下面一大片空） */
@@ -1889,6 +1906,9 @@ onUnmounted(() => {
   font-size: 11px; font-weight: 700;
   backdrop-filter: blur(4px);
 }
+.cover-likes svg {
+  color: var(--accent-light);
+}
 .cover-board {
   position: absolute;
   right: 8px; bottom: 8px;
@@ -1899,8 +1919,6 @@ onUnmounted(() => {
   font-size: 10px; font-weight: 600;
   backdrop-filter: blur(4px);
 }
-
-/* ── 卡片悬浮操作（重新生图 / 删除）── */
 .cover-ops {
   position: absolute;
   top: 8px; right: 8px;
@@ -1992,6 +2010,11 @@ onUnmounted(() => {
   position: absolute;
   top: 8px; left: 8px;
   z-index: 3;
+  border-color: var(--media-ink);
+  background: var(--media-light);
+  color: var(--media-ink);
+  box-shadow: 2px 2px 0 var(--media-ink);
+  backdrop-filter: none;
 }
 /* 批量模式下卡片右上角的单条操作藏起来，避免与批量操作混淆 */
 .post-card.is-selecting .cover-ops { display: none; }

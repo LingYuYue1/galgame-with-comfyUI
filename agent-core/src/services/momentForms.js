@@ -2,14 +2,14 @@
  * （services/town/townNpcMomentGenerator.js）共用，避免两端口径漂移。 */
 
 export const MOMENT_FORMS = [
-  { name: '短句流',  desc: '只留一句最想说的话，省略背景', len: '5-20字', weight: 2.0, nightBoost: false },
+  { name: '短句流',  desc: '只留一句最想说的话', len: '5-20字', weight: 2.0, nightBoost: false },
   { name: '纯图党',  desc: '用 1～3 个 emoji 或极短一句回应照片，不复述画面', len: '1-15字', weight: 0.5, nightBoost: true },
   { name: '括号吐槽', desc: '短正文加一处括号，补同一件事的内心OS或自我拆台', len: '15-45字', weight: 0.8, nightBoost: false },
   { name: '发疯文学', desc: '对眼前的小刺激夸张反应，保留角色口吻，不堆砌标点', len: '10-45字', weight: 0.5, nightBoost: false },
   { name: '抛个问题', desc: '整条就是一个具体问题或求助，带够场景让人能回答；禁止"有没有人懂这种感觉"这类空泛句式', len: '15-45字', weight: 0.9, nightBoost: false },
   { name: '颜文字体', desc: '一个颜文字，可配一句极短的话', len: '1-20字', weight: 1.4, nightBoost: true },
-  { name: '只发个语气词', desc: '只有几个语气词或一个 emoji，不解释，场景交给照片', len: '1-12字', weight: 0.2, nightBoost: true },
-  { name: '话说一半', desc: '停在一个念头上，可用省略号，不补解释', len: '5-30字', weight: 0.8, nightBoost: false },
+  { name: '只发个语气词', desc: '只有几个语气词或一个 emoji', len: '1-12字', weight: 0.2, nightBoost: true },
+  { name: '话说一半', desc: '停在一个念头上，可用省略号', len: '5-30字', weight: 0.8, nightBoost: false },
 ];
 
 /** 图文以当前日程为单一中心；动因只在非常契合日程时作为弱参考。 */
@@ -65,7 +65,6 @@ export const MOMENT_TONE_RULES = [
   MOMENT_HUMAN_TONE_RULE,
   '- **口吻优先于字数**：像给熟人随手发一条，用角色自己的语气写具体反应，可省略主语、只说半句，不凑字数或强行玩梗。',
   '- 通常 1～2 个短句、至多一次换行；括号只作口语补充，表情适量。不写标题、列表、Markdown、标签或动作旁白。',
-  '- 写完就停，不铺背景、不解释心情，不加总结、感悟、祝福或种草套话。',
 ].join('\n');
 
 /** 配图补足同一个瞬间的可见信息；不把短文案、隐喻或话题建议机械翻译成画面。 */
@@ -120,12 +119,12 @@ export const MOMENT_IMAGE_FIELDS = ['imagePrompt', 'imagePrompt2', 'imagePrompt3
 export const CHINESE_NUM = ['', '一', '两', '三'];
 
 /** 用合法 JSON 展示完整字段结构，动态文本中的引号、换行、反斜杠不能破坏示例。 */
-export function buildMomentOutputFormat({ imageCount = 1, textRequirement = '中文口语，只围绕一个具体中心，写角色的随口反应' } = {}) {
+export function buildMomentOutputFormat({ imageCount = 1, textRequirement = '中文口语，只围绕一个具体中心，用角色自己的语气表达' } = {}) {
   if (!Number.isInteger(imageCount) || imageCount < 1 || imageCount > MOMENT_IMAGE_FIELDS.length) {
     throw new RangeError('Moment image count must be an integer from 1 to 3');
   }
   const example = {
-    text: `朋友圈正文：${textRequirement}；按本次形态与字数，非空，可只有表情，无标题或总结`,
+    text: `朋友圈正文：${textRequirement}；按本次形态与字数，非空，可只有表情，无标题`,
   };
   for (const [index, name] of MOMENT_IMAGE_FIELDS.slice(0, imageCount).entries()) {
     example[name] = `第${index + 1}张照片：非空英文单段，独立写清场景、主体动作和光线，遵守生图格式及长度限制${index > 0 ? '；与首图连续，不写同上' : ''}`;
