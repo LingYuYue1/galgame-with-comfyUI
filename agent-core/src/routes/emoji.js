@@ -12,7 +12,7 @@ import {
   getEmojiResolution,
   saveEmojiResolution,
   createEmojiSet,
-  activateEmojiSet,
+  setEmojiSetEnabled,
   renameEmojiSet,
   deleteEmojiSet,
   resolveOrCreateEmojiSet,
@@ -83,7 +83,7 @@ router.put('/tags', (req, res) => {
   }
 });
 
-/** POST /api/characters/emoji/sets — 新建一张空白配置单（零行记录，不启用） */
+/** POST /api/characters/emoji/sets — 新建并启用一张空白配置单，保留其他套装勾选状态 */
 router.post('/sets', (req, res) => {
   const db = getDb();
   const characterId = parseInt(req.body?.character_id, 10);
@@ -100,11 +100,13 @@ router.post('/sets', (req, res) => {
   }
 });
 
-/** POST /api/characters/emoji/sets/:setId/activate — 启用配置单（同角色互斥），切换后聊天即发这张配置单 */
+/** POST /api/characters/emoji/sets/:setId/activate — 独立启用/停用配置单；旧调用不传 enabled 时启用 */
 router.post('/sets/:setId/activate', (req, res) => {
+  const enabled = req.body?.enabled === undefined ? true : req.body.enabled;
+  if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled 必须为布尔值' });
   const db = getDb();
   try {
-    const set = activateEmojiSet(parseInt(req.params.setId, 10), db);
+    const set = setEmojiSetEnabled(parseInt(req.params.setId, 10), enabled, db);
     if (!set) return res.status(404).json({ error: '表情包组不存在' });
     res.json({ ok: true, set });
   } catch (err) {
