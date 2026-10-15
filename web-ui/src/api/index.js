@@ -221,13 +221,13 @@ export function getEmojiOverview() {
   return request(`/characters/emoji/overview`)
 }
 
-// ── 表情包配置单（多套切换） ──
+// ── 表情包配置单（多套独立启用） ──
 export function createEmojiSet(characterId, name = '') {
   return request(`/characters/emoji/sets`, { method: 'POST', body: { character_id: characterId, name } })
 }
 
-export function activateEmojiSet(setId) {
-  return request(`/characters/emoji/sets/${setId}/activate`, { method: 'POST' })
+export function activateEmojiSet(setId, enabled = true) {
+  return request(`/characters/emoji/sets/${setId}/activate`, { method: 'POST', body: { enabled } })
 }
 
 export function renameEmojiSet(setId, name) {

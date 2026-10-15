@@ -62,3 +62,4 @@ agent-core/test/*
 !agent-core/test/expressionStandingOutfitBatch.test.js
 !agent-core/test/expressionStandingOutfitPreflight.test.js
 !agent-core/test/clothingLibrary.test.js
+!agent-core/test/emojiSets.test.js
