@@ -32,8 +32,36 @@ import { collectCharacterImageUrls } from '../services/characterImages.js';
 import { pickReactionMarker } from '../services/emojiService.js';
 import { createCharacterBackgroundRouter } from './characterBackgrounds.js';
 import { generateDialogueBackground } from '../services/dialogueBackground.js';
+import { getClothingLibrary, resolveClothingTags, buildClothingAppearanceMessages, parseClothingAppearance } from '../services/clothingLibrary.js';
 
 const router = Router();
+
+router.get('/clothing-library', (_req, res) => res.json(getClothingLibrary()));
+
+// 衣服库只生成草稿，确认应用后由详情卡走既有场景服装保存链路。
+router.post('/clothing-appearance-draft', async (req, res) => {
+  const { character_id: characterId, base_prompt: basePrompt, scene = 'work', tags, brief = '' } = req.body || {};
+  let entries;
+  try { entries = resolveClothingTags(tags, scene); } catch (error) { return res.status(400).json({ error: error.message }); }
+  if (!Number.isSafeInteger(Number(characterId)) || Number(characterId) <= 0) return res.status(400).json({ error: '角色 ID 无效' });
+  if (typeof basePrompt !== 'string' || !basePrompt.trim() || basePrompt.length > 100000) return res.status(400).json({ error: '缺少有效的人格卡内容' });
+  if (typeof brief !== 'string' || brief.length > 2000) return res.status(400).json({ error: '补充要求不能超过 2000 字' });
+  const character = getDb().prepare('SELECT id, short_prompt, base_prompt FROM characters WHERE id = ?').get(Number(characterId));
+  if (!character) return res.status(404).json({ error: '角色不存在' });
+  try {
+    const world = getWorldSetting();
+    const messages = buildClothingAppearanceMessages({
+      systemRules: getSystemRulesWithWorld({ roleplay: false }),
+      worldRule: world ? getWorldIntegrationRule('interaction') : '',
+      persona: buildCharacterPersona({ ...character, base_prompt: basePrompt }, { variant: 'full', outfits: null }),
+      scene, entries, brief: brief.trim(),
+    });
+    const raw = await chatSync(messages, { model: config.llm.model || 'deepseek-chat', temperature: 0.6, max_tokens: 1800, label: '衣服库外观生成' });
+    res.json({ appearance: parseClothingAppearance(raw, entries, scene), tags: entries.map(entry => entry.tag) });
+  } catch (error) {
+    res.status(502).json({ error: `生成服装提示词失败：${error.message}` });
+  }
+});
 
 // GET /api/characters — 列出角色，含最近消息摘要
 router.get('/', (req, res) => {
