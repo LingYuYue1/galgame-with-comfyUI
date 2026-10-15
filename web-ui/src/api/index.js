@@ -346,6 +346,11 @@ export function expandAppearanceDraft({ brief, characterId, basePrompt, displayN
   })
 }
 
+export const getClothingLibrary = () => request('/characters/clothing-library')
+export const generateClothingAppearanceDraft = ({ characterId, basePrompt, scene, tags, brief, signal }) => request('/characters/clothing-appearance-draft', {
+  method: 'POST', body: { character_id: characterId, base_prompt: basePrompt, scene, tags, brief }, signal,
+})
+
 /** 生成角色立绘任务（已有立绘时走对比确认，requirement 为额外需求 / prompt 为直接复用提示词） */
 export function generateStandingTask(characterId, body = {}) {
   return request(`/characters/${characterId}/generate-standing-task`, { method: 'POST', body })

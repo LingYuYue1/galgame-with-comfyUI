@@ -2,7 +2,7 @@
   <Teleport to="body">
     <!-- ── 角色详情弹窗 ── -->
     <Transition name="modal-fade">
-      <div v-if="visible && !showLoraModal && !showOutfitModal && !showRefineModal" class="modal-overlay" :class="{ 'detail-inline': inlineLayout }" @mousedown="onOverlayMouseDown" @click.self="onOverlayClick">
+      <div v-if="visible && !showLoraModal && !showOutfitModal && !showRefineModal && !showClothingLibrary" class="modal-overlay" :class="{ 'detail-inline': inlineLayout }" @mousedown="onOverlayMouseDown" @click.self="onOverlayClick">
         <div class="modal-panel modal-wide detail-panel">
           <div class="modal-header">
             <div class="detail-title-row">
@@ -162,6 +162,7 @@
                         <Transition name="persona-fold" mode="out-in">
                           <div v-if="activeSceneOutfit" :key="activeSceneOutfit.scene" class="scene-edit">
                             <p class="split-hint">{{ activeSceneOutfit.scene === 'sleep' ? '睡眠时段优先使用睡衣；未配置时沿用其他有效服装。' : activeSceneOutfit.scene === 'work' ? '保留角色的常态形象，作为其他服装的生成基准。' : '只调整这套服装，保留角色的身体特征。' }}</p>
+                            <linshe-button variant="secondary" size="sm" class="clothing-library-trigger" :disabled="outfitBatchRunning || outfitGenerating" @click="openClothingLibrary">衣服库 · 选 tag 搭配</linshe-button>
                             <linshe-input
                               v-model="activeSceneOutfit.description" type="textarea" rows="10" :disabled="outfitBatchRunning"
                               :aria-label="`${activeSceneOutfit.scene === 'work' ? '默认' : activeSceneOutfit.sceneLabel}外观描述`"
@@ -506,6 +507,12 @@
       @applied="onAppearanceRefined"
     />
 
+    <ClothingLibraryModal
+      v-model="showClothingLibrary" :character-id="character?.id" :display-name="detail.editName"
+      :base-prompt="fullPrompt" :scene="clothingLibraryScene" :scene-label="clothingLibrarySceneLabel"
+      :current-appearance="detail.sceneOutfits.find(outfit => outfit.scene === clothingLibraryScene)?.description || ''"
+      @applied="applyClothingLibrary"
+    />
   </Teleport>
 </template>
 
@@ -522,6 +529,7 @@ import LinsheModal from './ui/LinsheModal.vue'
 import ImageLightbox from './ImageLightbox.vue'
 import CharacterStandingPanel from './CharacterStandingPanel.vue'
 import AppearanceRefineModal from './AppearanceRefineModal.vue'
+import ClothingLibraryModal from './ClothingLibraryModal.vue'
 import { bustUrlIfOverwritten, overwriteBustTick } from '../utils/imageUrlRefresh.js'
 import { useImageEditTasksStore } from '../stores/imageEditTasks.js'
 import { emitCharacterDisplayNameChanged } from '../utils/characterReactionProducers.js'
@@ -618,6 +626,24 @@ function workOutfitDesc() {
 /** 外观服装当前编辑的那一套（标签页选中的）。返回的是 detail.sceneOutfits 里的同一对象引用，
  *  所以 v-model 直接写它的字段即可回写原数组。 */
 const activeSceneOutfit = computed(() => detail.sceneOutfits[detail.sceneTab] || null)
+const showClothingLibrary = ref(false)
+const clothingLibraryScene = ref('work')
+const clothingLibrarySceneLabel = computed(() => clothingLibraryScene.value === 'work' ? '默认' : detail.sceneOutfits.find(outfit => outfit.scene === clothingLibraryScene.value)?.sceneLabel || '外观')
+function openClothingLibrary() {
+  if (!props.character || !activeSceneOutfit.value || outfitBatchRunning.value || outfitGenerating.value) return
+  clothingLibraryScene.value = activeSceneOutfit.value.scene
+  showClothingLibrary.value = true
+}
+function applyClothingLibrary({ characterId, scene, appearance }) {
+  if (!props.visible || Number(characterId) !== Number(props.character?.id) || outfitBatchRunning.value) return
+  const target = detail.sceneOutfits.find(outfit => outfit.scene === scene)
+  if (!target) return
+  target.description = appearance
+  if (!target.name) target.name = target.sceneLabel
+  detail.dirty = true
+  toastFn(`已回填「${scene === 'work' ? '默认' : target.sceneLabel}」，点击保存后生效`, 'success')
+}
+watch(() => [props.visible, props.character?.id], () => { showClothingLibrary.value = false })
 
 /** 实际生效的外观正文：工装被清空时回退到打开时的原外观，避免角色突然失去外观描述 */
 function effectiveAppearance() {
@@ -1867,6 +1893,7 @@ const standingPanel = reactive({
 .scene-block-head .split-hint { flex: 1 1 220px; margin: 0; }
 .scene-edit { min-width: 0; flex: 1; display: flex; flex-direction: column; }
 .scene-edit > .ls-input { flex: 1; }
+.clothing-library-trigger { margin-bottom: 8px; }
 .scene-edit-empty { font-size: var(--fs-xs); color: var(--text-secondary); padding: 12px 0; }
 .persona-fold-enter-active, .persona-fold-leave-active { transition: opacity 0.3s ease, transform 0.3s ease; }
 .persona-fold-enter-from, .persona-fold-leave-to { opacity: 0; transform: translateY(-4px); }
