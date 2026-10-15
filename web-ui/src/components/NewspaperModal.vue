@@ -87,28 +87,6 @@
           >下一期<span v-if="newerTarget" class="np-ed-switch-target"> · {{ newerTarget.today ? '今天' : editionShortLabel(newerTarget) }}</span> ›</linshe-button>
         </nav>
 
-        <!-- ⚠ 2026-10-08 合并 v3.7.0：本地补丁的「期次管理」（删除本期 / 清除往期）——
-             上游的报头用的是 np-edition-switch 行内切换条，没有这套管理按钮，
-             故把本地按钮接在这里（脚本区 deleteCurrent/clearPast 与配套 CSS 一并保留）。
-             刻意做成低调小字按钮：不是「读报」动作，hover 才染红，避免误点带来不可逆删除。 -->
-        <div v-if="paper || pastEditionCount" class="np-manage">
-          <button
-            v-if="paper"
-            type="button"
-            class="np-manage-btn is-danger"
-            :disabled="busy"
-            :title="`删除正在看的这一期（第${paper.edition}期 · ${formatDate(paper.publish_date)}），文章与配图一并删除`"
-            @click="deleteCurrent"
-          >删除本期</button>
-          <button
-            v-if="pastEditionCount"
-            type="button"
-            class="np-manage-btn is-danger"
-            :disabled="busy"
-            :title="`清除 ${pastEditionCount} 期往期报纸（保留今天），文章与配图一并删除`"
-            @click="clearPast"
-          >清除往期 {{ pastEditionCount }}</button>
-        </div>
       </header>
 
       <!-- 版面：三栏（左 = 异闻+前半新闻 / 中 = 人物特稿 / 右 = 后半新闻） -->
@@ -558,6 +536,12 @@ function onWindowKeydown(e) {
   closeWindow()
 }
 
+// 打开指定期次时按本地日期判断今天，避免 UTC 日期在凌晨偏移一天。
+function localDateKey(d = new Date()) {
+  const p = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
 function formatDate(dateStr) {
   if (!dateStr) return ''
   const d = new Date(`${dateStr}T00:00:00`)
@@ -588,79 +572,6 @@ async function fetchEditions() {
     const data = await api.listNewspaperEditions()
     editions.value = data?.editions || []
   } catch { /* 期列表失败不阻塞今天的报纸 */ }
-}
-
-// ── 期次管理（删除本期 / 清除往期）────────────────────────────
-const busy = ref(false)
-
-/** 本地日期键（YYYY-MM-DD）—— 不能用 toISOString，那是 UTC，凌晨会差一天 */
-function localDateKey(d = new Date()) {
-  const p = n => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
-}
-
-/** 往期期数（不含今天）——决定「清除往期」按钮是否出现 */
-const pastEditionCount = computed(() =>
-  editions.value.filter(e => e.publish_date !== localDateKey()).length)
-
-/** 删除后把视图收敛回一个仍然存在的期（否则会停在已删除的空期上） */
-async function resyncAfterDelete({ deletedDate }) {
-  try {
-    const data = await api.listNewspaperEditions()
-    editions.value = data?.editions || []
-  } catch { /* 列表拉取失败不影响后续刷新 */ }
-  await fetchPaper()
-  if (viewDate.value === deletedDate) { viewDate.value = ''; pastPaper.value = null }
-  // 今天那期被删掉了 → todayPaper 会变成 null，落回「还没印好」空态
-  closeDetail()
-}
-
-/**
- * 删除/清除失败的提示。
- * 「后端未重启导致接口不存在」这句人话已由 api/index.js 的 request() 统一补上，
- * 这里只负责加动作前缀，不再重复判断状态码。
- */
-function deleteErrorText(action, err) {
-  return `${action}失败：${err?.message || '未知错误'}`
-}
-
-async function deleteCurrent() {
-  const p = paper.value
-  if (!p || busy.value) return
-  const isTodayPaper = p.publish_date === localDateKey()
-  const msg = `确定删除第${p.edition}期（${formatDate(p.publish_date)}${isTodayPaper ? ' · 今天' : ''}）吗？\n`
-    + '文章与配图会一并删除，且不可恢复。'
-    + (isTodayPaper ? '\n想再要可以点「催一下印刷机」重印。' : '')
-  if (!window.confirm(msg)) return
-  busy.value = true
-  try {
-    const r = await api.deleteNewspaperEdition(p.publish_date)
-    editions.value = r?.editions || []
-    await resyncAfterDelete({ deletedDate: p.publish_date })
-  } catch (err) {
-    console.error('[NewspaperModal] delete edition failed:', err)
-    window.alert(deleteErrorText('删除', err))
-  } finally {
-    busy.value = false
-  }
-}
-
-async function clearPast() {
-  const n = pastEditionCount.value
-  if (!n || busy.value) return
-  const msg = `确定清除 ${n} 期往期报纸吗？（今天的保留）\n文章与配图会一并删除，且不可恢复。`
-  if (!window.confirm(msg)) return
-  busy.value = true
-  try {
-    const r = await api.clearNewspaperEditions({ keep: 'today' })
-    editions.value = r?.editions || []
-    await resyncAfterDelete({ deletedDate: viewDate.value })
-  } catch (err) {
-    console.error('[NewspaperModal] clear past editions failed:', err)
-    window.alert(deleteErrorText('清除', err))
-  } finally {
-    busy.value = false
-  }
 }
 
 function schedulePoll() {
@@ -883,42 +794,6 @@ onBeforeUnmount(() => {
   text-align: center;
 }
 
-/* ── 期次管理（删除本期 / 清除往期）──
-   刻意做成低调的小字按钮：它们不是「读报」动作，不该跟期号导航抢注意力；
-   hover 才染红，避免误点带来不可逆删除。 */
-.np-manage {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-left: 10px;
-  padding-left: 10px;
-  border-left: 1px solid var(--border);
-}
-.np-manage-btn {
-  padding: 3px 8px;
-  border: none;
-  border-radius: 7px;
-  background: none;
-  color: var(--text-secondary);
-  font-family: inherit;
-  font-size: 11.5px;
-  font-weight: 500;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: color 0.15s, background 0.15s;
-  -webkit-tap-highlight-color: transparent;
-}
-.np-manage-btn:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-hover); }
-/* 删除是不可逆操作：危险态常驻淡红（不能只在 hover 才变红，否则看不出这是破坏性按钮） */
-.np-manage-btn.is-danger { color: var(--danger); opacity: 0.8; }
-.np-manage-btn.is-danger:hover:not(:disabled) { color: #fff; background: var(--danger); opacity: 1; }
-.np-manage-btn:disabled { opacity: 0.35; cursor: default; }
-
-/* 窄屏：管理按钮只留图标感的短文案，避免报头挤成两行 */
-@media (max-width: 767px) {
-  .np-manage { margin-left: 6px; padding-left: 6px; }
-  .np-manage-btn { padding: 3px 6px; font-size: 11px; }
-}
 /* 报头右侧的「第 N 期」随导航联动时弱化（避免与 header 重复） */
 .np-paper.is-past-view .np-mast-side-right {
   opacity: 0.55;
