@@ -269,14 +269,17 @@ router.put('/event-freq', (req, res) => {
   res.json({ ok: true, eventFreq: config.features.eventFreq });
 });
 
-// PUT /api/config/moment-freq — 更新朋友圈发帖频率 0~24（1=默认 2~8 小时，24=最快 5~20 分钟，0=关闭）
+// PUT /api/config/moment-freq — 具体时间档 ±20%，mode 区分默认与 2 小时档
 router.put('/moment-freq', (req, res) => {
-  const { value } = req.body;
-  if (value == null || typeof value !== 'number' || value < 0 || value > 24) {
+  const { value, mode } = req.body;
+  if (!Number.isFinite(value) || value < 0 || value > 24) {
     return res.status(400).json({ error: 'value must be 0~24' });
   }
-  updateMomentFreq(value);
-  res.json({ ok: true, momentFreq: config.features.momentFreq });
+  if (mode !== undefined && (mode !== 'default' && mode !== 'interval' || mode === 'default' && value !== 1)) {
+    return res.status(400).json({ error: 'mode must be interval, or default with value=1' });
+  }
+  updateMomentFreq(value, mode);
+  res.json({ ok: true, momentFreq: config.features.momentFreq, momentFreqMode: config.features.momentFreqMode });
 });
 
 // PUT /api/config/schedule-refresh-days — 更新日程刷新周期（天，1~3）

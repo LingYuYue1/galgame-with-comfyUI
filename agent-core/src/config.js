@@ -163,8 +163,8 @@ defaultTimeoutMs: parseInt(process.env.VECTOR_DEFAULT_TIMEOUT_MS, 10) || 120000,
      * ⚠ 生成/编辑线本身不受此开关限制；本开关只管**是否自动注入**。
      */
     storyLines: process.env.FEATURE_STORY_LINES === 'true',
-    // 朋友圈发帖频率 0~24：1=基准（角色 2~8 小时一条），越大越快，24=最快（5~20 分钟）。
-    // **默认 0 = 关闭**：自动发帖要调 LLM + 生图，属于「用户想看时才看」的内容，
+    // 朋友圈发帖频率 0~24：具体时间档以 2 小时 / freq 为中心浮动 ±20%（默认档：首次 1~4 小时、之后 2~8 小时），0=关闭。
+    // **默认 0 = 关闭**（本地方案·红线 4）：自动发帖要调 LLM + 生图，属于「用户想看时才看」的内容，
     // 默认开启会在后台持续消耗额度与显卡。想自动补内容可在设置页「朋友圈发帖频率」里开启。
     // 用 IIFE 而不是 `|| 1`：`parseFloat('0') || 1` 会把显式的 0 兜成 1，
     // env 里写 MOMENT_FREQ=0 就永远关不掉（这个坑 mediaAutoMinutes 已经踩过一次）。
@@ -172,6 +172,7 @@ defaultTimeoutMs: parseInt(process.env.VECTOR_DEFAULT_TIMEOUT_MS, 10) || 120000,
       const v = parseFloat(process.env.MOMENT_FREQ);
       return Number.isFinite(v) ? Math.max(0, Math.min(24, v)) : 0;
     })(),
+    momentFreqMode: '', // 未记录模式的旧设置：freq=1 为默认，其余为具体时间档
     /*
      * 传媒自动抓帖：**每晚几批**（0 = 关闭）。
      *
@@ -668,14 +669,15 @@ export function updateEventFreq(value) {
 
 /**
  * 更新朋友圈发帖频率（0~24）
- * 1 = 默认节奏（角色 2~8 小时一条），值越大越快，0 = 关闭自动发帖。
- * 周期 = 基准 2~8 小时 / freq；上限 24 对应 5~20 分钟一条（再快没有意义，
- * 而且发帖要调 LLM + 生图，实际也跑不过来）。
+ * 默认保持 2~8 小时；interval 模式以 2 小时 / freq 为中心浮动 ±20%。
+ * 模式用于区分同为 freq=1 的「默认」与「2 小时」；0 = 关闭自动发帖。
  */
-export function updateMomentFreq(value) {
+export function updateMomentFreq(value, mode) {
   const f = Math.max(0, Math.min(24, parseFloat(value) || 0));
   config.features.momentFreq = f;
+  config.features.momentFreqMode = f === 1 && mode !== 'interval' ? 'default' : 'interval';
   persistSettingSync('feature_momentFreq', String(f));
+  persistSettingSync('feature_momentFreqMode', config.features.momentFreqMode);
   console.log(`[config] momentFreq = ${f}`);
 }
 

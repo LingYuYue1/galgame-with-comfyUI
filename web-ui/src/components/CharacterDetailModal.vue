@@ -3,8 +3,9 @@
     <!-- ── 角色详情弹窗 ── -->
     <Transition name="modal-fade">
       <!-- ⚠ 2026-10-08 合并 v3.7.0：上游新增 inlineLayout 类（内联布局）、本地新增 showPersonaRefineModal
-           互斥条件（人设润色弹窗打开时收起遮罩）—— 两者叠加，**都保留**。 -->
-      <div v-if="visible && !showLoraModal && !showOutfitModal && !showRefineModal && !showPersonaRefineModal" class="modal-overlay" :class="{ 'detail-inline': inlineLayout }" @mousedown="onOverlayMouseDown" @click.self="onOverlayClick">
+           互斥条件（人设润色弹窗打开时收起遮罩）—— 两者叠加，**都保留**。
+           ⚠ 2026-10-15 合并 v3.9.1：上游新增 showClothingLibrary（衣服库弹窗）互斥条件——一并保留。 -->
+      <div v-if="visible && !showLoraModal && !showOutfitModal && !showRefineModal && !showPersonaRefineModal && !showClothingLibrary" class="modal-overlay" :class="{ 'detail-inline': inlineLayout }" @mousedown="onOverlayMouseDown" @click.self="onOverlayClick">
         <div class="modal-panel modal-wide detail-panel">
           <div class="modal-header">
             <h3>{{ character?.display_name }}</h3>
@@ -265,6 +266,7 @@
 
                   <!-- 其余四套：只填「这一套的衣服」。身体在上面统一填，这里不重复 -->
                   <template v-else>
+                    <linshe-button variant="secondary" size="sm" class="clothing-library-trigger" :disabled="outfitBatchRunning || outfitGenerating" @click="openClothingLibrary">衣服库 · 选 tag 搭配</linshe-button>
                     <linshe-input
                       v-model="activeSceneOutfit.description"
                       type="textarea"
@@ -639,6 +641,13 @@
       :selected="selectedTraits"
       @confirm="onTraitPickerConfirm"
     />
+
+    <ClothingLibraryModal
+      v-model="showClothingLibrary" :character-id="character?.id" :display-name="detail.editName"
+      :base-prompt="fullPrompt" :scene="clothingLibraryScene" :scene-label="clothingLibrarySceneLabel"
+      :current-appearance="detail.sceneOutfits.find(outfit => outfit.scene === clothingLibraryScene)?.description || ''"
+      @applied="applyClothingLibrary"
+    />
   </Teleport>
 </template>
 
@@ -657,6 +666,7 @@ import CharacterStandingPanel from './CharacterStandingPanel.vue'
 import AppearanceRefineModal from './AppearanceRefineModal.vue'
 import PersonaRefineModal from './PersonaRefineModal.vue'
 import AppearanceTraitPicker from './AppearanceTraitPicker.vue'
+import ClothingLibraryModal from './ClothingLibraryModal.vue'
 import { bustUrlIfOverwritten, overwriteBustTick } from '../utils/imageUrlRefresh.js'
 import { splitBodyGarment } from '../utils/appearanceSplit.js'
 import { useImageEditTasksStore } from '../stores/imageEditTasks.js'
@@ -775,6 +785,24 @@ function workOutfitDesc() {
 /** 外观服装当前编辑的那一套（标签页选中的）。返回的是 detail.sceneOutfits 里的同一对象引用，
  *  所以 v-model 直接写它的字段即可回写原数组。 */
 const activeSceneOutfit = computed(() => detail.sceneOutfits[detail.sceneTab] || null)
+const showClothingLibrary = ref(false)
+const clothingLibraryScene = ref('work')
+const clothingLibrarySceneLabel = computed(() => clothingLibraryScene.value === 'work' ? '默认' : detail.sceneOutfits.find(outfit => outfit.scene === clothingLibraryScene.value)?.sceneLabel || '外观')
+function openClothingLibrary() {
+  if (!props.character || !activeSceneOutfit.value || outfitBatchRunning.value || outfitGenerating.value) return
+  clothingLibraryScene.value = activeSceneOutfit.value.scene
+  showClothingLibrary.value = true
+}
+function applyClothingLibrary({ characterId, scene, appearance }) {
+  if (!props.visible || Number(characterId) !== Number(props.character?.id) || outfitBatchRunning.value) return
+  const target = detail.sceneOutfits.find(outfit => outfit.scene === scene)
+  if (!target) return
+  target.description = appearance
+  if (!target.name) target.name = target.sceneLabel
+  detail.dirty = true
+  toastFn(`已回填「${scene === 'work' ? '默认' : target.sceneLabel}」，点击保存后生效`, 'success')
+}
+watch(() => [props.visible, props.character?.id], () => { showClothingLibrary.value = false })
 
 /**
  * 实际生效的外观正文 = 身体 + 常服那套衣服。
@@ -1927,10 +1955,16 @@ function syncPromptFromScene() {
   standingPrompt.value = String(currentStandingScene.value?.prompt_text || '')
 }
 
-function shiftStandingScene(step) {
+function shiftStandingScene(step, existingOnly = false) {
   const n = standingScenes.value.length
   if (n <= 1) return
-  standingSceneIdx.value = (standingSceneIdx.value + step + n) % n
+  let nextIndex = standingSceneIdx.value
+  for (let i = 0; i < n; i++) {
+    nextIndex = (nextIndex + step + n) % n
+    if (!existingOnly || standingScenes.value[nextIndex]?.image_url) break
+  }
+  if (nextIndex === standingSceneIdx.value) return
+  standingSceneIdx.value = nextIndex
   standingLightboxVisible.value = false
   syncPromptFromScene()
 }
@@ -2047,6 +2081,7 @@ async function uploadSceneStandingFile(file) {
 // 面板只负责渲染。reactive 里的 ref 会自动解包，面板侧可以当普通值读写。
 const standingPanel = reactive({
   funcOpen: standingFuncOpen,
+  autoplayEnabled: computed(() => props.visible && !standingLightboxVisible.value),
   requirement: standingRequirement,
   hasPrompt: standingHasPrompt,
   generating: sceneGenerating,
@@ -2075,6 +2110,7 @@ const standingPanel = reactive({
   uploadFile: uploadSceneStandingFile,
   prevScene: prevStandingScene,
   nextScene: nextStandingScene,
+  nextExistingScene: () => shiftStandingScene(1, true),
 })
 
 </script>
@@ -2379,6 +2415,7 @@ const standingPanel = reactive({
 .scene-block-head .split-hint { flex: 1 1 220px; margin: 0; }
 .scene-edit { min-width: 0; flex: 1; display: flex; flex-direction: column; }
 .scene-edit > .ls-input { flex: 1; }
+.clothing-library-trigger { margin-bottom: 8px; }
 .scene-edit-empty { font-size: var(--fs-xs); color: var(--text-secondary); padding: 12px 0; }
 .persona-fold-enter-active, .persona-fold-leave-active { transition: opacity 0.3s ease, transform 0.3s ease; }
 .persona-fold-enter-from, .persona-fold-leave-to { opacity: 0; transform: translateY(-4px); }

@@ -90,14 +90,16 @@ test('buildForumAliasGenPrompt 要求马甲不暴露身份，并要求 JSON 示�
 })
 
 test('normalizeMediaDraft：角色在论坛用马甲署名，没填马甲才退回真名', () => {
+  // ⚠ v3.9.1 上游媒体链新校验：posts[].image_prompt 必填（缺则 normalizeMediaDraft 抛错）——
+  // 本组测试关注马甲/消歧逻辑，image_prompt 仅补足必填字段，不参与断言。
   const boards = [{ id: 1, name: '日常' }]
   const authors = [
     { id: 7, display_name: '阿米莉亚·冲锤', forum_alias: '三缺一叫我', avatar_path: null },
     { id: 8, display_name: '索菲亚_准星', avatar_path: null },
   ]
   const raw = { posts: [
-    { board: '日常', title: 'T1', content: 'C1', comments: [] },
-    { board: '日常', title: 'T2', content: 'C2', comments: [] },
+    { board: '日常', title: 'T1', content: 'C1', image_prompt: 'a quiet shop front at dusk', comments: [] },
+    { board: '日常', title: 'T2', content: 'C2', image_prompt: 'a warm kitchen with rising steam', comments: [] },
   ] }
   const out = normalizeMediaDraft(raw, boards, authors)
   assert.equal(out[0].author_name, '三缺一叫我')
@@ -111,8 +113,8 @@ test('normalizeMediaDraft：同批网名跨帖子消歧，但角色马甲不动'
   const authors = [{ id: 7, display_name: '阿米莉亚·冲锤', forum_alias: '楼下便利店', avatar_path: null }]
   const raw = { posts: [
     // 角色帖用了"楼下便利店"当马甲，紧接着两条评论也叫这个名
-    { board: '日常', title: 'T1', content: 'C1', comments: [{ author: '楼下便利店', content: 'a' }, { author: '楼下便利店', content: 'b' }] },
-    { board: '日常', title: 'T2', content: 'C2', author: '楼下便利店', comments: [] },
+    { board: '日常', title: 'T1', content: 'C1', image_prompt: 'a convenience store counter at night', comments: [{ author: '楼下便利店', content: 'a' }, { author: '楼下便利店', content: 'b' }] },
+    { board: '日常', title: 'T2', content: 'C2', author: '楼下便利店', image_prompt: 'a busy street corner in the rain', comments: [] },
   ] }
   const out = normalizeMediaDraft(raw, boards, authors)
 
@@ -131,7 +133,7 @@ test('normalizeMediaDraft：同批网名跨帖子消歧，但角色马甲不动'
 test('normalizeMediaDraft：没有角色参与时，匿名网名照样消歧', () => {
   const boards = [{ id: 1, name: '日常' }]
   const raw = { posts: [
-    { board: '日常', title: 'T1', content: 'C1', author: '通勤中', comments: [{ author: '通勤中', content: 'a' }] },
+    { board: '日常', title: 'T1', content: 'C1', author: '通勤中', image_prompt: 'a commuter train window view', comments: [{ author: '通勤中', content: 'a' }] },
   ] }
   const out = normalizeMediaDraft(raw, boards, [])
   assert.equal(out[0].author_type, 'anonymous')

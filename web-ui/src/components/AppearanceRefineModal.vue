@@ -245,6 +245,7 @@ async function startExpand() {
   try {
     absorbResult(await api.expandAppearanceDraft({
       brief,
+      characterId: props.characterId,
       basePrompt: props.basePrompt,
       displayName: props.displayName,
       sceneLabel: props.sceneLabel,

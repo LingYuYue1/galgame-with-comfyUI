@@ -281,13 +281,13 @@ export function getEmojiOverview() {
   return request(`/characters/emoji/overview`)
 }
 
-// ── 表情包配置单（多套切换） ──
+// ── 表情包配置单（多套独立启用） ──
 export function createEmojiSet(characterId, name = '') {
   return request(`/characters/emoji/sets`, { method: 'POST', body: { character_id: characterId, name } })
 }
 
-export function activateEmojiSet(setId) {
-  return request(`/characters/emoji/sets/${setId}/activate`, { method: 'POST' })
+export function activateEmojiSet(setId, enabled = true) {
+  return request(`/characters/emoji/sets/${setId}/activate`, { method: 'POST', body: { enabled } })
 }
 
 export function renameEmojiSet(setId, name) {
@@ -416,10 +416,10 @@ export function refineAppearanceDraft({ image, basePrompt, displayName, sceneLab
 }
 
 /** 修正外观·文字模式：按纯文字要点扩写外观描述（不出图，只走文本 LLM；不入库，由前端回填） */
-export function expandAppearanceDraft({ brief, basePrompt, displayName, sceneLabel }) {
+export function expandAppearanceDraft({ brief, characterId, basePrompt, displayName, sceneLabel }) {
   return request('/characters/expand-appearance-draft', {
     method: 'POST',
-    body: { brief, base_prompt: basePrompt, display_name: displayName, scene_label: sceneLabel },
+    body: { brief, character_id: characterId, base_prompt: basePrompt, display_name: displayName, scene_label: sceneLabel },
   })
 }
 
@@ -437,6 +437,11 @@ export function refinePersonaDraft({ basePrompt, displayName, mode, instruction 
     body: { base_prompt: basePrompt, display_name: displayName, mode, instruction },
   })
 }
+
+export const getClothingLibrary = () => request('/characters/clothing-library')
+export const generateClothingAppearanceDraft = ({ characterId, basePrompt, scene, tags, brief, signal }) => request('/characters/clothing-appearance-draft', {
+  method: 'POST', body: { character_id: characterId, base_prompt: basePrompt, scene, tags, brief }, signal,
+})
 
 /** 生成角色立绘任务（已有立绘时走对比确认，requirement 为额外需求 / prompt 为直接复用提示词） */
 export function generateStandingTask(characterId, body = {}) {
@@ -760,9 +765,9 @@ export async function updateEventFreq(value) {
   await request(`/config/event-freq`, { method: 'PUT', body: { value } })
 }
 
-/** 更新朋友圈发帖频率（0~3，1=默认 2~8 小时一条，0=关闭自动发帖） */
-export async function updateMomentFreq(value) {
-  await request(`/config/moment-freq`, { method: 'PUT', body: { value } })
+/** 更新朋友圈频率（0~24）；mode 区分「默认」与具体时间档。 */
+export async function updateMomentFreq(value, mode) {
+  await request(`/config/moment-freq`, { method: 'PUT', body: { value, mode } })
 }
 
 /** 更新日程刷新周期（天，1~3） */
@@ -2331,6 +2336,8 @@ export { getTownWallet, executeTownLifeCommand, createTownTargetTradeCommand,
 // 独立角色表情立绘；与普通立绘和小镇素材分开存储。
 const expressionStandingPath = (id, slot = '') => `/characters/${id}/expression-standings${slot ? '/' + encodeURIComponent(slot) : ''}`
 export const getStandingOverview = () => request('/expression-standings/overview')
+export const preflightAllExpressionStandings = body => request('/expression-standings/preflight', { method: 'POST', body })
+export const preflightExpressionStandings = (id, body) => request(expressionStandingPath(id) + '/preflight', { method: 'POST', body })
 export const generateAllExpressionStandings = body => request('/expression-standings/generate', { method: 'POST', body })
 export const listExpressionStandings = id => request(expressionStandingPath(id))
 export const generateExpressionStandings = (id, body) => request(expressionStandingPath(id) + '/generate', { method: 'POST', body })

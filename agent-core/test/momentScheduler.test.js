@@ -32,6 +32,30 @@ function enableMomentScheduling() {
   config.features.momentFreq = 1;
 }
 
+test('具体时间档的首帖先排期，关闭自动发帖时不初始化或派发', async t => {
+  const db = getDb();
+  const previous = { ...config.features };
+  t.after(() => { Object.assign(config.features, previous); closeDb(); });
+  db.prepare('UPDATE characters SET moments_disabled = 1').run();
+  db.prepare('UPDATE town_npcs SET moments_disabled = 1').run();
+  const { lastInsertRowid: id } = db.prepare(`INSERT INTO characters (name, display_name, base_prompt) VALUES ('timing', '定时角色', '旅客')`).run();
+  const calls = [];
+  sched.setMomentPostGenerator(async character => calls.push(character.id));
+  config.features.momentFreq = 0;
+  config.features.momentFreqMode = 'interval';
+  await sched.runSchedulerTick();
+  assert.equal(db.prepare('SELECT next_moment_at FROM characters WHERE id = ?').get(id).next_moment_at, null);
+  config.features.momentFreq = 1; // 显式 2 小时档，必须区别于默认
+  const before = Date.now();
+  await sched.runSchedulerTick();
+  const after = Date.now();
+  const scheduled = db.prepare('SELECT next_moment_at FROM characters WHERE id = ?').get(id).next_moment_at;
+  const at = Date.parse(scheduled.replace(' ', 'T') + 'Z');
+  assert.ok(at >= before + 1.6 * 3600_000 - 1000);
+  assert.ok(at <= after + 2.4 * 3600_000);
+  assert.equal(calls.length, 0, '新角色不能绕过首次等待立即发帖');
+});
+
 test('scheduler dispatches the earlier-due author and keeps characters and townsfolk in one queue', async t => {
   const db = getDb();
   enableMomentScheduling();   // ⚠ 必须在 getDb() 之后（settings 会回灌 config）

@@ -34,6 +34,7 @@ import { collectCharacterImageUrls } from '../services/characterImages.js';
 import { pickReactionMarker } from '../services/emojiService.js';
 import { createCharacterBackgroundRouter } from './characterBackgrounds.js';
 import { generateDialogueBackground } from '../services/dialogueBackground.js';
+import { getClothingLibrary, resolveClothingTags, buildClothingAppearanceMessages, parseClothingAppearance } from '../services/clothingLibrary.js';
 
 const router = Router();
 
@@ -54,6 +55,33 @@ router.get('/appearance-trait-catalog', (req, res) => {
   } catch (err) {
     console.error('[characters] appearance-trait-catalog error:', err.message);
     res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/clothing-library', (_req, res) => res.json(getClothingLibrary()));
+
+// 衣服库只生成草稿，确认应用后由详情卡走既有场景服装保存链路。
+router.post('/clothing-appearance-draft', async (req, res) => {
+  const { character_id: characterId, base_prompt: basePrompt, scene = 'work', tags, brief = '' } = req.body || {};
+  let entries;
+  try { entries = resolveClothingTags(tags, scene); } catch (error) { return res.status(400).json({ error: error.message }); }
+  if (!Number.isSafeInteger(Number(characterId)) || Number(characterId) <= 0) return res.status(400).json({ error: '角色 ID 无效' });
+  if (typeof basePrompt !== 'string' || !basePrompt.trim() || basePrompt.length > 100000) return res.status(400).json({ error: '缺少有效的人格卡内容' });
+  if (typeof brief !== 'string' || brief.length > 2000) return res.status(400).json({ error: '补充要求不能超过 2000 字' });
+  const character = getDb().prepare('SELECT id, short_prompt, base_prompt FROM characters WHERE id = ?').get(Number(characterId));
+  if (!character) return res.status(404).json({ error: '角色不存在' });
+  try {
+    const world = getWorldSetting();
+    const messages = buildClothingAppearanceMessages({
+      systemRules: getSystemRulesWithWorld({ roleplay: false }),
+      worldRule: world ? getWorldIntegrationRule('interaction') : '',
+      persona: buildCharacterPersona({ ...character, base_prompt: basePrompt }, { variant: 'full', outfits: null }),
+      scene, entries, brief: brief.trim(),
+    });
+    const raw = await chatSync(messages, { model: config.llm.model || 'deepseek-chat', temperature: 0.6, max_tokens: 1800, label: '衣服库外观生成' });
+    res.json({ appearance: parseClothingAppearance(raw, entries, scene), tags: entries.map(entry => entry.tag) });
+  } catch (error) {
+    res.status(502).json({ error: `生成服装提示词失败：${error.message}` });
   }
 });
 
@@ -2044,33 +2072,37 @@ function splitPersonaAroundAppearance(basePrompt) {
 
 // ── 修正外观·文字模式（按用户给的文字要点扩写外观描述）──
 // 与图片模式并列的第二条入口：不想找参考图时，直接写几个词让邻舍补全细节。
-// 产出格式对齐 character_outfits.description 的既有约定（中文叙述 + 英文 tag 混合），
-// 而不是图片模式那套「角色名 (作品名) has ...」——后者是人格卡外观段的口径，写进服装描述会与四套服装风格割裂。
+// 文字扩写沿用既有参考图修正的外观描述格式。
 
-const EXPAND_APPEARANCE_SYSTEM_PROMPT = `你是角色服装外观描述助手。用户会给你一段**简短的文字要点**（可能只是几个词、也可能是一两句），请把它**扩写**成一段可直接用于 AI 生图的服装外观描述。
+const EXPAND_APPEARANCE_SYSTEM_PROMPT = `你是角色外观描述助手。用户会给你一段**简短的文字要点**（可能只是几个词、也可能是一两句），请结合后续提供的角色简述与默认外观，把它**扩写**成一段可直接用于 AI 生图的完整英文外观描述。
 
 【最重要的原则：扩写，不是重写】
 - 用户提到的**每一个元素都必须保留**：单品、颜色、材质、纹样、配饰、穿法、赤足与否……一个都不能丢，也不能换成别的东西。
 - 你只负责**补全用户没说到的细节**（廓形、面料质感、层次、领口袖口、配饰质感、整体气质）。
 - 用户没说的地方你才可以自由发挥；用户说了的地方一律以用户为准。
 - 若用户写的是抽象气质（如「想更慵懒一点」），把它翻译成**可见的**服装细节，不要写成情绪或氛围描写。
+- 未被用户要求修改的身体特征与标志性特征，沿用默认外观，不臆造缺失的身体特征。私服、居家服、睡衣按本次文字要点重新设计，不照搬默认服装或把与新要求冲突的单品混进来。
 
-【输出格式（严格遵守）】
-- **中文叙述与英文 tag 混合**：先写中文的自然语言描述，末尾接一串逗号分隔的英文 tag（把同一套服装的可视要素转成 Danbooru 风格英文标签）。
-- 长度 60~150 字（含英文 tag）。
-- 示例（注意两例的**脚部处理相反**，别搞混）：
-  · 睡衣例（赤脚）：宽松的米白针织长衫，下摆印着歪斜的黑色小兔涂鸦，袖口和领口是红色包边。一条太长的黑白格纹睡裤松松垮垮，赤脚踩在地板上。loose sleepwear, off-white, rabbit doodle print, red piping, checkered pajama pants, barefoot
-  · 居家例（拖鞋）：灰蓝色宽松针织开衫配同色系棉质长裤，裤脚挽起一截，领口松垮。脚上一双米色毛绒家居拖鞋。grey-blue loose knit cardigan, matching cotton lounge pants, rolled cuffs, relaxed neckline, beige fuzzy indoor slippers
+【外观描述格式（严格遵守）】
+- 以「角色名 (作品名)」开头，紧接着以 has ... / wearing ... 续写外观描述，一整段连贯英文。
+- 开头固定为「角色名 (作品名)」格式（半角括号）：角色名用英文名，作品名用作品的官方英文名，从本次给定的身份信息中提取、转换，如 宵宫（Yoimiya），来自《原神》→ Yoimiya (Genshin Impact)。不得照抄示例角色的身份。
+- 角色名之后直接以 has ... / wearing ... 续写，不要主语代词（she/he/they），不要再出现中文、「来自」或书名号。
+- 不描述五官，如果有必要才去描述发型否则发型不描述。
+- 只描述静态外观：不要表情、动作、姿势、场景、背景、画质与镜头描述。
+- 描述正文为一段连贯英文，不要换行、不要中文、不要 Markdown、列表、额外引号或任何解释，不附加英文标签串。
+
+【输出示例：只展示格式，不套用示例角色的外观】
+Cyrene (Honkai: Star Rail) has soft pastel pink hair in a fluffy shoulder-length bob with small white horn-like accessories, bright blue eyes, wearing a white off-shoulder corset-style bodice with intricate gold embroidery, a dark purple open-front coat with wide flowing sleeves featuring gold patterns and white floral accents, a large blue gem centerpiece at the chest connected with golden ornaments, a matching blue gem necklace, and a short white dress underneath.
 
 【硬性要求】
-- **第三人称、只描述服装与外观本身**：不要出现「她」「他」「用户」「我」，不要写身份、职业、性格、动作、姿势、表情。
+- **第三人称、只描述静态外观**：除开头的角色姓名与作品名外，不写身份背景、职业、性格、动作、姿势、表情。
 - 不要出现场景、背景、道具、光线、画质与镜头描述（那是生图环节另外加的）。
-- 只输出这段描述本身：不要解释、不要前言后语、不要引号、不要 markdown、不要换行分点。`;
+- 严格按示例格式只输出这段英文描述：不要解释、前言后语、引号、Markdown、JSON、标题或换行分点。`;
 
 // POST /api/characters/expand-appearance-draft — 按文字要点扩写外观段
 // 与 refine-appearance-draft 同一套「只出草稿不落库」的契约：
 // 返回新外观段 + 前后文，由前端回填人格卡文本框走既有保存链路。
-// Body: { brief, base_prompt, display_name, scene_label } → { appearance, base_prompt, prompt_before, prompt_after }
+// Body: { brief, character_id?, base_prompt, display_name, scene_label } → { appearance, base_prompt, prompt_before, prompt_after }
 router.post('/expand-appearance-draft', async (req, res) => {
   const brief = typeof req.body?.brief === 'string' ? req.body.brief.trim() : '';
   if (!brief) {
@@ -2099,13 +2131,33 @@ router.post('/expand-appearance-draft', async (req, res) => {
       : '';
     console.log(`[expand-appearance] expanding ${brief.length} chars for "${displayName}"${sceneLabel ? ` (scene: ${sceneLabel})` : ''}`);
 
+    // basePrompt 可能包含当前私服/居家服/睡衣，只用于结果回填，绝不作为这些场景的生成上下文。
+    // 已入库角色读取 short_prompt + 默认外观；未入库招募草稿只有默认外观。
+    const characterId = req.body?.character_id;
+    let character;
+    if (characterId != null) {
+      if (!Number.isSafeInteger(Number(characterId)) || Number(characterId) <= 0) {
+        return res.status(400).json({ error: '角色 ID 无效' });
+      }
+      character = getDb().prepare('SELECT id, short_prompt, base_prompt FROM characters WHERE id = ?').get(Number(characterId));
+      if (!character) return res.status(404).json({ error: '角色不存在' });
+    } else {
+      if (['私服', '居家', '居家服', '睡衣'].includes(sceneLabel)) {
+        return res.status(400).json({ error: '缺少角色 ID，无法读取默认外观，请重新打开修正外观窗口' });
+      }
+      character = { base_prompt: basePrompt };
+    }
+    const corpus = extractAppearanceIdentityCorpus(character.base_prompt, displayName);
+    const persona = buildCharacterPersona({ ...character, short_prompt: character.short_prompt || displayName }, { variant: 'short', outfits: null });
     const llmResult = await chatSync([
-      // system0 — 破限词（创作自由，无 roleplay），与其他创作流程口径一致
+      // 静态前缀在前，角色与场景上下文在后，用户本次要求收尾。
       { role: 'system', content: getSystemRules({ roleplay: false }) },
       { role: 'system', content: EXPAND_APPEARANCE_SYSTEM_PROMPT },
+      { role: 'system', content: `【本次角色身份】\n显示名：${displayName}\n姓名与作品信息：${corpus}\n\n【角色简述与默认外观】\n${persona}` },
+      ...(sceneLine ? [{ role: 'system', content: `【本套场景约束】\n${sceneLine}` }] : []),
       {
         role: 'user',
-        content: `角色：${displayName}\n${sceneLine}\n\n用户想要的服装要点：\n${brief}\n\n请按格式扩写成一段服装外观描述。`,
+        content: `用户想要的外观要点：\n${brief}\n\n请按规定格式输出一段完整外观描述。`,
       },
     ], { model, temperature: 0.75, max_tokens: 1024, label: '外观扩写' });
 

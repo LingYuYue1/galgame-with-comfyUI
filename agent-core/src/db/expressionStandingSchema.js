@@ -36,6 +36,6 @@ export function migrateExpressionStandings(db) {
 export function recoverExpressionStandingJobs(db) {
   db.transaction(() => {
     db.prepare(`UPDATE character_expression_standings SET status='failed',error='服务重启导致生成中断，请重试' WHERE status IN ('queued','generating')`).run();
-    db.prepare(`UPDATE expression_standing_jobs SET status='failed',error='服务重启导致生成中断，请重试' WHERE status IN ('queued','prompts','generating','stopping','paused')`).run();
+    db.prepare(`UPDATE expression_standing_jobs SET status='failed',error='服务重启导致生成中断，请重试' WHERE status IN ('queued','outfits','prompts','generating','stopping','paused')`).run();
   })();
 }

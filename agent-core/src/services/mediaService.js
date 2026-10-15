@@ -847,7 +847,7 @@ function recentUsedAliases(outletId, limit = 40) {
  * @param {object} [opts]
  * @param {string[]} [opts.usedAliases] 该媒体近期用过的网名 —— 喂回规则里做去重
  */
-function buildFormatPrompt(outlet, boards, authors, opts = {}) {
+export function buildFormatPrompt(outlet, boards, authors, opts = {}) {
   const boardNames = boards.map(b => b.name);
   const boardRule = boardNames.length
     ? `"board" 必须从这个媒体的板块里选：${boardNames.map(x => `「${x}」`).join('、')}`
@@ -867,30 +867,27 @@ function buildFormatPrompt(outlet, boards, authors, opts = {}) {
 
   return `请严格按照以下 JSON 格式输出，不要输出任何解释或 JSON 以外的文字：
 
-{
-  "posts": [
-    {
-      "board": "板块名（${boardRule}）",
-      "title": "帖子标题（≤30字，符合该媒体的标题风格）",
-      "content": "帖子正文（60~300字，有具体细节，符合该媒体的文体）",
-      "tags": ["标签1", "标签2"],
-      "author": "发布者名（见下方作者要求）",
-      "likes": 数字（点赞数，见下方热度要求）,
-      "views": 数字（浏览数，通常为点赞数的 8~25 倍）,
-      "comments": [
-        { "author": "评论者名", "content": "评论内容（20~80字）" }
-      ],
-      "image_prompt": "英文插画描述（一段完整英文：写清画面主体、动作、地点、光线；不出现任何文字、边框或水印）"
-    }
-  ]
-}
+${JSON.stringify({
+  posts: [{
+    board: `板块名（${boardRule}）`,
+    title: '帖子标题（≤30字，符合该媒体的标题风格）',
+    content: '帖子正文（60~300字，有具体细节，符合该媒体的文体）',
+    tags: ['标签1', '标签2'],
+    author: '发布者名（见下方作者要求）',
+    likes: 1200,
+    views: 14400,
+    comments: [{ author: '评论者名', content: '评论内容（20~80字）' }],
+    image_prompt: '英文插画描述（一段完整英文：写清画面主体、动作、地点、光线；不出现任何文字、边框或水印；必填非空字符串）',
+  }],
+}, null, 2)}
 
 字段要求：
 - ${boardRule}。
 - 作者要求：${authorRule}
 - 同一批次内每条帖子的**板块、主题、作者都必须明显不同**，禁止同质化与模板化。
-- "likes"/"views"：普通帖子点赞 20~3000；由上面点名的那几位角色本人发的帖子，因为有关注度，点赞要给到 800~12000。views 相应放大。
+- "likes"/"views" 必须为 JSON 整数（示例为 1200/14400）：普通帖子点赞 20~3000；由上面点名的那几位角色本人发的帖子，因为有关注度，点赞要给到 800~12000。views 相应放大。
 - "comments"：每条帖子 1~4 条评论，观点要有支持、反对、质疑、调侃、歪楼等不同声音，禁止清一色附和、禁止"同上/+1"这类无信息量回复。
+- "image_prompt" 每条帖子必填，必须是非空英文字符串，不得省略、留空或填 null。
 - 所有 title/content/comments 用中文；所有 image_prompt 用英文。
 - 内容必须符合 <world_setting> 的时代感与生活细节，不出现世界观之外的事物。
 
@@ -941,6 +938,10 @@ export function normalizeMediaDraft(raw, boards, authors = []) {
     const title = clampText(item?.title, 60);
     const content = clampText(item?.content, 1200);
     if (!title || !content) return;   // 标题/正文缺一不可
+    const rawImagePrompt = item?.image_prompt ?? item?.imagePrompt;
+    if (typeof rawImagePrompt !== 'string' || !rawImagePrompt.trim()) {
+      throw new Error(`第 ${i + 1} 条帖子缺少有效的 image_prompt（必须是非空英文字符串）`);
+    }
 
     const boardName = clampText(item?.board, 16);
     const board = boardByName.get(boardName) || null;
@@ -972,7 +973,7 @@ export function normalizeMediaDraft(raw, boards, authors = []) {
       likes,
       views: Number.isFinite(viewsRaw) && viewsRaw > 0 ? Math.floor(viewsRaw) : likes * randInt(8, 25),
       comments,
-      image_prompt: clampText(item?.image_prompt ?? item?.imagePrompt, 1200),
+      image_prompt: clampText(rawImagePrompt, 1200),
     });
   });
 
@@ -2971,9 +2972,18 @@ export async function generateMediaBatch({ outletId = null, count = DEFAULT_BATC
       response_format: { type: 'json_object' },
       label: `media:${outlet.name}`,
     });
-    const jsonStr = extractFirstJson(raw);
-    if (!jsonStr) throw new Error('LLM 未返回 JSON');
-    const drafts = normalizeMediaDraft(JSON.parse(repairJson(jsonStr)), boards, authors);
+    let drafts;
+    try {
+      const jsonStr = extractFirstJson(raw);
+      if (!jsonStr) throw new Error('LLM 未返回完整 JSON');
+      // 合法 JSON 优先直接解析，避免修复逻辑改变原本正确的转义内容。
+      let parsed;
+      try { parsed = JSON.parse(jsonStr); } catch { parsed = JSON.parse(repairJson(jsonStr)); }
+      drafts = normalizeMediaDraft(parsed, boards, authors);
+    } catch (err) {
+      // 输出不完整直接报错，不重新请求模型，也不写入无图帖子。
+      throw new Error(`社交平台图文输出不完整：${err.message}`);
+    }
 
     const batchId = `mb_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const ins = db.prepare(`
@@ -2998,7 +3008,7 @@ export async function generateMediaBatch({ outletId = null, count = DEFAULT_BATC
     tx();
     console.log(`[media] 「${outlet.name}」新增 ${inserted} 条（角色参与 ${authors.map(a => a.display_name).join('、') || '无'}）`);
 
-    // 无配图的纯文字帖直接发布，其余等待图片齐全。
+    // 所有新社交帖已校验配图提示词，等待图片齐全后发布。
     for (const id of postIds) publishMediaPostIfReady(id);
 
     // 按本批数量排队补图，不阻塞请求；忙碌时排队，不丢弃任务。

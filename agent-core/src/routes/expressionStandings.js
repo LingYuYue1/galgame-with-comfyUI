@@ -7,9 +7,11 @@ import { imageUrlExists } from '../services/imagePaths.js';
 import { broadcast } from '../services/unifiedStreamBus.js';
 import { readTouchLines, saveTouchLines, fillMissingTouchLines } from '../services/standingTouchLines.js';
 import { regenerateStandingTouchLines, generateStandingTouchLines } from '../services/expressionStandingService.js';
+import { previewStandingBatches, previewCharacterStandingBatch } from '../services/expressionStandingService.js';
 
 const router = Router();
 router.get('/expression-standings/overview', (_req, res) => res.json({ characters: listStandingOverview() }));
+router.post('/expression-standings/preflight', (req, res) => res.json(previewStandingBatches(req.body)));
 router.post('/expression-standings/generate', (req, res) => res.status(202).json(startAllStandingBatches(req.body)));
 router.post('/expression-standings/touch-lines/fill', (_req,res)=>res.status(202).json(fillMissingTouchLines({db:getDb(),generate:generateStandingTouchLines,emit:broadcast})));
 const base = '/characters/:id/expression-standings';
@@ -24,6 +26,7 @@ router.get('/characters/:id/standing-interaction', (req, res) => res.json(intera
 router.put('/characters/:id/standing-interaction', (req, res) => res.json(interactions().save(req.params.id, req.body)));
 router.put(`${base}/:slot/interaction-regions`, (req, res) => res.json(interactions().saveRegions(req.params.id, req.params.slot, req.body)));
 router.get(base, (req, res) => res.json(listExpressionStandings(req.params.id)));
+router.post(`${base}/preflight`, (req, res) => res.json(previewCharacterStandingBatch(req.params.id, req.body)));
 router.post(`${base}/generate`, (req, res) => res.status(202).json(startStandingBatch(req.params.id, req.body)));
 router.post(`${base}/jobs/:jobId/:action`, (req, res) => res.json(controlStandingBatch(req.params.id, req.params.jobId, req.params.action)));
 router.patch(`${base}/:slot/prompt`, (req, res) => {

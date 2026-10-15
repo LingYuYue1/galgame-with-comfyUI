@@ -113,16 +113,23 @@ export function parseGroupEmojiText(text, emojiMap = new Map(), categoryKeys = [
   return { ...parseEmojiText(raw, emojiMap), invalidEmoji };
 }
 
-/** 读取角色「启用中配置单」里所有 done 且已落盘的 emoji：key -> image_path。
- * 没有配置单或启用的是空白配置单 → 空 Map = 角色当前没有表情包可发 */
-export function getCharacterEmojiMap(characterId, db = getDb()) {
+/** 从角色所有已勾选套装中，按表情类别独立随机抽取一张可用图片。
+ * 每轮请求重新抽取；轮内保持 key -> URL 稳定，让流式展示与落库时重新解析的图片一致。
+ * 没有已完成图片时返回空 Map，不回退到未勾选套装。 */
+export function getCharacterEmojiMap(characterId, db = getDb(), random = Math.random) {
   const rows = db.prepare(`
     SELECT ce.emoji_key, ce.image_path
     FROM character_emojis ce
-    JOIN emoji_sets es ON es.id = ce.set_id AND es.is_active = 1
-    WHERE ce.character_id = ? AND ce.status = 'done' AND ce.image_path IS NOT NULL
+    JOIN emoji_sets es ON es.id = ce.set_id AND es.character_id = ce.character_id AND es.is_active = 1
+    WHERE ce.character_id = ? AND ce.status = 'done' AND TRIM(COALESCE(ce.image_path, '')) <> ''
+    ORDER BY ce.id
   `).all(characterId);
-  return new Map(rows.map(r => [r.emoji_key, r.image_path]));
+  const candidates = new Map();
+  for (const row of rows) {
+    if (!candidates.has(row.emoji_key)) candidates.set(row.emoji_key, []);
+    candidates.get(row.emoji_key).push(row.image_path);
+  }
+  return new Map([...candidates].map(([key, urls]) => [key, urls[Math.floor(random() * urls.length)]]));
 }
 
 /**
@@ -164,7 +171,7 @@ export function getUserEmojiMap(db = getDb()) {
   return new Map(rows.map(r => [r.emoji_key, r.image_path]));
 }
 
-// ── 表情包配置单（多套切换） ──
+// ── 表情包配置单（多套独立启用） ──
 
 export const DEFAULT_EMOJI_SET_NAME = '默认表情包';
 
@@ -179,7 +186,7 @@ export function listEmojiSets(characterId, db = getDb()) {
   `).all(characterId);
 }
 
-/** 角色当前启用的配置单；没有则返回 null */
+/** 默认编辑/生成目标：取角色最早启用的一套；发送使用 getCharacterEmojiMap 汇总所有套装。 */
 export function getActiveEmojiSet(characterId, db = getDb()) {
   return db.prepare(`
     SELECT ${EMOJI_SET_COLUMNS} FROM emoji_sets
@@ -198,22 +205,25 @@ export function getEmojiSetById(setId, characterId = null, db = getDb()) {
   return row || null;
 }
 
-/** 新建空白配置单（零行记录，不启用）；名称留空回落「默认表情包」 */
+/** 新建空白配置单并默认启用，不改变其他套装选择；名称留空回落「默认表情包」 */
 export function createEmojiSet(characterId, name, db = getDb()) {
   const clean = String(name || '').trim() || DEFAULT_EMOJI_SET_NAME;
-  const info = db.prepare('INSERT INTO emoji_sets (character_id, name, is_active) VALUES (?, ?, 0)').run(characterId, clean);
+  const info = db.prepare('INSERT INTO emoji_sets (character_id, name, is_active) VALUES (?, ?, 1)').run(characterId, clean);
   return getEmojiSetById(info.lastInsertRowid, null, db);
 }
 
-/** 启用某张配置单（事务内同角色互斥）。切换后聊天即改发这张配置单的表情包 */
+/** 启用某张配置单，保留其他套装的勾选状态。 */
 export function activateEmojiSet(setId, db = getDb()) {
+  return setEmojiSetEnabled(setId, true, db);
+}
+
+/** 独立设置某套是否参与随机发送；允许全部取消。 */
+export function setEmojiSetEnabled(setId, enabled, db = getDb()) {
+  if (typeof enabled !== 'boolean') throw new Error('enabled 必须为布尔值');
   const target = getEmojiSetById(setId, null, db);
   if (!target) return null;
-  db.transaction(() => {
-    db.prepare('UPDATE emoji_sets SET is_active = 0 WHERE character_id = ?').run(target.character_id);
-    db.prepare('UPDATE emoji_sets SET is_active = 1 WHERE id = ?').run(target.id);
-  })();
-  return { ...target, is_active: 1 };
+  db.prepare('UPDATE emoji_sets SET is_active = ? WHERE id = ?').run(Number(enabled), target.id);
+  return { ...target, is_active: Number(enabled) };
 }
 
 /** 重命名配置单；名称不能为空 */
@@ -227,20 +237,12 @@ export function renameEmojiSet(setId, name, db = getDb()) {
 }
 
 /** 删除配置单：仅删配置行（表情行级联清理），磁盘图片一律不动，历史消息贴图照常回放。
- * 删的是启用中的单时自动启用该角色剩余最新的一张（没有则角色回到「无表情包」状态） */
+ * 保留剩余套装的勾选状态，不自动启用用户未勾选的套装。 */
 export function deleteEmojiSet(setId, db = getDb()) {
   const target = getEmojiSetById(setId, null, db);
   if (!target) return null;
   db.prepare('DELETE FROM emoji_sets WHERE id = ?').run(setId);
-  let activatedSetId = null;
-  if (target.is_active) {
-    const remaining = db.prepare('SELECT id FROM emoji_sets WHERE character_id = ? ORDER BY id DESC LIMIT 1').get(target.character_id);
-    if (remaining) {
-      db.prepare('UPDATE emoji_sets SET is_active = 1 WHERE id = ?').run(remaining.id);
-      activatedSetId = remaining.id;
-    }
-  }
-  return { ...target, is_active: 0, activatedSetId };
+  return { ...target, is_active: 0, activatedSetId: null };
 }
 
 /** 解析生成目标配置单：显式 set_id 优先（校验归属），否则启用中的单；
@@ -253,8 +255,7 @@ export function resolveOrCreateEmojiSet(characterId, setId = null, db = getDb())
   }
   const active = getActiveEmojiSet(characterId, db);
   if (active) return active;
-  const created = createEmojiSet(characterId, DEFAULT_EMOJI_SET_NAME, db);
-  return activateEmojiSet(created.id, db);
+  return createEmojiSet(characterId, DEFAULT_EMOJI_SET_NAME, db);
 }
 
 /** 表情包固定 tag 默认值：由代码硬编码到每条 prompt 开头，不再依赖 LLM 输出（省 token 且不会丢 tag）。

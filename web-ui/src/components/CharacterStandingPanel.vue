@@ -121,7 +121,7 @@ const props = defineProps({
   inline: { type: Boolean, default: false },
 })
 
-// 只保存过渡状态；角色与形象数据仍由父组件管理。
+// 只保存过渡与轮播计时状态；角色与形象数据仍由父组件管理。
 const slideDirection = ref(1)
 const sceneSwitching = ref(false)
 const sceneKey = computed(() => `${props.character?.id ?? ''}:${props.ctl.sceneIndex ?? props.ctl.sceneLabel ?? ''}`)
@@ -132,6 +132,26 @@ function switchScene(direction) {
   if (direction < 0) props.ctl.prevScene()
   else props.ctl.nextScene()
 }
+
+// 收起操作时每两秒轮播已有图片；手动切换后重新计时，展开、关闭或卸载时清理。
+watch(() => [
+  props.ctl.autoplayEnabled,
+  props.ctl.funcOpen,
+  props.ctl.busy,
+  props.ctl.uploading,
+  sceneKey.value,
+  ...(props.ctl.scenes?.map(scene => scene.image_url) || []),
+], (_, __, onCleanup) => {
+  if (!props.ctl.autoplayEnabled || props.ctl.funcOpen || props.ctl.busy || props.ctl.uploading) return
+  if ((props.ctl.scenes?.filter(scene => scene.image_url).length || 0) <= 1) return
+  const timer = setTimeout(() => {
+    slideDirection.value = 1
+    sceneSwitching.value = true
+    props.ctl.nextExistingScene()
+  }, 2000)
+  onCleanup(() => clearTimeout(timer))
+}, { immediate: true })
+
 // 提前缓存已生成的场景图，减少切换时等图片下载造成的空白。
 watch(() => props.ctl.scenes?.map(scene => scene.image_url).filter(Boolean) || [], urls => {
   for (const url of new Set(urls)) {

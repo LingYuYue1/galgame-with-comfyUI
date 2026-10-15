@@ -167,32 +167,41 @@
                 >完全重做</linshe-button>
               </div>
 
-              <!-- 配置单栏：芯片 = 编辑目标，「使用中」= 聊天实际发送的那张 -->
+              <!-- 名称切换编辑目标，开关独立勾选参与随机发送的套装 -->
               <div v-if="selectedCharId !== null" class="emoji-setbar">
                 <template v-if="selectedSets.length > 0">
                   <div class="emoji-set-chips">
-                    <linshe-button
-                      v-for="s in selectedSets"
-                      :key="s.id"
-                      variant="chip"
-                      size="sm"
-                      :active="selectedSetId === s.id"
-                      @click="selectSet(s.id)"
-                    >{{ s.name }}<span v-if="s.is_active" class="emoji-set-inuse">使用中</span></linshe-button>
+                    <div v-for="s in selectedSets" :key="s.id" class="emoji-set-choice" role="group" :aria-label="s.name">
+                      <linshe-button
+                        class="emoji-set-title"
+                        variant="chip"
+                        size="sm"
+                        :active="selectedSetId === s.id"
+                        :title="`编辑「${s.name}」`"
+                        @click="selectSet(s.id)"
+                      >
+                        <span class="emoji-set-name">{{ s.name }}</span>
+                      </linshe-button>
+                      <span class="emoji-set-toggle">
+                        <linshe-switch
+                          :model-value="!!s.is_active"
+                          size="sm"
+                          :disabled="setBusy || generating"
+                          :aria-label="`让「${s.name}」参与随机发送`"
+                          @update:model-value="toggleSetEnabled(s, $event)"
+                        />
+                      </span>
+                    </div>
                     <linshe-button variant="chip" size="sm" :disabled="generating" @click="openSetCreate">+ 新建</linshe-button>
                   </div>
                   <div v-if="selectedSet" class="emoji-set-actions">
-                    <linshe-button
-                      v-if="!selectedSet.is_active"
-                      variant="secondary"
-                      size="sm"
-                      :disabled="setBusy || generating"
-                      title="切换后角色聊天将改发这套表情包"
-                      @click="activateSelectedSet"
-                    >启用此套</linshe-button>
                     <linshe-button variant="ghost" size="sm" :disabled="setBusy || generating" @click="openSetRename">重命名</linshe-button>
                     <linshe-button variant="danger" size="sm" :disabled="setBusy || generating" @click="removeSelectedSet">删除</linshe-button>
                   </div>
+                  <span class="emoji-set-hint emoji-set-selection-hint" role="status">
+                    {{ enabledSetCount ? `已勾选 ${enabledSetCount} 套，聊天时按表情从勾选套装中随机发送。` : '尚未勾选套装，角色聊天时不会发表情包。' }}
+                    点击名称编辑，开关可多选；仅使用已生成的图片。
+                  </span>
                 </template>
                 <template v-else>
                   <span class="emoji-set-hint">还没有表情包组，新建一组并生成表情包后即可启用</span>
@@ -239,8 +248,8 @@
 
               <div v-if="selectedCharId !== null && emojiKeys.length > 0" class="emoji-char-section">
                 <div class="emoji-char-title">{{ charName(selectedCharId) }}<template v-if="selectedSet"> · {{ selectedSet.name }}</template></div>
-                <div v-if="selectedSet && !selectedCharHasPrompts" class="emoji-set-blank-hint">
-                  {{ selectedSet.is_active ? '当前启用的是空白表情包组：角色聊天时不会发表情包' : '这组表情包还是空的，生成表情包后可「启用此套」' }}
+                <div v-if="selectedSet && !doneCountInSet(selectedSet.id)" class="emoji-set-blank-hint">
+                  {{ selectedSet.is_active ? '这套尚未生成图片，会暂时跳过；其他已勾选套装仍可发送。' : '这组表情包还是空的，生成后勾选即可参与随机发送。' }}
                 </div>
                 <TransitionGroup name="emoji-reveal" tag="div" class="emoji-grid">
                   <div
@@ -410,6 +419,7 @@ import LinsheModal from './ui/LinsheModal.vue'
 import LinsheButton from './ui/LinsheButton.vue'
 import LinsheInput from './ui/LinsheInput.vue'
 import LinsheTabs from './ui/LinsheTabs.vue'
+import LinsheSwitch from './ui/LinsheSwitch.vue'
 
 const props = defineProps({
   characters: { type: Array, default: () => [] },
@@ -509,8 +519,9 @@ const displayCharacters = computed(() =>
     : props.characters.filter(c => !c.archived)
 )
 const selectedCharacterName = computed(() => selectedCharacter.value?.display_name || selectedCharacter.value?.name || '请选择角色')
-/** 当前角色的全部配置单（启用中的排最前） */
+/** 当前角色的全部配置单（保持创建顺序，勾选时不跳位） */
 const selectedSets = computed(() => emojiSets.value.filter(s => s.character_id === selectedCharId.value))
+const enabledSetCount = computed(() => selectedSets.value.filter(s => s.is_active).length)
 /** 当前正在编辑的配置单（不等于启用中的那张） */
 const selectedSet = computed(() => selectedSets.value.find(s => s.id === selectedSetId.value) || null)
 const selectedCountText = computed(() => selectedCharId.value === null
@@ -540,11 +551,6 @@ function ensureSelectedSetValid() {
   }
 }
 
-/** 角色启用中的配置单 id；没有则 null（聊天此时发不出表情包） */
-function activeSetIdOf(charId) {
-  return emojiSets.value.find(s => s.character_id === charId && s.is_active)?.id || null
-}
-
 /** 某张配置单的完成数 */
 function doneCountInSet(setId) {
   if (!setId) return 0
@@ -572,9 +578,12 @@ function rowImage(charId, key) {
 function rowError(charId, key) {
   return rowFor(charId, key)?.error_message || ''
 }
-/** 左侧列表进度：按角色「启用中」配置单统计（聊天实际能发的那张） */
+/** 左侧进度：统计已勾选套装合计覆盖的类别，同名表情只计一次。 */
 function doneCount(charId) {
-  return doneCountInSet(activeSetIdOf(charId))
+  const enabledIds = new Set(emojiSets.value.filter(s => s.character_id === charId && s.is_active).map(s => s.id))
+  return new Set(emojiRows.value.filter(r =>
+    r.character_id === charId && enabledIds.has(r.set_id) && r.status === 'done' && r.image_path?.trim() && emojiKeys.value.includes(r.emoji_key)
+  ).map(r => r.emoji_key)).size
 }
 function isCharFull(charId) {
   return emojiKeys.value.length > 0 && doneCount(charId) >= emojiKeys.value.length
@@ -680,7 +689,7 @@ async function confirmCreateSet() {
     setRenaming.value = false
     await loadOverview()
     if (d.set?.id) selectedSetId.value = d.set.id
-    toast?.(`已创建空白表情包组「${d.set?.name || '默认表情包'}」`, 'success')
+    toast?.(`已创建并启用「${d.set?.name || '默认表情包'}」，生成图片后即可随机发送`, 'success')
   } catch (err) {
     toast?.('创建表情包组失败: ' + err.message, 'error')
   } finally {
@@ -713,17 +722,21 @@ async function confirmRenameSet() {
   }
 }
 
-/** 启用当前编辑的配置单：切换后角色聊天即改发这套表情包 */
-async function activateSelectedSet() {
-  if (!selectedSet.value || selectedSet.value.is_active || setBusy.value) return
+/** 勾选与编辑目标独立；保存失败时恢复原状态。 */
+async function toggleSetEnabled(target, enabled) {
+  if (!target || setBusy.value || generating.value) return
+  const previous = target.is_active
   setBusy.value = true
+  target.is_active = Number(enabled)
   try {
-    const d = await api.activateEmojiSet(selectedSet.value.id)
+    const d = await api.activateEmojiSet(target.id, enabled)
     if (d.error) throw new Error(d.error)
     await loadOverview()
-    toast?.(`已切换到「${d.set?.name || selectedSet.value?.name}」，角色现在发这套表情包`, 'success')
+    toast?.(`「${target.name}」已${enabled ? '加入' : '移出'}随机发送`, 'success')
   } catch (err) {
-    toast?.('切换表情包组失败: ' + err.message, 'error')
+    const current = emojiSets.value.find(s => s.id === target.id)
+    if (current) current.is_active = previous
+    toast?.('保存表情包选择失败: ' + err.message, 'error')
   } finally {
     setBusy.value = false
   }
@@ -735,9 +748,9 @@ async function removeSelectedSet() {
   if (!target || setBusy.value || generating.value) return
   let message = `确定删除表情包组「${target.name}」吗？仅删除该组配置，已生成的图片文件与聊天记录不受影响。`
   if (target.is_active) {
-    message += selectedSets.value.length > 1
-      ? '删除后角色将自动改用剩余最新的表情包组。'
-      : '删除后该角色将没有任何表情包组，聊天时不会发表情包。'
+    message += enabledSetCount.value > 1
+      ? '删除后继续从其他已勾选套装随机发送。'
+      : '删除后没有已勾选的套装，聊天时不会发表情包。'
   }
   const confirmed = confirmFn
     ? await confirmFn({ title: '删除表情包组', message, okText: '删除', danger: true })
@@ -1848,7 +1861,7 @@ onBeforeUnmount(() => {
   padding: 16px 24px;
   border-top: 1px solid rgba(42, 26, 16, 0.07);
 }
-/* ── 配置单栏（多套切换） ── */
+/* ── 配置单栏（编辑目标 + 多套勾选） ── */
 .emoji-setbar {
   display: flex;
   align-items: center;
@@ -1870,16 +1883,33 @@ onBeforeUnmount(() => {
   gap: 6px;
   margin-left: auto;
 }
-.emoji-set-inuse {
-  margin-left: 5px;
-  padding: 0 5px;
-  border: 1px solid currentColor;
-  border-radius: 999px;
-  font-size: 10px;
-  line-height: 13px;
-  font-weight: 600;
-  white-space: nowrap;
-  opacity: 0.9;
+.emoji-set-choice {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+}
+/* 仅安排标题和开关的位置，胶囊与开关皮肤继续由 Linshe 组件提供。 */
+.emoji-set-choice > .emoji-set-title {
+  min-width: 0;
+  max-width: 100%;
+  padding-inline-end: 48px;
+}
+.emoji-set-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.emoji-set-toggle {
+  position: absolute;
+  inset-inline-end: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  /* 把开关向下延伸的 2px 厚底计入整体高度，按可见边缘上下居中。 */
+  padding-block-end: 2px;
+}
+.emoji-set-selection-hint {
+  flex-basis: 100%;
 }
 .emoji-set-hint {
   color: var(--text-secondary);
