@@ -93,7 +93,7 @@
           </svg>{{ publishing ? '出刊中…' : '出刊' }}
         </linshe-button>
 
-        <div v-if="!activeIsPeriodical" class="refresh-group">
+        <div v-if="!activeIsPeriodical && !isFavorites" class="refresh-group">
           <linshe-button
             class="btn-refresh" variant="primary" :loading="refreshing"
             :disabled="noOutletInScope"
@@ -178,6 +178,14 @@
         :class="{ active: activeOutlet === null }"
         @click="onOutletChange(null)"
       >全部<span class="outlet-num">{{ categoryTotal }}</span></button>
+      <!-- 我的收藏：只筛选内容，不改变版式（数字报刊仍按整期展示全部板块）。 -->
+      <button
+        type="button"
+        class="outlet-tab"
+        :class="{ active: isFavorites }"
+        :title="activeCategory === 'digital' ? '收藏的数字报刊' : '收藏的社交帖子'"
+        @click="onOutletChange('favorites')"
+      >★ 我的收藏</button>
       <button
         v-for="o in filteredOutlets"
         :key="o.id"
@@ -319,6 +327,9 @@
         <component
           :is="componentFor(p)"
           :post="p"
+          :show-favorite="!batchMode"
+          :favorite-busy="favoritePending.has(p.id)"
+          @favorite="toggleFavorite"
           @zoom="zoomSrc = $event"
           @section-loaded="onSectionLoaded"
           @section-error="onSectionError"
@@ -531,6 +542,14 @@
               <path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>
             </svg>重新生图
           </linshe-button>
+          <!-- 收藏（feed 帖子走这里；门户/周刊/海报由版式组件自带整期收藏按钮） -->
+          <media-favorite-button
+            v-if="postKind(detailPost) === 'feed'"
+            :post="detailPost"
+            :loading="favoritePending.has(detailPost.id)"
+            :disabled="busyPostId !== null"
+            @toggle="toggleFavorite"
+          />
           <span style="flex:1"></span>
           <linshe-button
             size="sm" variant="ghost" tone="danger"
@@ -553,6 +572,8 @@
           v-if="isLayoutPostWithComponent(detailPost)"
           :is="componentFor(detailPost)"
           :post="detailPost"
+          :favorite-busy="favoritePending.has(detailPost.id)"
+          @favorite="toggleFavorite"
           @zoom="zoomSrc = $event"
           @section-loaded="onSectionLoaded"
           @section-error="onSectionError"
@@ -668,6 +689,7 @@ import MediaPortal from '../components/media/MediaPortal.vue'
 import MediaForumList from '../components/media/MediaForumList.vue'
 import MediaForumThread from '../components/media/MediaForumThread.vue'
 import MediaGallery from '../components/media/MediaGallery.vue'
+import MediaFavoriteButton from '../components/media/MediaFavoriteButton.vue'
 import ImageLightbox from '../components/ImageLightbox.vue'
 import { bustUrlIfOverwritten } from '../utils/imageUrlRefresh.js'
 import { ENV_DIM_ORDER, envDimLabel } from '../utils/galleryEnvelopeLabels.js'
@@ -719,9 +741,47 @@ const zoomSrc = ref('')
 const regeneratingId = ref(null)
 /** 有操作在进行中（防止并发点） */
 const busyPostId = ref(null)
+/** 正在收藏/取消收藏的帖子 id 集合（按钮转圈用） */
+const favoritePending = ref(new Set())
 
 const activeOutlet = ref(null)
 const activeBoard = ref(null)
+/** 当前是否在「我的收藏」视图（activeOutlet 复用一个特殊值 'favorites'） */
+const isFavorites = computed(() => activeOutlet.value === 'favorites')
+
+/**
+ * 收藏 / 取消收藏。
+ * 只改内容筛选、不动版式：数字报刊仍按整期展示全部板块。
+ * 在「我的收藏」里取消收藏后，把该条从列表摘掉并修正总数。
+ */
+async function toggleFavorite(post) {
+  if (!post || favoritePending.value.has(post.id)) return
+  favoritePending.value.add(post.id)
+  try {
+    const result = await api.setMediaPostFavorite(post.id, !post.is_favorite)
+    for (const item of new Set([post, ...posts.value, detailPost.value])) {
+      if (item?.id === post.id) Object.assign(item, result)
+    }
+    // 让更早发出的列表请求失效，避免旧响应把收藏状态覆盖回来。
+    const needsReload = loading.value || loadingMore.value
+    ++loadSeq
+    loading.value = false
+    if (isFavorites.value && !result.is_favorite) {
+      const wasListed = posts.value.some(item => item.id === post.id)
+      posts.value = posts.value.filter(item => item.id !== post.id)
+      if (wasListed) total.value = Math.max(0, total.value - 1)
+      selectedPostIds.value.delete(post.id)
+    }
+    if (needsReload || (isFavorites.value && (result.is_favorite || (!posts.value.length && total.value > 0)))) {
+      await loadPage(0)
+    }
+    toastFn?.(result.is_favorite ? '已加入我的收藏' : '已取消收藏', 'success')
+  } catch (err) {
+    toastFn?.('收藏操作失败：' + (err?.message || ''), 'error')
+  } finally {
+    favoritePending.value.delete(post.id)
+  }
+}
 
 // ── 顶栏分类分页 ──
 // 报刊类不混进「社交平台」（社交平台 = 瀑布流帖子流）：《邻舍日报》是整版报纸、
@@ -1282,8 +1342,8 @@ async function reloadOutlets() {
   try {
     const d = await api.listMediaOutlets()
     outlets.value = d.outlets || []
-    // 当前选中的媒体被删了就回到「全部」
-    if (activeOutlet.value && !outlets.value.some(o => o.id === activeOutlet.value)) {
+    // 当前选中的媒体被删了就回到「全部」（「我的收藏」不是真实媒体，跳过）
+    if (activeOutlet.value && !isFavorites.value && !outlets.value.some(o => o.id === activeOutlet.value)) {
       activeOutlet.value = null
       await reloadBoards()
     }
@@ -1293,7 +1353,7 @@ async function reloadOutlets() {
 }
 
 async function reloadBoards() {
-  if (!activeOutlet.value) { boards.value = []; return }
+  if (!activeOutlet.value || isFavorites.value) { boards.value = []; return }
   try {
     const d = await api.listMediaBoards(activeOutlet.value)
     boards.value = d.boards || []
@@ -1308,11 +1368,12 @@ async function loadPage(offset = 0) {
   try {
     // 没选具体媒体时按分类过滤 —— 否则「全部」会把报刊也混进来
     const d = await api.listMediaPosts({
-      outlet: activeOutlet.value,
+      outlet: isFavorites.value ? null : activeOutlet.value,
       board: activeBoard.value,
       // 选中具体媒体 → 不需要分类过滤；否则按当前分类过滤。
       // （原先这里还有一层 `=== 'traditional' ? null` —— 那个分类已改名 print，是死分支，清掉。）
-      category: activeOutlet.value ? null : activeCategory.value,
+      category: activeOutlet.value && !isFavorites.value ? null : activeCategory.value,
+      favoritesOnly: isFavorites.value,
       limit: PAGE_SIZE,
       offset,
     })
@@ -1389,12 +1450,16 @@ const refreshScopeHint = computed(() => {
  *   ③ 选中某个媒体但它没内容 → 同上。
  */
 const emptyTitle = computed(() => {
+  if (isFavorites.value) return '还没有收藏'
   if (noOutletInScope.value) {
     return isPrintCategory.value ? '还没有官方传媒物料' : '这个分类下还没有媒体'
   }
   return activeOutlet.value === null ? '还没有任何帖子' : '这个媒体还没有内容'
 })
 const emptyHint = computed(() => {
+  if (isFavorites.value) {
+    return '遇到喜欢的报刊或帖子，点击「收藏」，就能在这里再次阅读。'
+  }
   if (noOutletInScope.value) {
     return isPrintCategory.value
       ? '《邻舍日报》是独立整版报纸，在下面的入口里阅读；要给这一档加海报类物料，点右上角「媒体设置」新建一个、形态选「海报」。'
@@ -1444,7 +1509,7 @@ async function onRefreshOutlet(outletId) {
 }
 
 async function onRefresh() {
-  if (refreshing.value) return
+  if (refreshing.value || isFavorites.value) return
   refreshing.value = true
   try {
     // 「全部」档必须把当前分类带上 —— 否则后端会全库随机抽一个媒体，

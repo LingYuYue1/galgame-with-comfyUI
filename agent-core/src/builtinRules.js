@@ -268,7 +268,7 @@ const WORLD_INTEGRATION_PREAMBLE = `<world_setting>不是可有可无的背景�
 const WORLD_INTEGRATION_TASK_RULES = Object.freeze({
   interaction: `<world_setting>不是可有可无的背景说明——它是这个虚构世界的基本法则。以下所有创作必须在<world_setting>的框架内展开。`,
 
-  moments: `${WORLD_INTEGRATION_PREAMBLE}以下所有创作必须在<world_setting>的框架内展开：
+  moments: `${WORLD_INTEGRATION_PREAMBLE}朋友圈的正文与配图都必须遵循<world_setting>：
 
 1. 朋友圈的内容必须反映<world_setting>下的真实生活——但**世界是空气，不是台词**。角色生在这里、长在这里，她发朋友圈时不会去解释这个世界、也不会复述<world_setting>里的描写和例句；世界的味道要从"她觉得什么理所当然"里透出来，而不是从她嘴里搬设定原话。
 2. 角色的行为模式和互动方式的"正常"与"异常"，由<world_setting>定义。在这个世界里理所当然的事情，在现实世界可能不可思议——朋友圈的语气和内容应该自信地反映这种理所当然，不需要向读者解释，也不需要引用设定原文。
@@ -303,10 +303,10 @@ const WORLD_INTEGRATION_TASK_RULES = Object.freeze({
 
   event: `${WORLD_INTEGRATION_PREAMBLE}以下所有创作必须在<world_setting>的框架内展开：
 
-1. 角色的所有行为、反应和判断，都必须以<world_setting>为基准线。<world_setting>塑造了角色的常识和三观——角色觉得什么理所当然、什么值得惊讶、什么不可接受，都由<world_setting>决定，不由现实世界的常识决定。
-2. 事件中"异常"的判定标准来自<world_setting>。一个事件是否奇怪、是否危险、是否值得在意，取决于它在这个世界里的相对位置——在现实世界显得离奇的事，在这个世界里可能稀松平常，反之亦然。
-3. 环境描写要自然地渗透<world_setting>的细节。场景中的每一个元素——空间、物品、氛围、人群——都应该一致地属于这个世界，不能出现与<world_setting>矛盾的描写。
-4. 不要把<world_setting>当成一段可以忽略的"前置说明"。它必须穿透到叙事中的每一个感官细节、每一个角色反应、每一个情节转折。<world_setting>不是背景，是地基。`,
+1. 角色对正常、异常、危险和人际关系的判断必须以<world_setting>为准。涉及世界观明确规定的事情时，必须落实这些规则，不能退回与之冲突的现实常识或原 IP 设定。
+2. 事件的起因、行动及其后果必须在世界规则下成立，并承接已经发生的剧情和玩家选择。角色以自己的性格和动机作出反应，不为展示设定改变已发生的事实。
+3. 正文与配图的场景、人物行为和物品都必须符合世界规则。当世界设定影响本次事件的做法、关系或视觉细节时，在相关位置准确体现。
+4. 世界观约束事件如何发生，不要求每句话、每个细节都显式展示设定。可以自然交代必要的背景、原因和感受；剧情转折与反常选择也必须在世界规则下成立，不必靠堆砌设定来表现。`,
 
   eventConclusion: `<world_setting>是最高优先级的创作框架。结局叙述和记忆摘要必须在<world_setting>的框架下展开——角色的行为逻辑、事件的因果链条、环境的细节描写，都要忠实于<world_setting>的基本法则。<world_setting>定义了角色判断"正常"与"异常"的基准线，结局的收束方式不能偏离这条基准线。`,
 

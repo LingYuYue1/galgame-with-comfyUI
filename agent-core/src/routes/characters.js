@@ -32,6 +32,8 @@ import { buildCharacterPersona, extractAppearanceIdentityCorpus, replaceAppearan
 import { getWorldIntegrationRule, STANDING_IMAGE_PROMPT_RULE, STANDING_PROMPT_MODES, STANDING_ROLE_PROMPTS } from '../builtinRules.js';
 import { collectCharacterImageUrls } from '../services/characterImages.js';
 import { pickReactionMarker } from '../services/emojiService.js';
+import { createCharacterBackgroundRouter } from './characterBackgrounds.js';
+import { generateDialogueBackground } from '../services/dialogueBackground.js';
 
 const router = Router();
 
@@ -1451,32 +1453,7 @@ ${buildCharacterPersona(char, { variant: 'full', outfits: avatarOutfits })}
   }
 });
 
-// POST /api/characters/:id/chat-bg — 上传聊天背景图（base64），空 base64 = 恢复默认
-router.post('/:id/chat-bg', (req, res) => {
-  const db = getDb();
-  const char = db.prepare('SELECT id, chat_bg_path FROM characters WHERE id = ?').get(req.params.id);
-  if (!char) return res.status(404).json({ error: 'Character not found' });
-
-  const { base64 } = req.body;
-  if (!base64) {
-    if (char.chat_bg_path) {
-      try { deleteImageFileByUrl(char.chat_bg_path); } catch {}
-    }
-    db.prepare('UPDATE characters SET chat_bg_path = NULL WHERE id = ?').run(req.params.id);
-    return res.json({ ok: true, chat_bg_path: null });
-  }
-
-  const filename = `chatbg_${req.params.id}_${Date.now()}.png`;
-  const url = saveBase64Image('chatbg', filename, base64);
-
-  if (char.chat_bg_path) {
-    try { deleteImageFileByUrl(char.chat_bg_path); } catch {}
-  }
-
-  db.prepare('UPDATE characters SET chat_bg_path = ? WHERE id = ?').run(url, req.params.id);
-  invalidateGalleryCache();
-  res.json({ ok: true, chat_bg_path: url });
-});
+router.use(createCharacterBackgroundRouter({ getDb, saveBase64Image, deleteImageFileByUrl, invalidateGalleryCache, generateBackground: generateDialogueBackground }));
 
 // ── 角色立绘（纯白背景全身立绘，1:2，人设卡 short_prompt + 外观注入） ──
 

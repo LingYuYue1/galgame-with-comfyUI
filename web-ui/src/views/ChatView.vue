@@ -4,6 +4,7 @@
     </div>
 
     <template v-else>
+      <div v-show="!immersive" class="chat-standard" :inert="immersive || undefined">
       <!-- 角色自定义聊天背景（未设置时透出全局柔光背景） -->
       <div v-if="chatBgUrl" class="chat-bg" :style="{ backgroundImage: `url(${chatBgUrl})` }"></div>
       <div v-if="chatBgUrl" class="chat-bg-veil"></div>
@@ -30,7 +31,10 @@
           <div class="chat-header-schedule" v-if="currentScheduleText">{{ currentScheduleText }}</div>
         </div>
         <div class="chat-header-right">
-          <linshe-button class="standing-entry-desktop" variant="ghost" size="sm" @click="openStandingDisplayPage">同步形象展示 ↗</linshe-button>
+          <linshe-button class="chat-standing-desktop" variant="ghost" size="sm" title="在独立窗口展示立绘，随当前聊天同步角色与表情" @click="openStandingDisplayPage">
+            <svg class="chat-standing-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="15" rx="3" /><path d="M8 22h8M12 18v4" /><circle cx="12" cy="8" r="2" /><path d="M8 15a4 4 0 0 1 8 0" /></svg>
+            <span>同步立绘展示</span><span aria-hidden="true">↗</span>
+          </linshe-button>
           <div
             class="affinity-reason-wrap"
             role="button"
@@ -52,6 +56,7 @@
             <gear-icon :size="16" />
           </div>
         </div>
+        <ChatModeSwitch :active="!immersive" @switch="chatMode = 'galgame'" />
       </div>
 
       <!--
@@ -292,7 +297,12 @@
         @close="showEmojiPicker = false"
         @pick="onPickEmoji"
       />
+      </div>
     </template>
+
+    <Transition name="chat-mode">
+      <GalgameDialogue v-if="galgameVisited && chat.activeChar" v-show="immersive" :active="immersive" :character="chat.activeChar" v-model:draft="inputText" :image-mode="imageGenMode" :deep-think="deepThinkMode" :sleeping="isCharSleeping" :wake-busy="wakeBusy" @wake="onWakeChar" @exit="chatMode = 'chat'" @open-standing="openStandingDisplayPage" />
+    </Transition>
 
     <ImageLightbox
       :visible="!!previewImage"
@@ -338,9 +348,9 @@
 
         <div class="sp-divider"></div>
 
-        <div role="button" tabindex="0" class="sp-btn standing-entry-mobile" @click="openStandingDisplayPage" @keydown.enter.prevent="openStandingDisplayPage" @keydown.space.prevent="openStandingDisplayPage">
+        <div role="button" tabindex="0" class="sp-btn" @click="openStandingDisplayPage" @keydown.enter.prevent="openStandingDisplayPage" @keydown.space.prevent="openStandingDisplayPage">
           <svg class="sp-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="3" width="18" height="15" rx="3" /><path d="M8 22h8M12 18v4" /><circle cx="12" cy="8" r="2" /><path d="M8 15a4 4 0 0 1 8 0" /></svg>
-          同步形象展示
+          同步立绘展示
         </div>
 
         <!-- 编辑人格 → 二级弹窗 -->
@@ -411,7 +421,7 @@
         <div class="editor-header impression-header">
           <span class="impression-title" :title="`${chat.activeChar?.display_name || ''} 对你的印象`">{{ chat.activeChar?.display_name }} 对你的印象</span>
           <div class="impression-header-actions">
-            <linshe-button variant="ghost" size="sm" @click="openStandingDisplayPage">同步形象展示 ↗</linshe-button>
+            <linshe-button variant="ghost" size="sm" @click="openStandingDisplayPage">同步立绘展示 ↗</linshe-button>
             <linshe-button variant="icon" class="editor-close" @click="showImpression = false">&times;</linshe-button>
           </div>
         </div>
@@ -667,6 +677,8 @@ import UserEmojiPicker from '../components/UserEmojiPicker.vue'
 import ImageLightbox from '../components/ImageLightbox.vue'
 import LinsheButton from '../components/ui/LinsheButton.vue'
 import LinsheSwitch from '../components/ui/LinsheSwitch.vue'
+import ChatModeSwitch from '../components/chat/ChatModeSwitch.vue'
+import GalgameDialogue from '../components/chat/GalgameDialogue.vue'
 import { userAvatar, loadUserAvatar } from '../userConfig.js'
 import * as api from '../api/index.js'
 import { openStandingDisplay, standingDisplayUrl, selectStandingCharacter } from '../utils/standingDisplay.js'
@@ -685,6 +697,21 @@ import { useScheduleStore } from '../stores/schedule.js'
 
 const route = useRoute()
 const router = useRouter()
+const immersive = computed(() => route.query.mode === 'galgame')
+const galgameVisited = ref(immersive.value)
+const chatMode = computed({
+  get: () => immersive.value ? 'galgame' : 'chat',
+  set: value => {
+    const query = { ...route.query }
+    if (value === 'galgame') query.mode = 'galgame'
+    else delete query.mode
+    router.push({ path: route.path, query })
+  },
+})
+watch(immersive, async value => {
+  if (value) { galgameVisited.value = true; closeSettings() }
+  else { await nextTick(); if (!isMobile?.value) inputEl.value?.focus({ preventScroll: true }) }
+})
 const chat = useChatStore()
 const eventsStore = useEventsStore()
 const confirmFn = inject('confirm')
@@ -1475,11 +1502,11 @@ await chat.uploadAvatar(null)
 
 const chatBgUrl = computed(() => chat.activeChar?.chat_bg_path || '')
 
-function onChatBgUpdated(path) {
-  if (chat.activeChar) chat.activeChar.chat_bg_path = path
-  // 同步角色列表中的同名角色，避免切换会话时闪回旧背景
-  const inList = chat.characters.find(c => c.id === chat.activeCharId)
-  if (inList) inList.chat_bg_path = path
+function onChatBgUpdated(result) {
+  const field = result.target === 'galgame' ? 'galgame_bg_path' : 'chat_bg_path'
+  // 请求期间切换角色时，结果仍归属于发起请求的角色。
+  const inList = chat.characters.find(c => c.id === result.characterId)
+  if (inList) inList[field] = result[field]
 }
 
 // ══════════════════════════════════════════════════
@@ -1870,11 +1897,12 @@ function renderContent(text) {
 </script>
 
 <style scoped>
-.sp-btn.standing-entry-mobile { display:none; }
-@media (max-width:767px) {
-  .standing-entry-desktop { display:none; }
-  .sp-btn.standing-entry-mobile { display:flex; }
-}
+.chat-standard { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.chat-standing-desktop { flex-shrink: 0; }
+.chat-standing-icon { width: 18px; height: 18px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.chat-mode-enter-active, .chat-mode-leave-active { transition: opacity .3s var(--ease-standard); }
+.chat-mode-enter-from, .chat-mode-leave-to { opacity: 0; }
+@media (max-width: 767px) { .chat-standing-desktop { display: none; } }
 
 .chat-view { flex:1; display:flex; flex-direction:column; height:100vh; height:100dvh; overflow:hidden; background:transparent; position:relative; }
 
@@ -1898,6 +1926,8 @@ function renderContent(text) {
 
 /* ── 毛玻璃顶部栏 ── */
 .chat-header {
+  z-index: 2;
+  flex-shrink: 0;
   padding:14px 24px;
   border-bottom: 1px solid var(--glass-border);
   background: var(--glass-bg);
@@ -1905,7 +1935,7 @@ function renderContent(text) {
   -webkit-backdrop-filter: blur(18px);
   display:flex; align-items:center; justify-content:space-between;
 }
-.chat-title { font-size:16px; font-weight:600; color:var(--text-bright); }
+.chat-title { font-size:16px; font-weight:600; color:var(--text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── 移动端返回按钮（← 箭头） ── */
 .btn-mobile-back {
@@ -3281,7 +3311,7 @@ function renderContent(text) {
 .header-affinity-delta.delta-down { color: #4a90d9; }
 [data-theme="dark"] .header-affinity-delta.delta-up { color: #ff6b9d; }
 [data-theme="dark"] .header-affinity-delta.delta-down { color: #7ab6f0; }
-.chat-header-right { display: flex; align-items: center; gap: 10px; }
+.chat-header-right { display: flex; align-items: center; gap: 10px; min-width: 0; max-width: 65%; }
 .header-reason {
   font-size: 11px; color: var(--text-secondary); font-style: italic;
   white-space: nowrap;
@@ -3290,7 +3320,9 @@ function renderContent(text) {
 /* ── delta / reason roll 动画容器 ── */
 .affinity-delta-wrap,
 .affinity-reason-wrap { position: relative; display: inline-block; vertical-align: bottom; }
-.affinity-reason-wrap { cursor: pointer; text-align: left; touch-action: manipulation; }
+.affinity-reason-wrap { cursor: pointer; text-align: left; touch-action: manipulation; min-width: 0; overflow: hidden; }
+.header-reason { display: block; overflow: hidden; text-overflow: ellipsis; }
+.btn-header-settings { flex-shrink: 0; }
 
 /* ── roll Transition ── */
 .roll-enter-active { animation: roll-in 0.2s ease; }

@@ -183,9 +183,6 @@ export async function generateTownNpcEvent(npc, options = {}) {
   const imageRules = getGlobalRule('image_prompt');
   const imageRulesText = imageRules?.rule_content || '';
   const worldIntegrationBlock = worldSetting ? getWorldIntegrationRule('event') : '';
-  const worldPenetrationLine = worldSetting
-    ? '- **严格遵循<world_setting>**：这个奇遇发生在上述<world_setting>中，不是发生在真空或现实世界中。所有感官细节和角色反应必须忠实地在<world_setting>规则下展开。事件方向是一个叙事钩子——它的具体呈现方式必须被<world_setting>重新塑造。\n'
-    : '';
 
   const { playerName, playerAppearance } = options.playerName
     ? { playerName: options.playerName, playerAppearance: '' }
@@ -211,8 +208,8 @@ export async function generateTownNpcEvent(npc, options = {}) {
 
   // [2] JSON 格式（与角色奇遇同构，字段约束按镇民奇遇改写；ambient 开场玩家不在现场）
   const sceneConstraint = isAmbient
-    ? `"description": "场景叙述（80-150字。不要像讲故事，而像镜头正在发生：镇民${displayName}和${companion?.name || '另一位镇民'}必须同时出现在现场，两人的动作与对话共同推进，此时玩家${playerName}还没有加入，不要描写玩家。行动需要符合当前天气和时间，但禁止直接提及天气时间）"`
-    : `"description": "场景叙述（80-150字。不要像讲故事，而像镜头正在发生：玩家${playerName}和${displayName}必须同时出现在现场，两人的动作与对话共同推进，叙述要能看出两人各自在做什么。行动需要符合当前天气和时间，但禁止直接提及天气时间）"`;
+    ? `"description": "场景叙述（80-150字。以角色当下的动作、感受和对话展开，必要时简短交代背景与原因：镇民${displayName}和${companion?.name || '另一位镇民'}必须同时出现在现场，两人的动作与对话共同推进，此时玩家${playerName}还没有加入，不要描写玩家。行动符合当前天气和时间；天气或时间有助于理解场景时可自然提及）"`
+    : `"description": "场景叙述（80-150字。以角色当下的动作、感受和对话展开，必要时简短交代背景与原因：玩家${playerName}和${displayName}必须同时出现在现场，两人的动作与对话共同推进，叙述要能看出两人各自在做什么。行动符合当前天气和时间；天气或时间有助于理解场景时可自然提及）"`;
   const choiceConstraint = isAmbient
     ? `"choiceA": "选项A（具体行动，8-15字。是玩家${playerName}注意到这场面后可以立刻介入做的事——玩家在附近，随时能走近）",
   "choiceB": "选项B（与A形成真正的行动对比——玩家介入的另一条路径，把奇遇往意料之外但符合小镇日常的情况发展。8-15字）"`
@@ -250,7 +247,7 @@ export async function generateTownNpcEvent(npc, options = {}) {
 - 叙述贴着现场中两人的感知与动作，不跳出场景解释世界
 
 【正文——写现场，不写剧情总结】
-镜头直接落在一个正在发生的动作上。背景、关系、原因，都随着动作自然露出来，而不是提前说明。
+镜头直接落在一个正在发生的动作上。背景、关系和原因可以随动作呈现，也可以用简短叙述交代，以读者能理解人物动机和事情经过为准。
 
 【结尾——停在行动门槛】
 结尾停在一个具体动作即将发生之前，下一步由玩家决定。
@@ -265,13 +262,10 @@ ${timeTag}${locationLine}
     { role: 'system', content: formatPrompt },
     { role: 'system', content: `${openingRoleLine}
 
-${worldPenetrationLine}
 【镇民锚定】${displayName}的行为必须贴合上面资料里的人格与小镇岗位职责；不要声称ta搬入了小镇、改变了工作岗位，或做出与身份相悖的事。
-【天气约束】description中行动需要符合当前天气和时间，但禁止直接提及天气时间` },
+【天气约束】description中行动符合当前天气和时间；天气或时间有助于理解场景时可自然提及` },
     { role: 'system', content: personaMsg },
-    { role: 'user', content: worldSetting
-      ? `请遵循当前<world_setting>来生成奇遇，镇民资料如果和<world_setting>有冲突，则以<world_setting>最高优先级。\n\n${directorPrompt}`
-      : directorPrompt },
+    { role: 'user', content: directorPrompt },
   ];
 
   let eventData;
@@ -427,6 +421,7 @@ export async function generateTownNpcNextBranch(npc, event, choice, deps = {}) {
   const chatSync = deps.llm?.chatSync || defaultChatSync;
   const generateImageRaw = deps.image?.generateImageRaw || defaultGenerateImageRaw;
   const branchTimeExtensionMinutes = 5;
+  const branchTimeExtensionWindowMs = 15 * 60 * 1000;
 
   // 0. 原子性标记处理中（CAS：仅 processing=0 时置 1），防止并发重复提交
   const casResult = db.prepare(
@@ -445,10 +440,12 @@ export async function generateTownNpcNextBranch(npc, event, choice, deps = {}) {
       return null;
     }
 
-    // 用户已成功提交一个有效分支选择，立即延长倒计时，避免分支生成期间事件到期。
-    db.prepare(`UPDATE town_npc_events SET expires_at = datetime(expires_at, '+' || ? || ' minutes') WHERE id = ?`)
-      .run(branchTimeExtensionMinutes, event.id);
-    event.expires_at = db.prepare(`SELECT expires_at FROM town_npc_events WHERE id = ?`).get(event.id).expires_at;
+    // 有效选择仅在剩余 15 分钟以内续时，仍在生成前生效。
+    if (expiresAt.getTime() - now.getTime() <= branchTimeExtensionWindowMs) {
+      db.prepare(`UPDATE town_npc_events SET expires_at = datetime(expires_at, '+' || ? || ' minutes') WHERE id = ?`)
+        .run(branchTimeExtensionMinutes, event.id);
+      event.expires_at = db.prepare(`SELECT expires_at FROM town_npc_events WHERE id = ?`).get(event.id).expires_at;
+    }
 
     // 2. 构建 choice_history 文本
     const choiceHistory = JSON.parse(event.choice_history || '[]');
@@ -464,9 +461,6 @@ export async function generateTownNpcNextBranch(npc, event, choice, deps = {}) {
     const imageRules = getGlobalRule('image_prompt');
     const imageRulesText = imageRules?.rule_content || '';
     const worldIntegrationBlock = worldSetting ? getWorldIntegrationRule('event') : '';
-    const worldPenetrationLine = worldSetting
-      ? '- **严格遵循<world_setting>**：这个奇遇发生在上述<world_setting>中，不是发生在真空或现实世界中。所有感官细节和角色反应必须忠实地在<world_setting>规则下展开。事件方向只是一个叙事钩子——它的具体呈现方式必须被<world_setting>重新塑造。\n'
-      : '';
     const { playerName, playerAppearance } = townPlayerInfo(db);
     const displayName = npc.display_name;
 
@@ -479,16 +473,17 @@ export async function generateTownNpcNextBranch(npc, event, choice, deps = {}) {
     const formatPrompt = `请严格按照以下 JSON 格式输出，不要任何解释或额外文字：
 
 {
-  "description": "选择后的场景叙述，承接上一个选择的结果，展现两人此刻的即时感受和新出现的局面，玩家${playerName}和${displayName}必须同时出现在现场。场景转折要出乎意料但又在情理之中（80-150字）。采用紧密第三人称，始终贴着现场中两人的感知与动作。结尾停在『必须做出选择之前』，留下悬念。行动需要符合当前天气和时间，但禁止直接提及天气时间。",
-  "prompt": "${branchImagePromptInstruction}${weatherHint}${twoPersonNote}",
+  "description": "选择后的场景叙述，承接上一个选择的结果，展现两人此刻的即时感受和新出现的局面，玩家${playerName}和${displayName}必须同时出现在现场。每次分支必须出现一个出乎意料但又在情理之中的转折，并承接所选行动（80-150字）。采用紧密第三人称，贴着现场中两人的感知与动作，必要时简短交代背景、原因和感受。写清上一个选择的结果，再停在下一步可采取行动的位置，不替玩家决定下一步。行动符合当前天气和时间；天气或时间有助于理解场景时可自然提及。",
+  "prompt": "${branchImagePromptInstruction}${twoPersonNote}",
   "choiceA": "新选项A（具体行动，8-15字。是玩家${playerName}和${displayName}接下来真的会一起做的事）",
   "choiceB": "新选项B（与A形成真正的行动对比，把奇遇往意料之外但符合小镇日常的情况发展。8-15字）"
 }`;
 
     const directorPrompt = `事件标题：${event.title}
 ${historyText}
+${weatherHint}
 
-**核心要求——让分支有趣**：接下来的场景不能是"选了A所以A发生了"的平铺直叙。读者选择之后应该经历一个"没想到会这样——但仔细一想确实合理"的转折。
+**核心要求——每次分支必须有转折**：先兑现所选行动，写清实际结果和两人的反应，再让读者经历一个“没想到会这样——但仔细一想确实合理”的转折，不能只是“选了A所以A发生了”的平铺直叙。转折可以来自另一角色的意外反应、新发现或行动带来的意外后果，必须符合世界规则、承接已有情节，不能取消或改写玩家已经选择的行动。
 
 **剧情推进（必须发生）**：${choice.label}${choiceExtra}
 
@@ -503,19 +498,22 @@ ${historyText}
       ...(worldIntegrationBlock ? [{ role: 'system', content: worldIntegrationBlock }] : []),
       { role: 'system', content: formatPrompt },
       { role: 'system', content: `你正在为小镇镇民「${displayName}」与玩家「${playerName}」的共同奇遇生成下一幕——上一幕中玩家做出了选择，现在展现选择之后发生的事情，选择已经完成，描述的是选择的结果。${displayName}的行为必须贴合ta的人格与小镇岗位职责。
+
+【避免长线重复】
+- 对照已有历史，尤其最近三幕：本幕必须有新的实际结果，不能只换措辞、道具或人物，重复同一种行动、障碍和选项。
+- 强制转折仍须发生，但已解决的问题和已获得的成果继续有效；让转折来自新的后果、发现或人物反应，不能把剧情重置到原来的困境。
+- 同一小目标若已拖延多幕，本幕给它明确结果，再由新局面提出有冲突的A/B选项；用户明确要求重复尝试时照做并写出不同反馈。
+
 ${event.event_type_key === TOWN_NPC_AMBIENT_EVENT_TYPE_KEY && event.current_branch === 0
     ? `\n这是由镇民自发场景升级成的奇遇：开场时玩家${playerName}还在画面之外，现在${playerName}刚按选项介入现场——本幕要自然描写${playerName}走进这一幕的衔接，之后的画面里${playerName}与${displayName}同框。`
     : ''}
 
-${worldPenetrationLine}
-【天气约束】description中行动需要符合当前天气和时间，但禁止直接提及天气时间` },
+【天气约束】description中行动符合当前天气和时间；天气或时间有助于理解场景时可自然提及` },
       // 与角色奇遇分支同款：人格卡作为稳定 system 段在每一幕都注入
       { role: 'system', content: `以下是小镇镇民「${displayName}」的资料，供你参考ta的外貌、身份和行为模式：
 
 ${npcPersonaBlock(npc, playerName, playerAppearance)}` },
-      { role: 'user', content: worldSetting
-        ? `请遵循当前<world_setting>来推进奇遇，镇民资料如果和<world_setting>有冲突，则以<world_setting>最高优先级。\n\n${directorPrompt}${prevSceneBlock}`
-        : directorPrompt + prevSceneBlock },
+      { role: 'user', content: directorPrompt + prevSceneBlock },
     ];
 
     let branchData = null;
@@ -686,9 +684,6 @@ export async function concludeTownNpcEvent(npc, event, outcome, deps = {}) {
   const worldSetting = getWorldSetting();
   const permissionPrompt = worldSetting ? getSystemRulesWithWorld() : getSystemRules();
   const worldIntegrationNote = worldSetting ? getWorldIntegrationRule('eventConclusion') : null;
-  const worldConsistencyLine = worldSetting
-    ? '- **<world_setting>一致性**：结局和摘要必须反映<world_setting>的基本规则。\n'
-    : '';
   const { playerName, playerAppearance } = townPlayerInfo(db);
   const displayName = npc.display_name;
 
@@ -702,11 +697,11 @@ export async function concludeTownNpcEvent(npc, event, outcome, deps = {}) {
 ${historyText}
 当前场景：${event.description}
 
-这是写给读者看的小说结尾，不是事件总结。要求：
-${worldConsistencyLine}- 【叙事视角·最高优先级】全程第三人称叙事：镇民主语用「${displayName}」或「她/他」，玩家主语用「${playerName}」，叙事部分严禁出现「我」「我的」「我们」等第一人称称谓（唯一例外是台词引号内）
-- 只聚焦 1~2 个最有戏的瞬间展开，其余经过一笔带过或不写；严禁按时间顺序复述全程的流水账写法
-- 至少三分之一篇幅是"人味"：镇民的内心吐槽、和环境的一点小摩擦、或一个出乎意料的小细节
-- 结尾用一句台词或一个小动作收束，留点余韵；禁止"就这样结束了"式的总结句
+为读者自然收束这段经历，交代结果和人物感受。要求：
+- 【叙事视角·最高优先级】全程第三人称叙事：镇民主语用「${displayName}」或「她/他」，玩家主语用「${playerName}」，叙事部分严禁出现「我」「我的」「我们」等第一人称称谓（唯一例外是台词引号内）
+- 写清本次事件如何收束及其对人物的影响，适当承接关键经过，避免逐幕重复
+- 人物的感受、对话和细节按情节需要自然呈现，保持镇民口吻，不规定篇幅比例或强加吐槽
+- 根据情节自然结束，可以用叙述、台词或动作交代落点；不必另造悬念或转折
 - 结局叙述 100~180 字，将直接展示在页面上，作为事件的正式收尾
 - 摘要 100~180 字，第三人称客观记录整个事件的起因、经过、转折和结果（保持客观简洁即可，无需文学性）
 
@@ -717,9 +712,7 @@ ${worldConsistencyLine}- 【叙事视角·最高优先级】全程第三人称�
     { role: 'system', content: permissionPrompt },
     ...(worldIntegrationNote ? [{ role: 'system', content: worldIntegrationNote }] : []),
     { role: 'system', content: `以下是小镇镇民「${displayName}」的资料，供你参考ta的外貌、身份和行为模式：\n\n${npcPersonaBlock(npc, playerName, playerAppearance)}` },
-    { role: 'user', content: worldSetting
-      ? `请遵循当前<world_setting>来收束奇遇。\n\n${taskPrompt}`
-      : taskPrompt },
+    { role: 'user', content: taskPrompt },
   ];
 
   let conclusionData;

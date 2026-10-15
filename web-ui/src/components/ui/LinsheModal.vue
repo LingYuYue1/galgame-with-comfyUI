@@ -120,6 +120,17 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 /* 面板宽度上限改按宿主宽度算：基座的 94vw/96vw 是视口口径，宿主被侧栏占去一块后会顶出边界 */
 .linshe-modal-overlay.is-host-anchored .modal-panel { max-width: 100%; }
 
+/* 社交帖子与数字报刊共用阅读窗尺寸，移动端继续使用下方统一适配。 */
+@media (min-width: 768px) {
+  .linshe-modal-overlay:has(> .media-reader-panel) {
+    padding-block: 10px;
+  }
+  .media-reader-panel {
+    height: 100dvh;
+    max-height: 100%;
+  }
+}
+
 /* 移动端：保留 PC 的「圆角浮层」观感 —— 面板圆角、描边、白色内衬一律不动，
    只把遮罩留白从 20px 收紧到 8px，并把刘海 / 挖孔 / 手势条的安全区让给遮罩
    （面板靠遮罩内边距避开异形屏，因此头部不再需要单独加 safe-area 上内边距）。

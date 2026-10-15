@@ -14,6 +14,7 @@
       <div class="po-head-meta">
         <span class="po-issue">第 {{ data.issue }} 期</span>
         <span class="po-brand">{{ post.outlet_name || '数字报刊' }}</span>
+        <media-favorite-button v-if="showFavorite" class="po-favorite" :post="post" whole-issue :loading="favoriteBusy" @toggle="emit('favorite', $event)" />
       </div>
       <h1 class="po-title">{{ data.title }}</h1>
       <p v-if="data.lead" class="po-lead">{{ data.lead }}</p>
@@ -136,13 +137,16 @@
 <script setup>
 import { ref, computed, nextTick } from 'vue'
 import * as api from '../../api/index.js'
+import MediaFavoriteButton from './MediaFavoriteButton.vue'
 
 const props = defineProps({
   /** media_posts 行（payload 为门户结构） */
   post: { type: Object, required: true },
+  favoriteBusy: Boolean,
+  showFavorite: { type: Boolean, default: true },
 })
 /** 点图片 → 交给父级开 lightbox（与《邻舍日报》详情同口径） */
-const emit = defineEmits(['zoom', 'section-loaded', 'section-error'])
+const emit = defineEmits(['zoom', 'section-loaded', 'section-error', 'favorite'])
 
 const data = computed(() => props.post?.payload || null)
 const sections = computed(() => data.value?.sections || [])
@@ -259,7 +263,8 @@ nextTick(() => { activeKey.value = sections.value[0]?.key || '' })
 
 /* ── 刊头 ── */
 .po-head { padding: 18px 22px 16px; border-bottom: 3px double var(--po-line); }
-.po-head-meta { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.po-head-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
+.po-favorite { margin-left: auto; flex-shrink: 0; }
 .po-issue {
   font-size: 12px; font-weight: 700; letter-spacing: 0.5px;
   padding: 2px 8px; border-radius: 4px;

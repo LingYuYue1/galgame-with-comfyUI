@@ -627,6 +627,8 @@ export function deleteBoard(boardId) {
 function mapPostRow(r) {
   return {
     id: r.id,
+    is_favorite: r.favorited_at != null,
+    favorited_at: r.favorited_at ?? null,
     published_seq: r.published_seq || r.id,
     outlet_id: r.outlet_id,
     outlet_name: r.outlet_name || null,
@@ -695,7 +697,7 @@ export function getMediaUnread(seen = {}) {
  *   传 null 或未知值 = **不过滤**（「全部」标签）。
  *   注意《邻舍日报》不走这里（它是独立的整版报纸，不存 media_posts）。
  */
-export function listPosts({ outletId = null, boardId = null, category = null, limit = 40, offset = 0 } = {}) {
+export function listPosts({ outletId = null, boardId = null, category = null, favoritesOnly = false, limit = 40, offset = 0 } = {}) {
   const db = getDb();
   const where = ['p.published_seq IS NOT NULL'];
   const params = [];
@@ -705,6 +707,8 @@ export function listPosts({ outletId = null, boardId = null, category = null, li
   // 别再在这里写 if/else 硬编码形态名 —— 那正是「digital 漏摘 poster」的成因。
   const cf = categoryFilter(category);
   if (cf) { where.push(cf.sql); params.push(...cf.params); }
+  // 上游 v3.9.0（0d8fd1f）：媒体收藏——只看收藏过的帖子
+  if (favoritesOnly) where.push('p.favorited_at IS NOT NULL');
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
   // ★ 分类过滤引用 o.layout，所以**计数查询也必须带上同一套 JOIN**。
@@ -723,7 +727,7 @@ export function listPosts({ outletId = null, boardId = null, category = null, li
     SELECT p.*, o.name AS outlet_name, o.layout AS layout, b.name AS board_name
     ${fromSql}
     ${whereSql}
-    ORDER BY ${MEDIA_PUBLICATION_ORDER} DESC
+    ORDER BY ${favoritesOnly ? 'p.favorited_at DESC, p.id' : MEDIA_PUBLICATION_ORDER} DESC
     LIMIT ? OFFSET ?
   `).all(...params, Math.min(Math.max(1, limit), 100), Math.max(0, offset));
 

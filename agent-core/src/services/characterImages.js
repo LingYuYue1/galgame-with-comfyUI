@@ -112,10 +112,12 @@ export function collectCharacterImageUrls(characterId, { limit = 120 } = {}) {
   for (const row of standingRows) push(row.image_url);
 
   // 9. 角色当前头像与旧版默认立绘（work 槽未显式设置图片时的兜底）
-  const char = db.prepare('SELECT avatar_path, standing_url FROM characters WHERE id = ?').get(characterIdNum);
+  const char = db.prepare('SELECT avatar_path, standing_url, chat_bg_path, galgame_bg_path FROM characters WHERE id = ?').get(characterIdNum);
   if (char) {
     push(char.avatar_path);
     push(char.standing_url);
+    push(char.chat_bg_path);
+    push(char.galgame_bg_path);
   }
 
   return urls;

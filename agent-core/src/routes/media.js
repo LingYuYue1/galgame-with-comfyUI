@@ -25,6 +25,8 @@ import { listMediaOps, countMediaOps, MEDIA_OP_TYPES, MEDIA_TARGET_TYPES } from 
 // 上游 v3.8.1（185de14 报刊生成助手）：媒体表单草稿生成
 import { generateMediaOutletDraft } from '../services/mediaOutletDesigner.js';
 import { mediaAvatarLibrary } from '../services/mediaAvatarLibrary.js';
+import { getDb } from '../db/index.js';
+import { setMediaPostFavorite } from '../db/mediaFavorites.js';
 
 const router = Router();
 
@@ -179,15 +181,22 @@ router.get('/posts', (req, res) => {
      */
     const raw = String(req.query.category || '');
     const category = MEDIA_CATEGORIES.includes(raw) ? raw : null;
+    // 上游 v3.9.0（0d8fd1f）：媒体收藏——只取收藏的帖子
+    const favoritesOnly = req.query.favorites === '1';
     const limit = req.query.limit ? Number(req.query.limit) : 40;
     const offset = req.query.offset ? Number(req.query.offset) : 0;
-    const data = listPosts({ outletId, boardId, category, limit, offset });
+    const data = listPosts({ outletId, boardId, category, favoritesOnly, limit, offset });
     res.json(data);
   } catch (err) { fail(res, err); }
 });
 
-// POST /api/media/posts/:id/regenerate-image — 为这条内容重新生成配图
-// （周刊/海报会连同 payload 里的小图一起清空重出）
+// PUT /api/media/posts/:id/favorite — 收藏 / 取消收藏
+router.put('/posts/:id/favorite', (req, res) => {
+  try {
+    res.json(setMediaPostFavorite(getDb(), Number(req.params.id), req.body?.favorite));
+  } catch (err) { fail(res, err); }
+});
+
 // ── 门户（数字报刊·两层生成）──
 
 // POST /api/media/posts/:id/sections/:key — 生成/读取某个板块的正文（第 2 层）

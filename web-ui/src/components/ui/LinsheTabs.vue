@@ -15,13 +15,7 @@
       class="ls-tabs__item"
       :class="{ 'ls-tabs__item--active': option.value === modelValue }"
       role="tab"
-      :tabindex="
-        variant === 'comic'
-          ? disabled || option.disabled || option.value !== modelValue
-            ? -1
-            : 0
-          : undefined
-      "
+      :tabindex="disabled || option.disabled || option.value !== modelValue ? -1 : 0"
       :aria-selected="option.value === modelValue"
       :aria-disabled="disabled || option.disabled || undefined"
       :title="option.title"
@@ -62,7 +56,7 @@ function select(option) {
   emit('update:modelValue', option.value)
 }
 function navigate(event, option) {
-  if (props.variant !== 'comic' || props.disabled) return
+  if (props.disabled) return
   const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End']
   if (!keys.includes(event.key)) return
   event.preventDefault()

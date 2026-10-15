@@ -54,3 +54,7 @@ krea2-posters/
 
 # 本地二创 · 远端接入资料（WireGuard 密钥/二维码/隧道脚本，严禁入库）
 remote-access/
+
+# 本地构建/调试临时产物（不入库）
+debug.log
+web-ui/.tmp-*/

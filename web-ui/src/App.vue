@@ -5,7 +5,7 @@
     <span class="banner-text">尚未配置 API Key，请前往设置页面填写 DeepSeek（或其他兼容）API Key</span>
     <router-link to="/settings" class="banner-link">前往设置 →</router-link>
   </div>
-  <div class="app-layout" :class="{ 'is-mobile': isMobile, 'sidebar-collapsed': !isMobile && sidebarCollapsed }">
+  <div class="app-layout" :class="{ 'is-mobile': isMobile, 'sidebar-collapsed': !isMobile && sidebarCollapsed, 'immersive-chat': route.path.startsWith('/chat') && route.query.mode === 'galgame' }">
     <!-- 移动端遮罩层：Sidebar 拉出时覆盖聊天区域 -->
     <Transition name="scrim-fade">
       <div v-if="isMobile && mobileSidebarOpen" class="mobile-scrim" @click="closeMobileSidebar"></div>
@@ -269,6 +269,7 @@ onMounted(async () => {
 
   // 日程更改成功（手动编辑 / 聊天约定 / 跨天约定应用）→ 右上角提示
   onStreamEvent('schedule_changed', (data) => {
+    if (data.source === 'event') return // 奇遇占用日程静默同步，不弹更新提示
     const name = data.display_name || '角色'
     const todayKey = new Date().toLocaleDateString('sv-SE') // 本地时区 YYYY-MM-DD
     if (data.target_date && data.target_date !== todayKey) {
@@ -367,6 +368,10 @@ onUnmounted(() => {
 /* ⚠ `min-height: 0` 是必需的：本项在纵向 flex 链上，缺了它内部 `overflow` 撑不满，
    需要确定高度的页面（如「故事」页的 vue-flow 画布）会拿到 0 高度而不渲染任何节点。 */
 .page-host { position: relative; flex: 1; min-width: 0; min-height: 0; }
+.app-layout.immersive-chat > .nav-bar,
+.app-layout.immersive-chat > .sidebar-viewport,
+.app-layout.immersive-chat > .mobile-scrim { display: none; }
+.app-layout.immersive-chat > .page-host { margin-left: 0; padding-bottom: 0; }
 .page-modal-host { position: absolute; inset: 0; pointer-events: none; }
 .page-modal-host .modal-overlay { pointer-events: auto; }
 #app { position: relative; z-index: 1; }

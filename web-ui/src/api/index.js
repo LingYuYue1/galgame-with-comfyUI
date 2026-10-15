@@ -81,6 +81,8 @@ export async function listCharacters() {
 export async function getMessages(characterId) {
   return request(`/characters/${characterId}/messages`)
 }
+export const getDialogueTranscript = (id, cursor = {}) => request(`/characters/${id}/dialogue?${new URLSearchParams(cursor)}`)
+export const getCharacterStandingState = id => request(`/characters/${id}/standing-display`)
 
 export async function updateCharacter(id, data) {
   return request(`/characters/${id}`, { method: 'PUT', body: data })
@@ -381,8 +383,12 @@ export function generateAvatar(characterId) {
 }
 
 /** 上传/清除角色聊天背景（base64，空串 = 恢复默认） */
-export async function uploadChatBg(characterId, base64) {
-  return request(`/characters/${characterId}/chat-bg`, { method: 'POST', body: { base64 } })
+export async function uploadChatBg(characterId, base64, target = 'chat') {
+  return request(`/characters/${characterId}/chat-bg`, { method: 'POST', body: { base64, target } })
+}
+
+export function generateChatBg(characterId, requirement = '', target = 'galgame', previewOnly = false) {
+  return request(`/characters/${characterId}/generate-chat-bg`, { method: 'POST', body: { requirement, target, previewOnly } })
 }
 
 /** 生成角色立绘（requirement 为额外立绘需求，可空） */
@@ -512,7 +518,7 @@ export function uploadChatImage(base64) {
   return request('/chat/upload-image', { method: 'POST', body: { base64 } })
 }
 
-export function chatStream(characterId, message, clientMsgId, imageMode = 'smart', deepThink = false, townContext, images = null) {
+export function chatStream(characterId, message, clientMsgId, imageMode = 'smart', deepThink = false, townContext, images = null, galgameMode = false) {
   const controller = new AbortController()
   const stream = new ReadableStream({
     async start(outerController) {
@@ -533,7 +539,7 @@ export function chatStream(characterId, message, clientMsgId, imageMode = 'smart
 
           res = await fetch(`${BASE}/characters/${characterId}/chat`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message, client_msg_id: clientMsgId, image_mode: imageMode, force_image_gen: imageMode === 'force', deep_think: !!deepThink, ...(Array.isArray(images) && images.length ? { images } : {}), ...(townContext === undefined ? {} : { townContext }) }),
+            body: JSON.stringify({ message, client_msg_id: clientMsgId, image_mode: imageMode, force_image_gen: imageMode === 'force', deep_think: !!deepThink, ...(Array.isArray(images) && images.length ? { images } : {}), ...(galgameMode === true ? { galgame_mode: true } : {}), ...(townContext === undefined ? {} : { townContext }) }),
             signal: attemptCtrl.signal,
           })
           if (res.ok) break  // 成功
@@ -2423,18 +2429,23 @@ export function getMediaUnread(seen = {}) {
 }
 
 /** 帖子分页（不传 outlet 则跨媒体） */
-export function listMediaPosts({ outlet = null, board = null, category = null, limit = 40, offset = 0 } = {}) {
+export function listMediaPosts({ outlet = null, board = null, category = null, favoritesOnly = false, limit = 40, offset = 0 } = {}) {
   let path = `/media/posts?limit=${limit}&offset=${offset}`
   if (outlet) path += `&outlet=${encodeURIComponent(outlet)}`
   if (board) path += `&board=${encodeURIComponent(board)}`
-  // 分类过滤：digital = 数字报刊（周刊/海报）；social = 社交平台（帖子流）
+  // 分类过滤：digital = 数字报刊；social = 社交平台；收藏可在各分类内独立筛选
   if (category) path += `&category=${encodeURIComponent(category)}`
+  if (favoritesOnly) path += '&favorites=1'
   return request(path)
 }
 
 /** 抓一批新帖（异步：返回 started 后靠 SSE media_new_posts 得知完成） */
 export function refreshMediaPosts(body = {}) {
   return request('/media/refresh', { method: 'POST', body })
+}
+
+export function setMediaPostFavorite(postId, favorite) {
+  return request(`/media/posts/${postId}/favorite`, { method: 'PUT', body: { favorite } })
 }
 
 /** 催一次封面补印 */

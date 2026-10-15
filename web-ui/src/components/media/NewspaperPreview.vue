@@ -1,5 +1,14 @@
 <template>
-  <article class="paper-preview" :aria-busy="loading && !paper">
+  <article
+    class="paper-preview"
+    role="button"
+    tabindex="0"
+    :aria-label="paper ? `阅读${paper.name || '邻舍日报'}第 ${paper.edition} 期` : '打开报纸 · 翻阅往期'"
+    :aria-busy="loading && !paper"
+    @click="emit('open')"
+    @keydown.enter.self.prevent="emit('open')"
+    @keydown.space.self.prevent="emit('open')"
+  >
     <header class="paper-masthead">
       <div>
         <span class="paper-kicker">LIN SHE DAILY / 每日刊</span>
@@ -48,7 +57,7 @@
           <span>人物特稿</span>
           {{ author }}
         </div>
-        <media-game-button @click="emit('open')">
+        <media-game-button @click.stop="emit('open')">
           {{ paper ? '展开整张报纸' : '打开报纸 · 翻阅往期' }}
           <span aria-hidden="true">↗</span>
         </media-game-button>
@@ -56,12 +65,6 @@
       <div
         v-if="lead?.image && !imageFailed"
         class="paper-image"
-        role="button"
-        tabindex="0"
-        aria-label="打开整张报纸"
-        @click="emit('open')"
-        @keydown.enter.prevent="emit('open')"
-        @keydown.space.prevent="emit('open')"
       >
         <img
           :src="bustUrlIfOverwritten(lead.image)"
@@ -132,11 +135,17 @@ watch(
 
 <style scoped>
 .paper-preview {
+  cursor: pointer;
+  text-align: left;
   margin: 28px 20px 40px;
   border: 3px solid var(--media-rule);
   box-shadow: 7px 7px 0 var(--media-ink);
   background: var(--media-paper);
   color: var(--text-primary);
+}
+.paper-preview:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 4px;
 }
 .paper-masthead {
   display: flex;

@@ -8,6 +8,7 @@
       <div class="wk-mast-top">
         <span class="wk-vol">Vol.{{ data.volume }}</span>
         <span class="wk-kind">【{{ data.kind }}】</span>
+        <media-favorite-button v-if="showFavorite" class="wk-favorite" :post="post" whole-issue :loading="favoriteBusy" @toggle="emit('favorite', $event)" />
       </div>
       <h1 class="wk-headline">{{ data.headline }}</h1>
       <p v-if="data.intro" class="wk-intro">{{ data.intro }}</p>
@@ -83,13 +84,16 @@
 
 <script setup>
 import { computed } from 'vue'
+import MediaFavoriteButton from './MediaFavoriteButton.vue'
 
 const props = defineProps({
   /** media_posts 行（payload 为周刊结构） */
   post: { type: Object, required: true },
+  favoriteBusy: Boolean,
+  showFavorite: { type: Boolean, default: true },
 })
 /** 点图片 → 交给父级开 lightbox（与《邻舍日报》详情同口径） */
-const emit = defineEmits(['zoom'])
+const emit = defineEmits(['zoom', 'favorite'])
 
 const data = computed(() => props.post?.payload || null)
 
@@ -121,7 +125,8 @@ function changeClass(change) {
   border-bottom: 3px double #2a2620;
   text-align: center;
 }
-.wk-mast-top { display: flex; align-items: baseline; justify-content: center; gap: 8px; margin-bottom: 8px; }
+.wk-mast-top { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.wk-favorite { margin-left: auto; flex-shrink: 0; }
 .wk-vol {
   font-size: 12px; font-weight: 700; letter-spacing: 1px;
   padding: 2px 9px; border-radius: 4px;

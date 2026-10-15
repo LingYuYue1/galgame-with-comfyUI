@@ -70,6 +70,7 @@ function _connect() {
   _conn = api.connectUnifiedStream({
     connected:         () => { _dispatch('connected', {}); _stableTimer = setTimeout(_onStable, 15000) },
     standing_display_state: d => _dispatch('standing_display_state', d),
+    character_standing_state: d => _dispatch('character_standing_state', d),
     expression_standings_updated: d => _dispatch('expression_standings_updated', d),
     new_event:         d => _dispatch('new_event', d),
     event_update:      d => _dispatch('event_update', d),

@@ -17,6 +17,7 @@
     <header class="po-hotbar">
       <span class="po-hotbar-tag">热点速报</span>
       <span class="po-hotbar-text">{{ data.hotline || '本期瓜已上桌' }}</span>
+      <media-favorite-button v-if="showFavorite" class="po-favorite" :post="post" whole-issue :loading="favoriteBusy" @toggle="emit('favorite', $event)" />
     </header>
 
     <div class="po-body">
@@ -96,13 +97,16 @@
 
 <script setup>
 import { computed } from 'vue'
+import MediaFavoriteButton from './MediaFavoriteButton.vue'
 
 const props = defineProps({
   /** media_posts 行（payload 为海报结构） */
   post: { type: Object, required: true },
+  favoriteBusy: Boolean,
+  showFavorite: { type: Boolean, default: true },
 })
 /** 点图片 → 交给父级开 lightbox（与《邻舍日报》详情同口径） */
-const emit = defineEmits(['zoom'])
+const emit = defineEmits(['zoom', 'favorite'])
 
 const data = computed(() => props.post?.payload || null)
 const issueNo = computed(() => String(data.value?.issueNo || 1).padStart(2, '0'))
@@ -144,6 +148,7 @@ const issueNo = computed(() => String(data.value?.issueNo || 1).padStart(2, '0')
   transform: skewX(-8deg);
 }
 .po-hotbar-text { font-size: 12.5px; line-height: 1.5; }
+.po-favorite { margin-left: auto; flex-shrink: 0; }
 
 /* ── ② 主体：左图右文（横版的核心）── */
 .po-body {

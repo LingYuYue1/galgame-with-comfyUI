@@ -57,3 +57,12 @@ test('empty scene slots keep the legacy default available and removed images dis
   db.prepare("DELETE FROM character_standings WHERE character_id = ? AND scene = 'home'").run(id);
   assert.deepEqual(collectCharacterImageUrls(id), ['/images/standing/legacy.png']);
 });
+
+test('uploaded chat and galgame backgrounds are included in the matching character gallery', () => {
+  const id = character();
+  db.prepare('UPDATE characters SET chat_bg_path=?, galgame_bg_path=? WHERE id=?')
+    .run('/images/chatbg/chat.jpg', '/images/chatbg/stage.jpg', id);
+  const other = character('other');
+  db.prepare('UPDATE characters SET galgame_bg_path=? WHERE id=?').run('/images/chatbg/other.jpg', other);
+  assert.deepEqual(collectCharacterImageUrls(id), ['/images/chatbg/chat.jpg', '/images/chatbg/stage.jpg']);
+});

@@ -47,6 +47,29 @@ const noImage = { generateImageRaw: async () => ({ success: false, images: [] })
 const opening = { title: '上课奇遇', description: '老师讲课', prompt: '画面', choiceA: '继续听课', choiceB: '举手提问' };
 const branch = { description: '继续上课', prompt: '新画面', choiceA: '记笔记', choiceB: '继续提问' };
 
+test('character choices extend only within 15 minutes, including the exact boundary, before generation', async t => {
+  const { db, id, character } = setup(t);
+  let event = insertEvent(db, id, at(3, 20));
+  const nowMs = at(3).getTime();
+  for (const seconds of [20 * 60, 15 * 60 + 1, 15 * 60, 15 * 60 - 1]) {
+    const expiry = sqliteTime(new Date(nowMs + seconds * 1000));
+    db.prepare('UPDATE character_events SET expires_at=? WHERE id=?').run(expiry, event.id);
+    event.expires_at = expiry;
+    const expected = sqliteTime(new Date(nowMs + (seconds + (seconds <= 900 ? 300 : 0)) * 1000));
+    event = await generator.generateNextBranch(character, event, { choice: 'A', label: '继续听课' }, {
+      llm: { chatSync: async () => {
+        assert.equal(db.prepare('SELECT expires_at FROM character_events WHERE id=?').get(event.id).expires_at, expected);
+        return JSON.stringify(branch);
+      } }, image: noImage,
+    });
+    assert.equal(event.expires_at, expected);
+  }
+  // 续时后已超过 15 分钟，再点另一分支不能继续累加。
+  const expiry = event.expires_at;
+  event = await generator.generateNextBranch(character, event, { choice: 'B', label: '继续提问' }, { llm: llm(branch), image: noImage });
+  assert.equal(event.expires_at, expiry);
+});
+
 test('initial generation reserves its entire duration and keeps the opening activity after a slow generation crosses the boundary', async t => {
   const { db, id, character } = setup(t);
   const type = db.prepare('SELECT key FROM event_types LIMIT 1').get().key;

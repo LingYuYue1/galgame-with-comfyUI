@@ -38,11 +38,13 @@ import { SentenceSplitter } from '../utils/sentenceSplitter.js';
 import { invalidateGalleryCache } from '../services/galleryCache.js';
 import { saveBase64Image } from '../services/imagePaths.js';
 import { parseEmojiText, buildEmojiNote, getCharacterEmojiMap, getUserEmojiMap } from '../services/emojiService.js';
+import { withGalgameEmojiPreference } from '../services/chatModePrompt.js';
 import { getReplyDelay, formatScheduleContext, getCurrentActivity, isTempWoken, extendTempWake } from '../services/scheduleManager.js';
 import { detectAndApplyAppointment } from '../services/appointmentDetector.js';
 import { broadcast } from '../services/unifiedStreamBus.js';
 import { getStandingDisplay, publishStandingKeys } from '../services/standingDisplay.js';
 import { randomUUID as standingTurnId } from 'crypto';
+import { readDialogueTranscript } from '../services/dialogueTranscript.js';
 import { ensureDreamOnDemand, generateLiveDreamMurmur, decorateDreamImagePrompt } from '../services/dreamService.js';
 import { getTimeTag, getLightHint, getLightNoteWithWeather } from '../services/timeLight.js';
 import { getCoreDialogueRules, getChatRhythmRules, JUDGE_PROMPT, detectImageIntent } from '../builtinRules.js';
@@ -335,6 +337,22 @@ router.get('/characters/:id/messages', (req, res) => {
   });
 });
 
+// Galgame reads complete source messages, not the split bubble table.
+router.get('/characters/:id/dialogue', (req, res) => {
+  const db = getDb();
+  if (!db.prepare('SELECT id FROM characters WHERE id=?').get(req.params.id)) return res.status(404).json({ error: '角色不存在' });
+  res.json(readDialogueTranscript(db, req.params.id, req.query));
+});
+router.post('/characters/:id/dialogue/guesses', async (req, res, next) => {
+  try {
+    const character = getDb().prepare('SELECT * FROM characters WHERE id=?').get(req.params.id);
+    if (!character) return res.status(404).json({ error: '角色不存在' });
+    if (!config.features.replyGuesses) return res.json({ guesses: null, disabled: true });
+    const guesses = await generateReplyGuesses(convId(req.params.id), character);
+    res.json({ guesses });
+  } catch (error) { next(error); }
+});
+
 // GET /api/messages/:id — 单条消息查询（送礼图片轮询用）
 router.get('/messages/:id', (req, res) => {
   const db = getDb();
@@ -347,7 +365,7 @@ router.get('/messages/:id', (req, res) => {
 
 // POST /api/characters/:id/chat — 流式对话
 router.post('/characters/:id/chat', createCharacterTownChatGuard({ getDb, getTownState }), async (req, res) => {
-  const { message, client_msg_id, force_image_gen, image_mode, deep_think, images: rawImages } = req.body;
+  const { message, client_msg_id, force_image_gen, image_mode, deep_think, galgame_mode, images: rawImages } = req.body;
   const deepThink = deep_think === true || deep_think === 'true';
   const imageMode = ['off', 'smart', 'force'].includes(image_mode) ? image_mode : (force_image_gen ? 'force' : 'smart');
   // 深度思考下的生图策略：off = planner 看不到图片工具；must = 强制生图（本轮必配图，形式由 planner 定）；auto = planner 按需决策
@@ -1224,7 +1242,9 @@ ${coreRules}
 
     // 流式消费 + flush（一次调用 = 一段 LLM 流；@memory 触发时会被复用跑第二段）
     async function consumeStream(streamMessages, signal) {
-      for await (const chunk of chatStream(streamMessages, { ...streamOpts, signal })) {
+      // 仅主聊天流的本轮 user 头部增加模式偏好；重试和回想续写都从原始消息组装，避免重复叠加。
+      const requestMessages = withGalgameEmojiPreference(streamMessages, { galgameMode: galgame_mode === true, hasEmojis: emojiMap.size > 0 });
+      for await (const chunk of chatStream(requestMessages, { ...streamOpts, signal })) {
         const cleanChunk = chunk.replace(/<br\s*\/?>/gi, '').replace(/\n{2,}/g, '\n');
         streamState.fullContent += cleanChunk;
 
@@ -1439,6 +1459,7 @@ ${coreRules}
 
     const rawResult = insertRawStmt.run(conversationId, 'assistant', rawContent, tags.prompt || null, thinkingPayload);
     const rawMsgId = rawResult.lastInsertRowid;
+    send('dialogue_saved', { raw_id: rawMsgId });
 
     const savedIds = [];
     for (const { id, p } of saveSegments(parsedSegments, rawMsgId)) {
@@ -2335,7 +2356,19 @@ async function handleNeedImageFlow(conversationId, character, send, preExistingT
  * 回复猜想：根据最近对话预测用户接下来最可能回复的两句话
  * 独立轻量 LLM 调用（~200 tokens），不影响主回复质量
  */
+const dialogueGuessCache = new Map();
 async function generateReplyGuesses(conversationId, character) {
+  const latest = getDb().prepare('SELECT id,role FROM raw_messages WHERE conversation_id=? ORDER BY id DESC LIMIT 1').get(conversationId);
+  if (latest?.role !== 'assistant') return null;
+  const key = `${conversationId}:${latest.id}`;
+  if (!dialogueGuessCache.has(key)) {
+    const pending = generateReplyGuessesUncached(conversationId, character).then(result => result ? { ...result, source_raw_id: latest.id } : null);
+    dialogueGuessCache.set(key, pending);
+    if (dialogueGuessCache.size > 100) dialogueGuessCache.delete(dialogueGuessCache.keys().next().value);
+  }
+  return dialogueGuessCache.get(key);
+}
+async function generateReplyGuessesUncached(conversationId, character) {
   const db = getDb();
 
   // 取最近 1 轮（2 条 raw_messages）作为上下文
