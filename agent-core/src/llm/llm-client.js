@@ -199,6 +199,7 @@ async function _chatSyncFreeEgg(messages, opts) {
  * @param {number} opts.maxRetries - SDK 内部重试次数；与外层 retries 独立，缺省不变
  * @param {boolean} opts.returnMeta - true 时返回 { content, finishReason }（判断是否被 max_tokens 截断）；缺省仍只返回 content 字符串
  * @param {boolean} opts.freeEggFailover - false 禁止免费模型轮换/回退自有端点，缺省保持旧行为
+ * @param {boolean} opts.degradeRetry - false 关掉「空正文 + finish_reason=length」的降级重发（见 degradeEmptyLengthRetry），缺省开启
  * 单次请求用 { signal, timeout: 10000, retries: 0, maxRetries: 0, freeEggFailover: false }。
  */
 export async function chatSync(messages, opts = {}) {
@@ -211,9 +212,10 @@ export async function chatSync(messages, opts = {}) {
   }
   messages = await compressLlmImageInputs(messages);
   try {
-    const result = config.llm.freeEgg
+    let result = config.llm.freeEgg
       ? await _chatSyncFreeEgg(messages, opts)
       : await _chatSyncInner(messages, opts);
+    result = (await degradeEmptyLengthRetry(messages, opts, result)) ?? result;
     return opts.returnMeta ? result : result.content;
   } catch (err) {
     throwIfSyncAborted(opts.signal, err);
@@ -223,6 +225,38 @@ export async function chatSync(messages, opts = {}) {
       return opts.returnMeta ? retried : retried.content;
     }
     throw err;
+  }
+}
+
+/**
+ * ★ F-62（2026-10-16）：「空正文 + finish_reason=length」降级重发（全链路保险网）。
+ *
+ * 病根：本机通道（opencode + deepseek-v4.1-flash、`LLM_THINKING_MODE=enabled`）下**推理 token
+ * 计入 max_tokens**。调用方按「正文长度」设的 max_tokens（≤1536 的那批尤其）会被思考吃光，
+ * 返回 `content=''` 且 `finish_reason='length'` —— 对调用方等同「模型没说话」：wakeService /
+ * replyQueueScheduler 都直接 `throw new Error('Empty reply from LLM')`，peek 落到模板兜底
+ * （F-60），日程生成被 F-58 单点修掉。
+ *
+ * 本函数给全链路兜一层网：既然明知病因是「推理吃光预算」、也明知解法是「关思考」，就自动
+ * 关掉重发**一次**。只作用于「确实空正文」的响应 —— 正常返回零影响；重发失败则原样交回空
+ * 结果，调用方既有兜底与错误语义完全不变。逃生阀：`opts.degradeRetry === false`。
+ *
+ * 与各调用点显式 `thinking: { type: 'disabled' }` 的关系：显式声明是**主修**（省掉这次白烧的
+ * 调用与等待，短预算调用应一律显式声明），本函数是**保险**（覆盖 max_tokens 取自变量、
+ * 未来新增调用点、以及临时把预算是高的情况）。
+ */
+async function degradeEmptyLengthRetry(messages, opts, result) {
+  const empty = !String(result?.content ?? '').trim();
+  if (!empty || result?.finishReason !== 'length') return null;
+  const effectiveThinking = opts.thinking === undefined ? configuredThinking() : opts.thinking;
+  if (effectiveThinking?.type !== 'enabled') return null;   // 本来就没开思考 → 不是这个病
+  if (opts.degradeRetry === false) return null;
+  console.warn(`[${providerLabel()}] ▸ 正文为空且 finish_reason=length（推理吃光预算），降级 thinking:disabled 重发一次 (${opts.label || 'sync'})`);
+  try {
+    return await _chatSyncInner(messages, { ...opts, thinking: { type: 'disabled' }, retries: 0 });
+  } catch (err) {
+    console.warn(`[${providerLabel()}] ▸ 降级重发也失败，交回原始空结果 (${opts.label || 'sync'}): ${err?.message || err}`);
+    return null;
   }
 }
 

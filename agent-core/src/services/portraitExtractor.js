@@ -139,7 +139,7 @@ export async function maybeExtractPortrait(conversationId, characterId, nameHint
         { role: 'system', content: buildSharedAnalysisSystemPrompt() },
         { role: 'user', content: buildAnalysisUserContent(chatLogBlock, EXTRACT_PROMPT.replace('{{existing_portraits}}', existingText)) },
       ],
-      { temperature: 0.3, max_tokens: 600, response_format: { type: 'json_object' }, label: '提取用户画像' }
+      { temperature: 0.3, max_tokens: 600, thinking: { type: 'disabled' }, response_format: { type: 'json_object' }, label: '提取用户画像' }
     );
   } catch (err) {
     console.error('[portraitExtractor] LLM call failed:', err.message);

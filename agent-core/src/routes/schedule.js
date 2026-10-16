@@ -17,7 +17,7 @@ import { Router } from 'express';
 import { getDb, getSystemRules, getWorldSetting, getGlobalRule, listTransitEdges } from '../db/index.js';
 import { getWorldIntegrationRule } from '../builtinRules.js';
 import { appendOathRing } from '../services/oathUtils.js';
-import { buildCharacterPersona } from '../services/characterPersona.js';
+import { buildCharacterPersona, buildImageCrossRefInfo } from '../services/characterPersona.js';
 // ⚠ 日程配图必须按「那一段」选装（不是"此刻"）—— 见 getSceneOutfitForActivity 的说明
 import { getSceneOutfitForActivity, asPersonaOutfits } from '../services/outfitScene.js';
 import { config } from '../config.js';
@@ -888,6 +888,15 @@ router.post('/:characterId/peek', async (req, res) => {
 
     system1 += `你是一个专业的人像摄影师，你现在需要给角色拍一张人像照，任意角度（俯拍，仰拍，正脸，侧脸，背面，低角度全都不限制），角色也不看着镜头，表现角色当前正在做的事情。角色表情、动作神态根据角色人格和正在做的事来生成，要贴合角色气质。画面输出用英文prompt`;
 
+    // ★ F-61（2026-10-16）：`timeLightInline` / `sleepNote` / `wakeNote` 三个变量自上游
+    //   b365383（「加入背包和每日道具系统」）改写上面那句起，**只计算、从未被引用** ——
+    //   睡眠场景那条【极其重要】的「必须闭眼、房间里没有灯光、睡觉不开灯」与叫醒场景的
+    //   强化说明，从此再没进过模型（夜间安睡照样可能画出睁眼/开灯）。
+    //   这里把三者原样接回，与 F-15 时段锚点互补：锚点管送进工作流的画面标签，
+    //   这里管给模型的口径 —— 时段光线给出光线依据；睡眠/叫醒两块是**强化约束**，
+    //   与 effectiveDescription 各自成立、不重复替代。
+    system1 += `\n\n${timeLightInline}${sleepNote}${wakeNote}`;
+
     // system2: 角色完整人格（统一入口，含生效外观注入），"你"替换为角色姓名
     //
     // ★★ 着装必须按**这一段日程**判定，不能用"当前时刻"（2026-10-07 用户实报的 bug）：
@@ -955,11 +964,29 @@ router.post('/:characterId/peek', async (req, res) => {
 
       // 调用 LLM 生成专用 prompt
       let generatedPrompt = '';
+      // 兜底 prompt（LLM 空返回 / 解析失败 / 调用报错三路共用）：
+      // ★ F-60（2026-10-16）：旧兜底只有中文角色名（`三月七 doing …`），既没有 IP 归属
+      //   （`March 7th (Honkai: Star Rail)`），也没有任何外观锚点 —— 生图模型只能画出一个
+      //   「长得差不多的随机路人」（用户实报：三月七变流萤）。
+      //   这里补上「身份行」（取法与 emojiService 的兜底一致：buildImageCrossRefInfo 首行），
+      //   即 `三月七(March 7th)，来自《崩坏：星穹铁道》/《Honkai: Star Rail》`。
+      const fallbackPrompt = () => {
+        if (activity.snapshotPrompt) return activity.snapshotPrompt;
+        const identity = buildImageCrossRefInfo(character).split('\n')[0] || charName;
+        return `${identity}, ${charName} doing ${activity.activity} at ${activity.location}`;
+      };
       try {
         const rawResult = await chatSync(llmMsgs, {
           temperature: 0.7,
           max_tokens: 1024,
           label: '瞄一眼人像prompt生成',
+          // ★ F-60（2026-10-16，环境适配）：与 F-58 同构 —— 本机通道（thinking=enabled）下
+          //   推理 token 计入 max_tokens。peek 输入≈6900 token，实测思考长度在 637~1024
+          //   之间波动：一旦顶到 1024，预算被吃得一干二净，正文为空（finish_reason=length），
+          //   前端拿到兜底模板 → 角色画成「随机路人」。
+          //   受控探针 scripts/probe-peek-llm.mjs（2026-10-16）：禁思考 7.7s / 正文 1561 字符，
+          //   3/3 稳定；开思考 8.2~9.4s / 正文 0~1197 字符，3 次里 1 次全灭。
+          thinking: { type: 'disabled' },
         });
 
         // 提取 prompt：纯文本优先，JSON 格式向后兼容
@@ -974,14 +1001,14 @@ router.post('/:characterId/peek', async (req, res) => {
         }
 
         if (!generatedPrompt) {
-          console.warn(`[schedule] Peek prompt parse failed, using fallback. Raw: ${rawResult.slice(0, 200)}`);
-          // 兜底：回退到 snapshotPrompt
-          generatedPrompt = activity.snapshotPrompt || `${charName} doing ${activity.activity} at ${activity.location}`;
+          console.warn(`[schedule] Peek prompt parse failed, using fallback. Raw: ${String(rawResult).slice(0, 200)}`);
+          // 兜底：回退到 snapshotPrompt（缺失时用带身份行的模板，见 fallbackPrompt）
+          generatedPrompt = fallbackPrompt();
         }
       } catch (llmErr) {
         console.error(`[schedule] Peek LLM failed for ${charName}:`, llmErr.message);
         // LLM 失败兜底
-        generatedPrompt = activity.snapshotPrompt || `${charName} doing ${activity.activity} at ${activity.location}`;
+        generatedPrompt = fallbackPrompt();
       }
 
       console.log(`[schedule] Peek prompt for ${charName}: "${generatedPrompt.slice(0, 120)}..."`);

@@ -195,6 +195,7 @@ async function processReplyQueue() {
     const fullReply = await chatSync(msgs, {
       temperature: 0.72,
       max_tokens: 512,
+      thinking: { type: 'disabled' },
       label: `delayed-reply:${entry.display_name}`,
     });
 

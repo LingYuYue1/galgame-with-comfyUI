@@ -1089,7 +1089,7 @@ ${historyText}
 
   let conclusionData;
   try {
-    const result = await chatSync(msgs, { temperature: 0.7, max_tokens: 1024, response_format: { type: 'json_object' }, label: '事件结局' });
+    const result = await chatSync(msgs, { temperature: 0.7, max_tokens: 1024, thinking: { type: 'disabled' }, response_format: { type: 'json_object' }, label: '事件结局' });
     const jsonStr = extractFirstJson(result);
     if (!jsonStr) throw new Error('No JSON found');
     conclusionData = JSON.parse(repairJson(jsonStr));

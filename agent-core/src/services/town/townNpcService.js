@@ -723,6 +723,7 @@ export async function generateRoutine(npc, locationKeys) {
   });
   const content = await chatSync(routineMsgs, {
     max_tokens: 900,
+    thinking: { type: 'disabled' },
     temperature: 0.8,
     response_format: { type: 'json_object' },
     label: '小镇NPC作息',
@@ -793,6 +794,7 @@ export async function rerollNpc(npcId) {
   });
   const content = await chatSync(rerollMsgs, {
     max_tokens: 300,
+    thinking: { type: 'disabled' },
     temperature: 0.95,
     response_format: { type: 'json_object' },
     label: '小镇NPC身份重掷',

@@ -971,7 +971,7 @@ ${imageRulesText}
   try {
     const result = await chatSync(
       [{ role: 'user', content: reactionPrompt }],
-      { temperature: 0.7, max_tokens: 400, response_format: { type: 'json_object' }, label: '送礼反应' }
+      { temperature: 0.7, max_tokens: 400, thinking: { type: 'disabled' }, response_format: { type: 'json_object' }, label: '送礼反应' }
     );
     let raw = result.trim();
     if (raw.startsWith('```')) raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
@@ -1114,7 +1114,7 @@ ${basePrompt}`;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     const result = await chatSync(
       [{ role: 'user', content: prompt }],
-      { temperature: attempt === 0 ? 0.3 : 0.5, max_tokens: 512, label: '浓缩short_prompt' }
+      { temperature: attempt === 0 ? 0.3 : 0.5, max_tokens: 512, thinking: { type: 'disabled' }, label: '浓缩short_prompt' }
     );
 
     let condensed = result.trim();

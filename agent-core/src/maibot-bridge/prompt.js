@@ -60,7 +60,7 @@ export async function extractImagePrompt({ character, user_message, reply_text, 
   const msgs = buildImagePromptMessages({ character, user_message, reply_text, context, user_name });
   const result = await chatSync(
     msgs,
-    { temperature: 0.7, max_tokens: 1024, label: 'maibot-image-prompt' }
+    { temperature: 0.7, max_tokens: 1024, thinking: { type: 'disabled' }, label: 'maibot-image-prompt' }
   );
   const prompt = cleanDirectPrompt(result);
   if (!prompt) {

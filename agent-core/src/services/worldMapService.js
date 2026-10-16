@@ -394,7 +394,7 @@ ${context ? `所属：${context}\n` : ''}${world ? `\n参考世界观（摘录�
   ];
 
   const raw = await chatSync(msgs, {
-    temperature: 0.8, max_tokens: 300,
+    temperature: 0.8, max_tokens: 300, thinking: { type: 'disabled' }, 
     response_format: { type: 'json_object' }, label: `worldmap:scene:${nm}`,
   });
   const jsonStr = extractFirstJson(raw);
@@ -473,7 +473,7 @@ ${place.kind ? `类型：${place.kind}\n` : ''}${place.summary ? `它是什么�
   ];
 
   const raw = await chatSync(msgs, {
-    temperature: 0.9, max_tokens: 900,
+    temperature: 0.9, max_tokens: 900, thinking: { type: 'disabled' }, 
     response_format: { type: 'json_object' }, label: `worldmap:poi:${place.name}`,
   });
   const jsonStr = extractFirstJson(raw);

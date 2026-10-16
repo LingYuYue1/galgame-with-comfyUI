@@ -600,7 +600,7 @@ router.post('/:id/forum-alias', async (req, res) => {
       { role: 'system', content: system },
       { role: 'user', content: user },
     ], {
-      temperature: 1.0, max_tokens: 400,
+      temperature: 1.0, max_tokens: 400, thinking: { type: 'disabled' }, 
       response_format: { type: 'json_object' }, label: 'forum-alias',
     });
 
@@ -1390,7 +1390,7 @@ ${buildCharacterPersona(char, { variant: 'full', outfits: avatarOutfits })}
     const llmResult = await chatSync([
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userMsg },
-    ], { model, temperature: 0.6, max_tokens: 1024, label: '生成头像提示词' });
+    ], { model, temperature: 0.6, max_tokens: 1024, thinking: { type: 'disabled' }, label: '生成头像提示词' });
 
     // 提取 prompt：纯文本优先，JSON 格式向后兼容
     let promptText;
@@ -1556,6 +1556,7 @@ router.post('/:id/generate-standing', async (req, res) => {
       model,
       temperature: 0.7,
       max_tokens: 1024,
+      thinking: { type: 'disabled' },
       label: '生成立绘提示词',
     });
 
@@ -1713,6 +1714,7 @@ router.post('/:id/generate-standing-task', async (req, res) => {
         model,
         temperature: 0.7,
         max_tokens: 1024,
+        thinking: { type: 'disabled' },
         label: '生成立绘提示词',
       });
 
@@ -1864,6 +1866,7 @@ router.post('/:id/standings/generate', async (req, res) => {
         model,
         temperature: 0.7,
         max_tokens: 1024,
+        thinking: { type: 'disabled' },
         label: '生成场景立绘提示词',
       });
       promptText = llmResult.trim()
