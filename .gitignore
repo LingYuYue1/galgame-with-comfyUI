@@ -58,3 +58,19 @@ remote-access/
 # 本地构建/调试临时产物（不入库）
 debug.log
 web-ui/.tmp-*/
+
+# ── 本地私人文档（2026-10-17 历史清理：永不入库；确需跟踪用 git add -f）──
+# 类模式覆盖：交接类 / 计划类 / 资料类本地工作文档
+docs/交接-*.md
+docs/多世界系统-*.md
+docs/星图-*.md
+docs/角色锚点-*.md
+docs/锚点对照-*.md
+docs/世界观-*.md
+docs/pr1-6-*.md
+docs/上游合并-*.md
+docs/remote-access.md
+docs/二创更新日志.md
+
+# 本地临时调试脚本（不进 git）
+agent-core/scripts/_q-*.mjs
