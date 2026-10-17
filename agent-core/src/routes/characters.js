@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import zlib from 'zlib';
 import { fileURLToPath } from 'url';
-import { getDb, getSystemRules, getSystemRulesWithWorld, getWorldSetting, getGlobalRule, getSetting, setSetting, repairFtsIndex } from '../db/index.js';
+import { getDb, getSystemRules, getSystemRulesWithWorld, getWorldSetting, getWorldSettingById, getGlobalRule, getSetting, setSetting, repairFtsIndex } from '../db/index.js';
 import { listAppearanceTraitCatalog } from '../db/imagePromptTagKnowledgeData.js';
 import { normalizeTransitMode, TRANSIT_MODES } from '../services/characterTransitMode.js';
 import { chatSync } from '../llm/llm-client.js';
@@ -494,7 +494,7 @@ router.put('/:id/archived', (req, res) => {
 // PUT /api/characters/:id — 更新角色
 router.put('/:id', (req, res) => {
   const db = getDb();
-  const { name, display_name, base_prompt, emotion_baseline, avatar_path, chat_bg_path, moments_disabled, proactive_disabled, events_disabled, custom_workflow, loras, artist_override, forum_alias, forum_persona, home_place, sleep_place, home_area, work_place, transit_mode } = req.body;
+  const { name, display_name, base_prompt, emotion_baseline, avatar_path, chat_bg_path, moments_disabled, proactive_disabled, events_disabled, custom_workflow, loras, artist_override, forum_alias, forum_persona, home_place, sleep_place, home_area, work_place, transit_mode, world_setting_id } = req.body;
   const updates = [], params = [];
   if (name !== undefined) { updates.push('name = ?'); params.push(name); }
   if (display_name !== undefined) { updates.push('display_name = ?'); params.push(display_name); }
@@ -538,6 +538,17 @@ router.put('/:id', (req, res) => {
   if (custom_workflow !== undefined) { updates.push('custom_workflow = ?'); params.push(custom_workflow || null); }
   if (loras !== undefined) { updates.push('loras = ?'); params.push(Array.isArray(loras) ? JSON.stringify(loras) : (loras || '[]')); }
   if (artist_override !== undefined) { updates.push('artist_override = ?'); params.push(typeof artist_override === 'string' ? artist_override.trim() : null); }
+  // ★ 星图 T10：角色「所在 / 归属世界」。空串或 null = 不指定（读取时回落激活世界）。
+  //   必须校验目标世界真实存在 —— 否则会留下悬空引用（getWorldSetting 会当未绑定处理，
+  //   但界面会显示一个已不存在的世界名）。T12 会在删世界时做引用保护。
+  if (world_setting_id !== undefined) {
+    const wid = (world_setting_id === null || world_setting_id === '') ? null : Number(world_setting_id);
+    if (wid !== null) {
+      if (!Number.isSafeInteger(wid) || wid <= 0) return res.status(400).json({ error: '世界 ID 无效' });
+      if (!getWorldSettingById(wid)) return res.status(400).json({ error: '指定的世界不存在' });
+    }
+    updates.push('world_setting_id = ?'); params.push(wid);
+  }
   if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
   params.push(req.params.id);
   db.prepare(`UPDATE characters SET ${updates.join(', ')} WHERE id = ?`).run(...params);

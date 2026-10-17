@@ -97,10 +97,29 @@
         <div v-for="c in chars" :key="c.id" class="smd-row">
           <span class="smd-avatar">{{ (c.display_name || c.name || '?').slice(0, 1) }}</span>
           <span class="smd-row-name">{{ c.display_name || c.name }}</span>
-          <span class="smd-row-meta">旅程随后开放</span>
+          <linshe-button variant="ghost" size="sm" class="smd-row-act" @click="removeFromWorld(c)">移出</linshe-button>
         </div>
       </div>
-      <p class="smd-hint smd-hint-foot">角色的世界归属在「角色详情 → 所在世界」里修改（T10 开放）。</p>
+
+      <!-- ★ 星图 T10：把角色放进这个世界（不指定 = 跟随激活世界） -->
+      <div class="smd-add-row">
+        <linshe-select
+          v-model="pickCharId"
+          class="smd-add-select"
+          :options="candidateOptions"
+          placeholder="选择一个还没归属这个世界的角色"
+        />
+        <linshe-button
+          variant="secondary"
+          size="sm"
+          :disabled="pickCharId === '' || busyChar"
+          :loading="busyChar"
+          @click="addToWorld"
+        >放进这个世界</linshe-button>
+      </div>
+      <p class="smd-hint smd-hint-foot">
+        也可以点「聊天」左侧的角色卡，在「所在世界」里改；不指定时跟随激活世界。
+      </p>
     </section>
 
     <section v-else class="smd-body">
@@ -128,6 +147,7 @@ import LinsheButton from '../components/ui/LinsheButton.vue'
 import LinsheInput from '../components/ui/LinsheInput.vue'
 import LinsheTabs from '../components/ui/LinsheTabs.vue'
 import LinsheSwitch from '../components/ui/LinsheSwitch.vue'
+import LinsheSelect from '../components/ui/LinsheSelect.vue'
 import LinsheModal from '../components/ui/LinsheModal.vue'
 
 const route = useRoute()
@@ -146,6 +166,10 @@ const activating = ref(false)
 const tab = ref('world')
 const maps = ref([])
 const chars = ref([])
+// ★ 星图 T10：全部角色（用于「把角色放进这个世界」的候选）；pickCharId 用空串表示未选
+const allChars = ref([])
+const pickCharId = ref('')
+const busyChar = ref(false)
 const renameOpen = ref(false)
 const renameValue = ref('')
 
@@ -174,8 +198,43 @@ async function load() {
   try {
     const cr = await api.listCharacters()
     const all = Array.isArray(cr) ? cr : (cr?.characters || cr?.list || [])
+    allChars.value = all
     chars.value = all.filter((c) => Number(c.world_setting_id) === worldId.value)
   } catch { /* 角色读取失败不阻断页面 */ }
+}
+
+// ★ 星图 T10：候选 = 还没归属本世界的角色（含"不指定"的）
+const candidateOptions = computed(() =>
+  allChars.value
+    .filter((c) => Number(c.world_setting_id) !== worldId.value)
+    .map((c) => ({
+      label: (c.display_name || c.name || `#${c.id}`) + (c.world_setting_id ? ' · 现在别的世界' : ' · 未指定'),
+      value: c.id,
+    }))
+)
+
+async function bindCharacter(id, targetWorldId) {
+  if (busyChar.value) return
+  busyChar.value = true
+  try {
+    await api.updateCharacter(id, { world_setting_id: targetWorldId })
+    await load()
+    pickCharId.value = ''
+    toastFn?.(targetWorldId ? '已放进这个世界' : '已移出（跟随激活世界）', 'success')
+  } catch (err) {
+    toastFn?.('改绑失败：' + (err?.message || ''), 'error')
+  } finally {
+    busyChar.value = false
+  }
+}
+
+function addToWorld() {
+  if (pickCharId.value === '') return
+  return bindCharacter(Number(pickCharId.value), worldId.value)
+}
+
+function removeFromWorld(c) {
+  return bindCharacter(c.id, null)
 }
 
 async function saveWorld() {
@@ -403,6 +462,15 @@ onMounted(load)
 }
 .smd-hint { font-size: 12.5px; color: var(--text-secondary); padding: 8px 2px; }
 .smd-hint-foot { padding-top: 2px; }
+/* ★ 星图 T10：角色页签的「放进这个世界」一行 + 行内「移出」按钮 */
+.smd-row-act { flex: none; margin-left: 8px; }
+.smd-add-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.smd-add-select { flex: 1 1 220px; min-width: 0; }
 .smd-foot-actions { display: flex; justify-content: flex-end; }
 
 .smd-placeholder {

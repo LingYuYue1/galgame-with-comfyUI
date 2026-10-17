@@ -83,6 +83,21 @@
               </div>
             </div>
 
+            <!-- ★ 星图 T10：角色所在 / 归属世界。
+                 放在身份四字段正下方 —— 它和"名字/马甲"同属"这个角色是谁"，
+                 但读写逻辑与人格无关（改它不重裁 short_prompt、不重生成日程模板）。 -->
+            <div class="detail-world-row">
+              <label class="fl detail-world-label">所在世界</label>
+              <linshe-select
+                v-model="detail.worldSettingId"
+                class="detail-world-select"
+                :options="worldOptions"
+                placeholder="不指定（跟随激活世界）"
+                @update:model-value="detail.dirty = true"
+              />
+              <span class="detail-world-hint">聊天 / 日程 / 朋友圈 / 奇遇等按这个世界解析</span>
+            </div>
+
             <div class="preview-card">
               <!-- 角色关系 -->
               <div class="detail-rel-section" :class="{ 'is-collapsed': detail.relationships.length > 0 && !detail.relOpen }">
@@ -713,6 +728,8 @@ const detail = reactive({
   editName: '',
   forumAlias: '',         // 论坛马甲：这个角色在论坛/报刊评论区里用的网名（空 = 用真名）
   forumPersona: '',       // 网络人设：Ta 在网上是什么调门、爱在什么话题下场（可空）
+  // ★ 星图 T10：角色所在/归属世界。空串 = 不指定（读取时回落激活世界）
+  worldSettingId: '',
   aliasGenerating: false,
   editPersona: '',        // 人设（= base_prompt 去掉「## 你的外观」段）
   appearanceTail: '',     // 外观段之后的内容（罕见；保留以免重组时丢段）
@@ -1102,8 +1119,28 @@ const detailLoadGen = createGeneration()
 watch(() => [props.visible, props.character], ([v, c]) => {
   if (v && c) {
     init(c)
+    loadWorldList()
   }
 })
+
+// ── 星图 T10：世界下拉数据（只在打开时拉一次；失败不影响角色卡其它功能）──
+const worldList = ref([])
+const worldListLoaded = ref(false)
+async function loadWorldList() {
+  if (worldListLoaded.value) return
+  try {
+    const r = await api.getWorldSettings()
+    worldList.value = Array.isArray(r) ? r : (r?.list || [])
+    worldListLoaded.value = true
+  } catch { /* 拉不到就只显示"不指定" */ }
+}
+const worldOptions = computed(() => [
+  { label: '不指定（跟随激活世界）', value: '' },
+  ...worldList.value.map(w => ({
+    label: w.name + (w.is_active ? ' · 激活' : '') + (w.is_enabled ? '' : ' · 休眠'),
+    value: w.id,
+  })),
+])
 
 function refreshRelationships() {
   if (!props.character) return
@@ -1134,6 +1171,8 @@ function init(c) {
   detail.editName = c.display_name || ''
   detail.forumAlias = c.forum_alias || ''
   detail.forumPersona = c.forum_persona || ''
+  // ★ 星图 T10：null → 空串（「不指定」选项的取值），避免下拉找不到匹配项
+  detail.worldSettingId = c.world_setting_id ?? ''
   detail.aliasGenerating = false
   // 人格提示词拆两半：人设（前文）+ 外观（「## 你的外观」段）。
   // 外观段归入「外观服装 · 常服」，于是人设保持纯粹，四套造型也能统一管理。
@@ -1226,6 +1265,8 @@ async function saveCharDetail() {
     // 论坛马甲：不参与人格/人称裁剪（后端也不据此重裁 short_prompt），改它只影响论坛署名
     forum_alias: detail.forumAlias.trim(),
     forum_persona: detail.forumPersona.trim(),
+    // ★ 星图 T10：所在世界（空串 → null = 不指定）
+    world_setting_id: detail.worldSettingId === '' ? null : Number(detail.worldSettingId),
     moments_disabled: detail.momentsDisabled,
     proactive_disabled: detail.proactiveDisabled,
     events_disabled: detail.eventsDisabled,
@@ -1235,6 +1276,7 @@ async function saveCharDetail() {
   c.base_prompt = composed
   c.forum_alias = detail.forumAlias.trim() || null
   c.forum_persona = detail.forumPersona.trim() || null
+  c.world_setting_id = detail.worldSettingId === '' ? null : Number(detail.worldSettingId)
 
   // 四套场景服装一并保存（只提交填了描述的；常服内容与 base_prompt 外观段一致）。
   // 名称由前端自动补（沿用已有 / 场景默认名）—— 界面不暴露该字段，它只服务日程标注的匹配。
@@ -2175,6 +2217,23 @@ const standingPanel = reactive({
 .detail-alias-input-row .fi { flex: 1; min-width: 0; }
 .detail-alias-input-row .alias-gen-btn { flex-shrink: 0; }
 .fl-hint { font-weight: 400; font-size: 11.5px; color: var(--text-tertiary); }
+
+/* 星图 T10 · 所在世界行：标签与下拉同一行，右接一句说明。
+   窄屏换行时说明自动落到下一行（不挤压下拉）。 */
+.detail-world-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 2px 0 10px;
+}
+.detail-world-label { margin-bottom: 0; flex: none; }
+.detail-world-select { width: 230px; flex: none; }
+.detail-world-hint { font-size: 11.5px; color: var(--text-secondary); }
+@media (max-width: 560px) {
+  .detail-world-select { width: 100%; }
+  .detail-world-hint { padding-left: 0; }
+}
 
 /* 头像行：三块并列 = 头像+操作 / 身份四字段 / 誓约徽章。
    align-items 用 flex-start（不是 center）—— 左侧头像列比名字格高时，
