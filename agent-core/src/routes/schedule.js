@@ -206,8 +206,9 @@ router.post('/regenerate-all/cancel', (req, res) => {
 /** 读出可作为「日常活动区域」的子区清单（含其下场景名）
  *  ⚠ 真源在 `worldMapService.listAreasForSchedule` —— 这里只做薄的取数，
  *    不要再本地拼地点清单，否则准入过滤会两处漂移。 */
-function loadScheduleAreas(mapId) {
-  const { mapId: mid, mapName, areas } = listAreasForSchedule(mapId);
+function loadScheduleAreas(mapId, characterId = null) {
+  // ★ T14：带上角色 id —— 不传 mapId 时按「这个角色所在世界」挑图，而不是一律用玩家所在地图
+  const { mapId: mid, mapName, areas } = listAreasForSchedule(mapId, characterId);
   if (!mid) return { mapId: null, mapName: '', areas: [] };
   // 兼容旧调用方：补一个纯名字数组 `scenes`（前端 tooltip 与旧断言用）
   return {
@@ -227,8 +228,8 @@ function loadScheduleAreas(mapId) {
  *   附带信息走**并列的独立字段**（notesByArea / promptsByArea / zonesByArea），
  *   不要把它们塞进 names 里。
  */
-function scenesByAreaFor(names, mapId, excludedByArea = {}, pickedPlaces = []) {
-  const { areas } = loadScheduleAreas(mapId);
+function scenesByAreaFor(names, mapId, excludedByArea = {}, pickedPlaces = [], characterId = null) {
+  const { areas } = loadScheduleAreas(mapId, characterId);
   const out = {}, notes = {}, prompts = {}, zones = {}, placeZones = {}, summaries = {};
   // ★ 用户显式勾选的受限地点：**必须真的进候选集**（`pickSchedulePlaces` 的 picked 参数）。
   //   曾经只把它拼成一句给模型看的"注释行"（forcedPlaces），地点名不进清单 →
@@ -270,7 +271,7 @@ function scenesByAreaFor(names, mapId, excludedByArea = {}, pickedPlaces = []) {
  * 从请求体读出本次编排约束。**未传任何一项时返回 {}** → 不产生约束层（行为不变）。
  * 导出供测试钉住「非法输入不得变成 500、也不得误当成有效选项」。
  */
-export function readScheduleOptions(body = {}) {
+export function readScheduleOptions(body = {}, characterId = null) {
   const out = {};
   const areas = Array.isArray(body.areas)
     ? body.areas.map(a => String(a ?? '').trim()).filter(Boolean)
@@ -278,7 +279,7 @@ export function readScheduleOptions(body = {}) {
   // ── ★ 准入禁令：**无条件**收集（不依赖用户勾了哪些区域）──
   //   见 collectAccessNotes 的说明：这是「改地图即生效」的落点。
   try {
-    const notes = collectAccessNotes(body.mapId);
+    const notes = collectAccessNotes(body.mapId, characterId);
     if (notes.length) out.accessNotes = notes;
   } catch { /* 忽略：取不到就不加这一段 */ }
   // ── ★ 人类侧居住地：日程里"回家/去找你"要用真实落点 ──
@@ -337,7 +338,7 @@ export function readScheduleOptions(body = {}) {
     out.areas = areas;
     out.areaStrict = !!body.areaStrict;
     try {
-      const r = scenesByAreaFor(areas, body.mapId, excludedByArea, pickedPlaces);
+      const r = scenesByAreaFor(areas, body.mapId, excludedByArea, pickedPlaces, characterId);
       out.scenesByArea = r.scenesByArea;
       if (Object.keys(r.notesByArea).length) out.notesByArea = r.notesByArea;
       if (Object.keys(r.promptsByArea).length) out.promptsByArea = r.promptsByArea;
@@ -352,7 +353,7 @@ export function readScheduleOptions(body = {}) {
     //     "准入标注"两处，模型会以为这是两个不同的地方（曾在测试里被断言到）。
     if (pickedPlaces.length) {
       try {
-        const { areas: allAreas } = loadScheduleAreas(body.mapId);
+        const { areas: allAreas } = loadScheduleAreas(body.mapId, characterId);
         const want = new Set(pickedPlaces);
         const covered = new Set();
         for (const a of areas) for (const n of (out.scenesByArea?.[a] || [])) covered.add(n);
@@ -389,9 +390,9 @@ export function readScheduleOptions(body = {}) {
  * 这里把标注过的全列出来，**无论用户勾没勾区域**都注入 → 地图即真源。
  * （T6 2026-10-06：散文已同步改为"以地图数据为准"，不再列举会漂移的清单。）
  */
-function collectAccessNotes(mapId) {
+function collectAccessNotes(mapId, characterId = null) {
   try {
-    const { areas } = loadScheduleAreas(mapId);
+    const { areas } = loadScheduleAreas(mapId, characterId);
     const out = [];
     for (const a of areas) {
       // ⚠ 子区自身受限时，整区都要报（`幻月秘庭` 是 lv2 且 restricted，
@@ -417,7 +418,8 @@ function collectAccessNotes(mapId) {
 // 前端只负责渲染，不另抄一份 —— 否则前后端档位迟早漂移（项目红线 8）。
 router.get('/regenerate-options', (req, res) => {
   try {
-    const { mapId, mapName, areas } = loadScheduleAreas(req.query.mapId);
+    // ★ T14：弹窗也会带 characterId（前端 getRegenerateOptions 已传）→ 不传 mapId 时按角色世界取图
+    const { mapId, mapName, areas } = loadScheduleAreas(req.query.mapId, req.query.characterId);
     // 人类侧居住地的候选：**所有可去的地点**（含子区与场景两级）。
     // 用户可能住在某个子区（"二维市"）也可能住在具体某处（"旧川里"），两种都给。
     const allPlaces = [];
@@ -525,12 +527,12 @@ router.get('/regenerate-options', (req, res) => {
  *      只在地图**未来显式提供孤立标记**时才填 —— 宁可漏报，也不要用假阳性淹没真风险。
  *      真正需要拦的"谢绝外人"由 `forbiddenPlaces`（access=restricted/private）负责，那条是准的。
  */
-function buildLedgerCtx() {
+function buildLedgerCtx(characterId = null) {
   const forbiddenPlaces = new Set();
   const noTransferPlaces = new Set();
   const transferMinutes = new Map();
   try {
-    const { areas } = loadScheduleAreas();
+    const { areas } = loadScheduleAreas(null, characterId);
     for (const a of areas) {
       for (const p of a.places || []) {
         if (p.access === 'restricted' || p.access === 'private') forbiddenPlaces.add(p.name);
@@ -560,7 +562,7 @@ router.get('/ledger/:characterId', (req, res) => {
   try {
     const id = parseInt(req.params.characterId, 10);
     if (isNaN(id)) return res.status(400).json({ error: 'invalid characterId' });
-    const r = auditCharacter(id, buildLedgerCtx());
+    const r = auditCharacter(id, buildLedgerCtx(id));
     if (!r) return res.status(404).json({ error: '角色不存在' });
     res.json(r);
   } catch (err) {
@@ -1100,7 +1102,7 @@ router.post('/:characterId/regenerate', async (req, res) => {
     }
 
     const direction = (req.body && req.body.direction) ? String(req.body.direction).trim() : null;
-    const options = readScheduleOptions(req.body || {});
+    const options = readScheduleOptions(req.body || {}, characterId);
 
     console.log(`[schedule] Regenerating schedule for ${character.display_name}${direction ? ` (direction: ${direction.slice(0, 50)}...)` : ''}${Object.keys(options).length ? ` (options: ${Object.keys(options).join(',')})` : ''}...`);
 

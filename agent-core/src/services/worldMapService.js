@@ -19,7 +19,7 @@
  *   · 类型化表达（"巷口面包铺 · 烘焙/早餐"），**不写人物剧情/前史**
  */
 
-import { getDb, getWorldSetting, getSystemRulesWithWorld, getSystemRules } from '../db/index.js';
+import { getDb, getWorldSetting, getSystemRulesWithWorld, getSystemRules, getCharacterWorldSettingId } from '../db/index.js';
 import { chatSync } from '../llm/llm-client.js';
 // ⚠ 项目里有**两个同名导出**、语义不同，别拿错：
 //   · eventGenerator.extractFirstJson → 返回 **JSON 字符串**（调用方自己 JSON.parse(repairJson(s))）—— 本文件用这个
@@ -1163,8 +1163,8 @@ export function exportMarkdown(mapId) {
  * @param {number|null} mapId
  * @returns {Array<{id,name,kind,category,access,zone,scene_prompt,summary,reason}>}
  */
-export function listAreaPlaceAttrs(areaName, mapId = null) {
-  const { areas } = listAreasForSchedule(mapId);
+export function listAreaPlaceAttrs(areaName, mapId = null, characterId = null) {
+  const { areas } = listAreasForSchedule(mapId, characterId);
   const area = areas.find(a => a.name === areaName);
   return area?.places ?? [];
 }
@@ -1254,26 +1254,46 @@ export function collectPlaceNodes(nodes, depth = 0) {
  * （buildLedgerCtx 不传参）都会走到这个默认——玩家在 A 图活动、之后又建了 B 图时，
  * 三处全按 B 图（错的图）取区域/准入/通勤。用户视角：「日程排的全是另一张图的地方」。
  *
- * ── 真源选择 ────────────────────────────────────────────────
- * `town_players.map_id`（schema 注释：「玩家当前所在地图（聚焦口径的权威来源）」，
- * 出行/初始化时由 townService 落库）。不 import townService.getTownMaps()：那是运行时
- * 内存态且引入地图域→小镇域耦合；同库直读 DB 零新耦合（本文件本来就用 getDb）。
- * 读到后**必须校验该图仍存在**（地图可能已被删除），失效则回退旧行为（最新图兜底）。
+ * ── 真源选择（★ 星图 T14 起分三级）──────────────────────────
+ * ① **角色所在世界的地图**（传了 characterId 且该角色归属某个世界时）
+ *    多世界下「地图属于世界」：角色在 B 世界，就不该按 A 世界的地图排日程与查准入。
+ *    世界内挂多张图时取最新那张（同一世界内部不存在"跨世界串味"，取哪张都仍在该世界）。
+ * ② `town_players.map_id`（schema 注释：「玩家当前所在地图（聚焦口径的权威来源）」，
+ *    出行/初始化时由 townService 落库）。不 import townService.getTownMaps()：那是运行时
+ *    内存态且引入地图域→小镇域耦合；同库直读 DB 零新耦合（本文件本来就用 getDb）。
+ *    读到后**必须校验该图仍存在**（地图可能已被删除），失效则回退旧行为（最新图兜底）。
+ * ③ 最新创建的图（`listMaps()[0]`，改造前的行为，作为最终兜底）。
+ *
+ * ⚠ 降级顺序是刻意的：①②③ 任意一级取不到就落到下一级，**绝不因为某一级缺失就返回 null**
+ *   —— 返回 null 会让日程弹窗整片空白，比"用错一级"更糟。
+ *
+ * @param {number|string|null} [characterId] 传了优先按该角色所在世界取图
  */
-function resolveDefaultMapId() {
+function resolveDefaultMapId(characterId = null) {
+  let db;
+  try { db = getDb(); } catch { return null; }  // 库都没开就别硬取，交给上层兜底
+  // ① 角色所在世界的地图（T14）
   try {
-    const db = getDb();
+    const wid = getCharacterWorldSettingId(characterId);
+    if (wid) {
+      const m = db.prepare('SELECT id FROM world_maps WHERE world_setting_id = ? ORDER BY id DESC LIMIT 1').get(wid);
+      if (m) return m.id;
+    }
+  } catch { /* 世界解析异常/表缺失 → 落到下一级 */ }
+  // ② 玩家当前所在地图
+  try {
     const pid = Number(db.prepare("SELECT map_id FROM town_players WHERE id = 'me'").get()?.map_id) || null;
     if (pid && db.prepare('SELECT 1 FROM world_maps WHERE id = ?').get(pid)) return pid;
   } catch { /* town 表缺失/未初始化 → 走下方兜底 */ }
+  // ③ 最新图
   return listMaps()[0]?.id ?? null;
 }
 
 /** 列出可作为日常活动区域的子区（含其下地点属性）——日程弹窗与注入共用 */
-export function listAreasForSchedule(mapId = null) {
+export function listAreasForSchedule(mapId = null, characterId = null) {
   let id = Number(mapId) || null;
-  // ★ F-37：默认取「玩家当前所在地图」——不再是「最新创建的地图」（见 resolveDefaultMapId）
-  if (!id) id = resolveDefaultMapId();
+  // ★ F-37：默认取「玩家当前所在地图」；★ T14：传了角色就优先取**该角色所在世界**的图
+  if (!id) id = resolveDefaultMapId(characterId);
   if (!id) return { mapId: null, mapName: '', areas: [] };
   const map = getMap(id);
   if (!map || !Array.isArray(map.tree)) return { mapId: null, mapName: '', areas: [] };
