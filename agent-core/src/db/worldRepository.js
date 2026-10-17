@@ -76,8 +76,21 @@ function isInDisturbTimeRange(now, startTime, endTime) {
  *
  * 防打扰模式 hideWorld 开启时，时间段内返回 null 但不修改 DB 原值。
  * 优先从 world_settings 表读取激活项，兼容旧 global_rules.world_setting。
+ *
+ * ── ★★ 2026-10-17 星图 T07：按角色解析世界（**覆盖，不拼接**）────────────
+ * `getWorldSetting(characterId)` —— 传了角色 id 就"这个角色此刻身处哪个世界"说了算：
+ *   ① 角色 `world_setting_id` 有值且指向存在的世界 → **只用那个世界**，早返回。
+ *      「覆盖」的具体含义：**激活世界的文本一个字都不进 prompt**，不是两份拼接、
+ *      不是"现地为主 + 家乡摘要"。多世界下拼接会让 token 随世界数线性涨，
+ *      且两套设定同时在场会让模型的行为与语气互相污染。
+ *   ② 角色未绑定（NULL）/ 传空 / 指向已删世界 → 回落激活世界（= 改造前的行为）。
+ *      ↳ 这一步是**零行为变化的护栏**：T07 不动任何调用点，老调用不传参即走此路。
+ *   ③ 绑定世界的正文为空 → 返回 null（与"激活世界正文为空"同口径：
+ *      用户建了空世界 = 主动选择"这个角色没有世界观"，不是错误，不回退激活世界）。
+ *
+ * @param {number|string|null} [characterId] 角色 id；不传 = 按激活世界（旧行为）
  */
-export function getWorldSetting() {
+export function getWorldSetting(characterId = null) {
   // 防打扰隐藏世界观：不改 DB，仅在 prompt 构建时返回 null
   if (config.features.disturbMode && config.disturb.hideWorld) {
     const now = new Date();
@@ -88,6 +101,15 @@ export function getWorldSetting() {
     }
   }
 
+  // ① 角色绑定了世界 → 覆盖（早返回，绝不与激活世界拼接）
+  const bound = resolveBoundWorld(characterId);
+  if (bound) {
+    if (!bound.content?.trim()) return null;
+    const raw = `<world_setting>\n${bound.content}\n</world_setting>`;
+    return adaptWorldText(raw, 'strip', safeSlotsFor(bound));
+  }
+
+  // ② 未绑定 → 回落激活世界（以下为改造前原样逻辑）
   // 只要存在激活项就以它为准：内容为空视为用户主动选择"无世界观"，不再回退旧表
   const active = getActiveWorldSetting();
   if (active) {
@@ -106,10 +128,41 @@ export function getWorldSetting() {
 }
 
 /**
+ * 角色 → 绑定的世界行（T07 内部用）。
+ *
+ * 不依赖角色仓储，直接查表 —— 本模块的依赖方向是单向的（不可反向 import db/index.js）。
+ * 任何异常（表没有该列 / 角色已删）都当作"未绑定"返回 null，绝不让解析失败拖垮 prompt 构建。
+ */
+function resolveBoundWorld(characterId) {
+  if (characterId == null || characterId === '') return null;
+  const id = Number(characterId);
+  if (!Number.isFinite(id)) return null;
+  try {
+    const row = handle().prepare(`SELECT world_setting_id FROM characters WHERE id = ?`).get(id);
+    const wid = row?.world_setting_id;
+    if (wid == null) return null;
+    // 指向已删世界 → 返回 undefined → 当未绑定处理（T12 会加引用保护，这里必须先不崩）
+    return getWorldSettingById(wid) || null;
+  } catch {
+    return null;
+  }
+}
+
+/** 供 T10/T12 与测试使用：取角色绑定的世界 id（未绑定 → null） */
+export function getCharacterWorldSettingId(characterId) {
+  const bound = resolveBoundWorld(characterId);
+  return bound ? bound.id : null;
+}
+
+/**
  * 取原文（**逃生口**）—— 只有确需例句/原始文本的场景才用。
  * 其余一律用 `getWorldSetting()`（已裁剪）。
+ *
+ * @param {number|string|null} [characterId] 传了按该角色绑定世界解析（同 getWorldSetting）
  */
-export function getWorldSettingRaw() {
+export function getWorldSettingRaw(characterId = null) {
+  const bound = resolveBoundWorld(characterId);
+  if (bound) return bound.content?.trim() ? `<world_setting>\n${bound.content}\n</world_setting>` : null;
   const active = getActiveWorldSetting();
   if (active) return active.content?.trim() ? `<world_setting>\n${active.content}\n</world_setting>` : null;
   const world = getGlobalRule('world_setting');
@@ -168,12 +221,30 @@ export function getWorldSettingSample(min = 1, max = 3) {
   }).join('\n\n');
 }
 
+/** 读某个世界的槽位；任何异常都回落中性值（不阻断注入）。传 null = 无世界。 */
+function safeSlotsFor(world) {
+  try {
+    if (!world) return neutralProject();
+    return readProject(slugForWorld(world.name, world.id));
+  } catch {
+    return neutralProject();
+  }
+}
+
 /** 读激活世界观的槽位；任何异常都回落中性值（不阻断注入） */
 function safeActiveSlots() {
   try {
-    const active = getActiveWorldSetting();
-    if (!active) return neutralProject();
-    return readProject(slugForWorld(active.name, active.id));
+    return safeSlotsFor(getActiveWorldSetting());
+  } catch {
+    return neutralProject();
+  }
+}
+
+/** 某角色该吃哪套槽位：绑定世界优先，未绑定回落激活世界（与 getWorldSetting 同口径） */
+function slotsForCharacter(characterId) {
+  try {
+    const bound = resolveBoundWorld(characterId);
+    return safeSlotsFor(bound || getActiveWorldSetting());
   } catch {
     return neutralProject();
   }
@@ -285,14 +356,16 @@ export function getActiveWorldSlots() {
  *   - 传函数 → 用传入的（如 `adaptWorldText.bind(null, ...)` 换 mode）
  *   - 传 `null` → **显式保留原文**（逃生口，仅供确需例句的场景）
  * @param {boolean} [opts.roleplay] - 透传给 getSystemRules()
+ * @param {number|string} [opts.characterId] - 透传给 getWorldSetting：按该角色绑定世界解析（T07）
  */
 export function getSystemRulesWithWorld(opts = {}) {
-  const { worldTransform, ...ruleOpts } = opts;
+  const { worldTransform, characterId, ...ruleOpts } = opts;
   const rules = getSystemRules(ruleOpts);
-  const rawWorld = getWorldSetting();
+  const rawWorld = getWorldSetting(characterId);
   // 注意：这里要能区分「没传」与「显式传 null」——用 in 判断，不能用默认参数
   const transform = 'worldTransform' in opts ? worldTransform : adaptWorldText;
-  const slots = getActiveWorldSlots();
+  // ★ 槽位必须与"取到的那个世界"配对：角色在 A 世界，就不能拿激活世界 B 的槽位去裁
+  const slots = slotsForCharacter(characterId);
   const world = rawWorld && typeof transform === 'function'
     // 默认变换需要槽位；用户自定义的 transform 按其自身签名调用，不替它塞参数
     ? (transform === adaptWorldText ? adaptWorldText(rawWorld, 'strip', slots) : transform(rawWorld))

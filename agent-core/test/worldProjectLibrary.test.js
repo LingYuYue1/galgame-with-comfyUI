@@ -282,10 +282,15 @@ test('★ 世界观的裁剪改由项目库驱动，且不认「日常规则」�
 
 test('★★ getWorldSetting 已单点收口（22 处裸调用一次性获得保护）', () => {
   const src = fs.readFileSync(path.join(SRC, 'db/worldRepository.js'), 'utf8');
-  const fn = src.slice(src.indexOf('export function getWorldSetting()'), src.indexOf('export function getWorldSettingRaw()'));
+  // ⚠ 别写死空括号签名：T07 起是 getWorldSetting(characterId = null)
+  const start = src.indexOf('export function getWorldSetting(');
+  const rawStart = src.indexOf('export function getWorldSettingRaw(');
+  assert.ok(start > -1 && rawStart > start, '两个入口都必须存在且顺序不变');
+  const fn = src.slice(start, rawStart);
   assert.match(fn, /adaptWorldText\(/, 'getWorldSetting 内部必须走裁剪');
-  assert.match(fn, /safeActiveSlots\(\)/, '裁剪需按当前世界观的槽位');
-  assert.match(src, /export function getWorldSettingRaw\(\)/, '必须保留原文逃生口');
+  // T07 起槽位来源有两种：绑定世界（safeSlotsFor）或激活世界（safeActiveSlots）
+  assert.match(fn, /safe(?:SlotsFor|ActiveSlots)\(/, '裁剪需按「取到的那个世界」的槽位');
+  assert.match(src, /export function getWorldSettingRaw\(/, '必须保留原文逃生口');
 });
 
 test('★★ getWorldSetting 返回的内容必须已裁剪（行为级验证）', async () => {
@@ -309,6 +314,127 @@ test('★★ getWorldSetting 返回的内容必须已裁剪（行为级验证）
     if (created) {
       try { fs.rmSync(projectDirFor(slugForWorld(name, created.id)), { recursive: true, force: true }); } catch {}
     }
+  }
+});
+
+// ─────────────────────────────────────────────────────────
+// T07（2026-10-17 星图）：按角色解析世界 —— **覆盖，不拼接**
+// ─────────────────────────────────────────────────────────
+// 用户拍板的核心语义：一次调用只吃**一个**世界。角色在 A 世界，
+// 激活世界 B 的文本一个字都不能进 prompt（否则多世界 = token 线性膨胀 + 设定互相污染）。
+
+let _t07seq = 0;
+function makeT07World(db, tag, content) {
+  const name = `__T07_${tag}_${Date.now()}_${++_t07seq}__`;
+  const w = db.createWorldSetting({ name, content });
+  return { id: w.id, name };
+}
+function dropT07World(name, id) {
+  try { fs.rmSync(projectDirFor(slugForWorld(name, id)), { recursive: true, force: true }); } catch {}
+}
+function makeT07Character(database, worldSettingId) {
+  const name = `__t07_char_${Date.now()}_${++_t07seq}`;
+  const info = database.prepare(
+    `INSERT INTO characters (name, display_name, base_prompt, world_setting_id) VALUES (?, ?, ?, ?)`
+  ).run(name, name, '测试用', worldSettingId);
+  return info.lastInsertRowid;
+}
+
+test('★★★ T07：角色绑定世界 → 覆盖激活世界，一个字都不拼进来', async () => {
+  const db = await import('../src/db/index.js');
+  const database = db.getDb();
+  const worldB = makeT07World(db, 'activeB', '# B世界\nB世界独有标记BETA\n');
+  const worldA = makeT07World(db, 'charA', '# A世界\nA世界独有标记ALPHA\n');
+  try {
+    db.activateWorldSetting(worldB.id);
+    const chId = makeT07Character(database, worldA.id);
+
+    const out = db.getWorldSetting(chId);
+    assert.ok(out, '绑定了世界就该返回内容');
+    assert.ok(out.includes('ALPHA'), '应是角色所在的 A 世界');
+    assert.ok(!out.includes('BETA'), '覆盖语义：激活世界（B）的文本不得出现');
+    assert.match(out, /^<world_setting>/, '仍应包 world_setting 标签');
+
+    // 同一个角色，逃生口也要跟随
+    const raw = db.getWorldSettingRaw(chId);
+    assert.ok(raw.includes('ALPHA') && !raw.includes('BETA'), 'getWorldSettingRaw 也要跟随角色世界');
+  } finally {
+    dropT07World(worldA.name, worldA.id);
+    dropT07World(worldB.name, worldB.id);
+  }
+});
+
+test('★★★ T07：未绑定 / 不传参 → 回落激活世界（老调用零行为变化）', async () => {
+  const db = await import('../src/db/index.js');
+  const database = db.getDb();
+  const worldB = makeT07World(db, 'fallbackB', '# B世界\n回落标记BETA\n');
+  try {
+    db.activateWorldSetting(worldB.id);
+    const chId = makeT07Character(database, null);   // world_setting_id = NULL
+
+    // 三条路必须同结果：不传参、传 null、传"未绑定的角色"
+    const noArg = db.getWorldSetting();
+    const nullArg = db.getWorldSetting(null);
+    const unbound = db.getWorldSetting(chId);
+    assert.equal(unbound, noArg, '未绑定角色必须与不传参逐字节一致');
+    assert.equal(nullArg, noArg, '显式传 null 必须与不传参逐字节一致');
+    assert.ok(noArg.includes('回落标记BETA'));
+  } finally {
+    dropT07World(worldB.name, worldB.id);
+  }
+});
+
+test('★★ T07：角色指向已删世界 → 回落激活世界，不抛', async () => {
+  const db = await import('../src/db/index.js');
+  const database = db.getDb();
+  const worldB = makeT07World(db, 'ghostB', '# B世界\n幽灵回落标记\n');
+  try {
+    db.activateWorldSetting(worldB.id);
+    // 直接塞一个不存在的 world_setting_id（模拟世界被删但角色没改绑）
+    const chId = makeT07Character(database, 999999);
+    const out = db.getWorldSetting(chId);
+    assert.ok(out?.includes('幽灵回落标记'), '指向已删世界时回落激活世界且不崩');
+    assert.equal(db.getCharacterWorldSettingId(chId), null, '悬空绑定应视为未绑定');
+  } finally {
+    dropT07World(worldB.name, worldB.id);
+  }
+});
+
+test('★★ T07：绑定世界正文为空 → null，且**不**回退激活世界', async () => {
+  const db = await import('../src/db/index.js');
+  const database = db.getDb();
+  const worldB = makeT07World(db, 'emptyB', '# B世界\n不该出现的BETA\n');
+  const worldEmpty = makeT07World(db, 'emptyA', '');
+  try {
+    db.activateWorldSetting(worldB.id);
+    const chId = makeT07Character(database, worldEmpty.id);
+    assert.equal(db.getWorldSetting(chId), null,
+      '建了空世界 = 该角色主动"无世界观"，与激活世界正文为空同口径');
+  } finally {
+    dropT07World(worldEmpty.name, worldEmpty.id);
+    dropT07World(worldB.name, worldB.id);
+  }
+});
+
+test('★★★ T07：槽位必须跟"取到的那个世界"配对，不能拿激活世界的槽位去裁', async () => {
+  const db = await import('../src/db/index.js');
+  const database = db.getDb();
+  const worldA = makeT07World(db, 'slotA', '# A世界\n## 世界背景\nA的背景要留着\n');
+  const worldB = makeT07World(db, 'slotB', '# B世界\nBETA\n');
+  try {
+    db.activateWorldSetting(worldB.id);
+    // 只给**激活世界 B** 声明「世界背景」为氛围节；A 不声明
+    writeProject(slugForWorld(worldB.name, worldB.id), { ...neutralProject(), ambienceSections: ['世界背景'] });
+    const chId = makeT07Character(database, worldA.id);
+
+    const out = db.getSystemRulesWithWorld({ characterId: chId, roleplay: false });
+    assert.ok(out.includes('A世界'), '应吃到 A 世界');
+    assert.ok(!out.includes('BETA'), '不能混入 B 世界');
+    assert.ok(out.includes('A的背景要留着'),
+      '若这里被裁掉，说明用了激活世界 B 的槽位 —— 槽位必须跟随角色所在的世界');
+  } finally {
+    dropT07World(worldA.name, worldA.id);
+    dropT07World(worldB.name, worldB.id);
   }
 });
 
