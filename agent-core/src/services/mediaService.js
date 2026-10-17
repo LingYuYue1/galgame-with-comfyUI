@@ -22,7 +22,7 @@
  */
 
 import { getDb, getSystemRules, getWorldSetting, getGlobalRule } from '../db/index.js';
-import { chatSync } from '../llm/llm-client.js';
+import { chatSync } from './lorebook/runtime.js';
 import { generateImageRaw } from './imageSkill.js';
 import { saveBase64Image, deleteImageFileByUrl } from './imagePaths.js';
 import { invalidateGalleryCache } from './galleryCache.js';

@@ -28,7 +28,7 @@ import { getWorldIntegrationRule } from '../builtinRules.js';
 import { splitAppearanceSection } from './characterPersona.js';
 import { buildSceneOutfitMessages, normalizeDesignScenes, parseSceneOutfitDesign } from './sceneOutfitPrompt.js';
 import { getLocalDateKey } from '../utils/localDate.js';
-import { chatSync } from '../llm/llm-client.js';
+import { chatSync } from './lorebook/runtime.js';
 import { config } from '../config.js';
 
 /**

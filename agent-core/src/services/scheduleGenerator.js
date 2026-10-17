@@ -11,7 +11,7 @@
  */
 
 import { getDb, getWorldSetting, getSystemRules } from '../db/index.js';
-import { chatSync } from '../llm/llm-client.js';
+import { chatSync } from './lorebook/runtime.js';
 import { config } from '../config.js';
 import { getLocalDateKey } from '../utils/localDate.js';
 import { getWorldIntegrationRule } from '../builtinRules.js';
@@ -173,6 +173,7 @@ ${directionMsg}`;
         max_tokens: 2048,
         response_format: { type: 'json_object' },
         label: `schedule-gen:${character.display_name}`,
+        lorebook:{personaTexts:[personaMsg],staticTexts:[scheduleInst],characterName:character.display_name},
       });
 
       const schedule = parseAndValidateSchedule(rawResult, character.display_name);

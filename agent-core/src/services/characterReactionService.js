@@ -13,7 +13,7 @@
 
 import { getDb, getSystemRulesWithWorld, getWorldSetting } from '../db/index.js';
 import { getWorldIntegrationRule } from '../builtinRules.js';
-import { chatSync } from '../llm/llm-client.js';
+import { chatSync } from './lorebook/runtime.js';
 import { config } from '../config.js';
 
 /** 提示词模板版本：system3 内容有改动时必须递增，用于核对四层前缀的稳定性 */

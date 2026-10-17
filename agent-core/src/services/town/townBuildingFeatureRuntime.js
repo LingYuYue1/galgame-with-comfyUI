@@ -10,7 +10,7 @@
  *   - 模板事件复用奇遇呈现（town_building_feature_events），内容可预生成、推进零调用。
  */
 import { randomUUID, createHash } from 'node:crypto';
-import { chatSync } from '../../llm/llm-client.js';
+import { chatSync } from '../lorebook/runtime.js';
 import { config } from '../../config.js';
 import { townError, canonicalJson } from './townEventService.js';
 import { broadcastTownStateUpdated } from './townBus.js';

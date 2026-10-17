@@ -12,7 +12,7 @@ import { getState, updateServiceConfig, startFullCompression, cancelCompression 
 import { getAllImageDirs, IMAGE_CATEGORIES, LEGACY_CATEGORY, saveBase64Image, getImageDir } from '../services/imagePaths.js';
 import { collectCharacterImageUrls } from '../services/characterImages.js';
 import { RAG_TIMEOUT_FAST_MS } from '../services/imagePromptKnowledge.js';
-import { chatSync } from '../llm/llm-client.js';
+import { chatSync } from '../services/lorebook/runtime.js';
 import { IMAGE_PROMPT_RULE, getWorldIntegrationRule } from '../builtinRules.js';
 import { matchAll } from '../services/characterSearch.js';
 import { getUserName, matchUser } from '../services/userSearch.js';

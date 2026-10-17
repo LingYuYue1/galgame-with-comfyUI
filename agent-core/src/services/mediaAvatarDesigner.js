@@ -1,6 +1,6 @@
 import { getSystemRulesWithWorld, getWorldSetting } from '../db/worldRepository.js';
 import { getWorldIntegrationRule } from '../builtinRules.js';
-import { chatSync } from '../llm/llm-client.js';
+import { chatSync } from './lorebook/runtime.js';
 
 export const AVATAR_PROMPT_BATCH_SIZE = 10;
 

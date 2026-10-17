@@ -820,6 +820,10 @@ export function retryFailedMemories() {
 export async function getWorldSettings() {
   return request(`/config/world-settings`)
 }
+export const getWorldLorebook = id => request(`/config/world-settings/${id}/lorebook`)
+export const saveWorldLorebook = (id, body) => request(`/config/world-settings/${id}/lorebook`, { method:'PUT', body })
+export const previewWorldLorebook = (id, body) => request(`/config/world-settings/${id}/lorebook/preview`, { method:'POST', body })
+export const probeWorldLorebookCache = id => request(`/config/world-settings/${id}/lorebook/cache-probe`, { method:'POST', body:{} })
 
 export async function createWorldSetting(data) {
   return request(`/config/world-settings`, { method: 'POST', body: data })

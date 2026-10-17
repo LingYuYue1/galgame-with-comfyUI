@@ -14,7 +14,7 @@
  *   system2 = 任务规则与输出格式（静态）。user 内再按 静态→易变 排序。
  */
 import { randomUUID } from 'node:crypto';
-import { chatSync } from '../../llm/llm-client.js';
+import { chatSync } from '../lorebook/runtime.js';
 import { extractFirstJson, repairJson } from '../eventGenerator.js';
 import { getSystemRulesWithWorld, getSystemRules } from '../../db/worldRepository.js';
 import { getWorldIntegrationRule } from '../../builtinRules.js';

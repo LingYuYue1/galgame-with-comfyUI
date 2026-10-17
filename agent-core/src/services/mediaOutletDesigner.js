@@ -1,6 +1,6 @@
 import { getSystemRulesWithWorld, getWorldSetting } from '../db/worldRepository.js';
 import { getWorldIntegrationRule } from '../builtinRules.js';
-import { chatSync } from '../llm/llm-client.js';
+import { chatSync } from './lorebook/runtime.js';
 
 // 从 seedMedia 的刊社人格 / 核心规则 / 多样性 / 写作要求提炼；固定前缀不含本次需求。
 export const MEDIA_OUTLET_DESIGN_PROMPT = `你是一位媒体栏目策划师。根据用户想法，设计一家可以持续产出内容的媒体，生成供设置表单使用的草稿，不生成某一期文章。

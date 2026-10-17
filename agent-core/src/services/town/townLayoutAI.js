@@ -5,7 +5,7 @@
  * LLM 只返回地点命名/氛围微调和少量装饰地皮建议，全部经过本地约束校验。
  */
 
-import { chatSync } from '../../llm/llm-client.js';
+import { chatSync } from '../lorebook/runtime.js';
 
 function clampInt(value, min, max) {
   const n = parseInt(value, 10);

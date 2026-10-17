@@ -5,7 +5,7 @@
  * 生成的条目不在此处落库（预览后由 routes/library.js 的 save-batch 手动入库）。
  */
 
-import { chatSync } from '../llm/llm-client.js';
+import { chatSync } from './lorebook/runtime.js';
 import { getDb, getSystemRules, getSystemRulesWithWorld, getWorldSetting } from '../db/index.js';
 import { getWorldIntegrationRule } from '../builtinRules.js';
 import { LIBRARY_IMAGE_SCENE_PROMPT, validateLibraryImageInput } from './libraryImageScene.js';
@@ -17,7 +17,7 @@ export async function describeLibraryImage(input) {
     { type: 'text', text: `请为${type === 'event-types' ? '奇遇事件库' : '朋友圈话题库'}还原图中场景，输出一段场景方向。${direction ? `\n额外要求：${direction}` : ''}` },
     { type: 'image_url', image_url: { url: image } },
   ] });
-  const result = await chatSync(msgs, { temperature: 0.3, max_tokens: 700, label: '事件库-图片场景识别' });
+  const result = await chatSync(msgs, { temperature: 0.3, max_tokens: 700, label: '事件库-图片场景识别', lorebook:false });
   if (typeof result !== 'string' || !result.trim()) throw new Error('未识别到场景，请换张图片重试');
   return result.trim();
 }

@@ -1,6 +1,6 @@
 import { getDb, getSystemRulesWithWorld, getGlobalRule } from '../db/index.js';
 import { appendOathRing } from './oathUtils.js';
-import { chatSync } from '../llm/llm-client.js';
+import { chatSync } from './lorebook/runtime.js';
 import { generateImage } from './imageSkill.js';
 import { charArtistOverride } from './characterImageOpts.js';
 import { buildCharacterPersona } from './characterPersona.js';
@@ -376,7 +376,7 @@ ${userContent}
     }
   }
   try {
-    const raw = await chatSync(msgs, { temperature: 0.7, max_tokens: maxTokens, response_format: { type: 'json_object' }, label: '信箱回信助手' });
+    const raw = await chatSync(msgs, { temperature: 0.7, max_tokens: maxTokens, response_format: { type: 'json_object' }, label: '信箱回信助手', lorebook:{personaTexts:[basePromptWithRing]} });
     return parseReplyJSON(raw, userContent);
   } catch (err) {
     console.error('[mailboxScheduler] LLM reply error:', err.message);
@@ -462,7 +462,7 @@ async function condenseAndSave(db, letterId, text) {
     { role: 'system', content: '你是一个文字浓缩助手。把输入的文字浓缩为一句话，不超过50字。只返回浓缩后的文字，不要输出任何解释。' },
     { role: 'user', content: `请浓缩以下文字：\n${text}` },
   ];
-  const condensed = await chatSync(msgs, { temperature: 0.3, max_tokens: 100, label: '信箱浓缩助手' });
+  const condensed = await chatSync(msgs, { temperature: 0.3, max_tokens: 100, label: '信箱浓缩助手', lorebook:false });
   const result = (condensed || '').trim().slice(0, 50);
   if (result) {
     db.prepare('UPDATE mailbox_letters SET content_short = ? WHERE id = ?').run(result, letterId);

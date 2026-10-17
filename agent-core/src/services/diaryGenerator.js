@@ -22,7 +22,7 @@
 
 import { getDb, getSystemRulesWithWorld, getGlobalRule, getWorldSetting } from '../db/index.js';
 import { getWorldIntegrationRule } from '../builtinRules.js';
-import { chatSync } from '../llm/llm-client.js';
+import { chatSync } from './lorebook/runtime.js';
 import { generateImage } from './imageSkill.js';
 import { charArtistOverride } from './characterImageOpts.js';
 import { buildCharacterPersona } from './characterPersona.js';
@@ -428,6 +428,7 @@ async function runDiaryGeneration({ db, character, dateKey, name, task }) {
       max_tokens: 4096,
       response_format: { type: 'json_object' },
       label: '日记助手',
+      lorebook:{personaTexts:[messages.at(-3).content],staticTexts:[messages.at(-4).content],characterName:character.display_name,scenario:scheduleText},
     });
     const diary = parseDiaryJSON(raw);
     if (!diary) throw new Error('日记生成返回内容无法解析');

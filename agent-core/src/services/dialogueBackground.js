@@ -3,7 +3,7 @@ import { getSystemRules, getSystemRulesWithWorld, getWorldSetting } from '../db/
 import { getWorldIntegrationRule } from '../builtinRules.js';
 import { buildCharacterPersona } from './characterPersona.js';
 import { charArtistOverride } from './characterImageOpts.js';
-import { chatSync } from '../llm/llm-client.js';
+import { chatSync } from './lorebook/runtime.js';
 import { generateImageRaw } from './imageSkill.js';
 
 const BACKGROUND_DESIGNER = `你是视觉小说的背景美术设计师，为下面的角色设计一张用于人物立绘后方的场景背景。

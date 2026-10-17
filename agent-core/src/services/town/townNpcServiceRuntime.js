@@ -16,7 +16,7 @@ import { createHash } from 'node:crypto';
 import { getDb, getSystemRules, getWorldSetting } from '../../db/index.js';
 import { getWorldIntegrationRule } from '../../builtinRules.js';
 import { config } from '../../config.js';
-import { chatSync } from '../../llm/llm-client.js';
+import { chatSync } from '../lorebook/runtime.js';
 import { extractFirstJson, repairJson } from '../eventGenerator.js';
 import { generateImageRaw } from '../imageSkill.js';
 import { saveBase64Image } from '../imagePaths.js';
@@ -337,6 +337,7 @@ async function runPipeline(context, { npc, offer, kind, session, prior, options 
         temperature: 0.9,
         max_tokens: 1800,
         label: kind === 'work' ? '小镇打工趣事生成' : '小镇服务趣事生成',
+        lorebook:{personaTexts:[npcPersonaBlock(npc)],staticTexts:[OUTPUT_STRUCTURE],characterName:npc.display_name},
         response_format: { type: 'json_object' },
       });
     } catch {
@@ -351,6 +352,7 @@ async function runPipeline(context, { npc, offer, kind, session, prior, options 
         temperature: 0.7,
         max_tokens: 1800,
         label: kind === 'work' ? '小镇打工趣事生成（重试）' : '小镇服务趣事生成（重试）',
+        lorebook:{personaTexts:[npcPersonaBlock(npc)],staticTexts:[OUTPUT_STRUCTURE],characterName:npc.display_name},
       });
       payload = parseServicePayload(text);
     }

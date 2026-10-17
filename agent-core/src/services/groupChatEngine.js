@@ -21,6 +21,7 @@
  */
 import { getDb, getSystemRules, getWorldSetting, getGlobalRule } from '../db/index.js';
 import { chatStream } from '../llm/llm-client.js';
+import { prepareLorebook } from './lorebook/runtime.js';
 import { config } from '../config.js';
 import { countCompletedGroupRounds } from './groupRoundCounter.js';
 import { generateImage, getLastWorkflowMode } from './imageSkill.js';
@@ -400,11 +401,11 @@ function buildTranscript(db, conversationId) {
     ORDER BY id ASC
   `).all(conversationId, afterId);
 
-  const text = raws.map(r => r.role === 'user'
+  const segments = raws.map(r => r.role === 'user'
     ? formatGroupUserMessage(r.content)
     : stripImagePromptLines(r.content.trim())
-  ).filter(Boolean).join('\n');
-  return { transcript: text, rawCount: raws.length };
+  ).filter(Boolean);
+  return { transcript: segments.join('\n'), rawCount: raws.length, segments };
 }
 
 /**
@@ -953,7 +954,12 @@ async function _runGroupRound(groupId, { trigger = 'user', userMessage = '', emi
     directiveBlocks.push(`本轮安排至少一个合适的角色发一张图（配合话题的照片/自拍/表情包），按发图协议输出花括号画面描述行，画面描述必须为英文。`);
   }
 
-  const msgs = buildGroupContext(group, directiveBlocks);
+  const originalMsgs = buildGroupContext(group, directiveBlocks);
+  const loreHistory = db.prepare('SELECT id,role,content FROM (SELECT id,role,content FROM raw_messages WHERE conversation_id=? ORDER BY id DESC LIMIT 1000) ORDER BY id').all(conversationId);
+  const groupPersonaIndex = originalMsgs.findIndex(m=>m.role==='system' && m.content.startsWith('<group_info>'));
+  const groupPersona = originalMsgs[groupPersonaIndex]?.content || '';
+  const lorebookTurn = await prepareLorebook(originalMsgs, { scope:conversationId, turnKey:`${trigger}:${loreHistory.at(-1)?.id || 0}`, step:db.prepare('SELECT COUNT(*) AS n FROM raw_messages WHERE conversation_id=?').get(conversationId).n, history:loreHistory, transcriptSegments:buildTranscript(db,conversationId).segments, characterNames:group.members.flatMap(m=>[m.name,m.display_name]).filter(Boolean), characterDescription:groupPersona, personaTexts:[groupPersona], cacheBoundary:groupPersonaIndex>=0 ? {index:groupPersonaIndex,offset:groupPersona.length} : undefined, trigger:trigger==='lull' ? 'continue' : 'normal', protectedPrefix:3 });
+  const msgs = lorebookTurn.messages;
 
   // ── 先插 raw 占位（messages.raw_id FK 需要），流结束后回填完整剧本 ──
   const rawResult = db.prepare(
@@ -1124,6 +1130,7 @@ async function _runGroupRound(groupId, { trigger = 'user', userMessage = '', emi
   const rawContent = rawLines.filter(Boolean).join('\n');
   if (rawContent) {
     db.prepare(`UPDATE raw_messages SET content = ? WHERE id = ?`).run(rawContent, rawId);
+    lorebookTurn.commit();
   } else {
     db.prepare(`DELETE FROM raw_messages WHERE id = ?`).run(rawId);
   }

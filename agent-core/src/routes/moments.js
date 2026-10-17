@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { saveBase64Image } from '../services/imagePaths.js';
 import { getDb, getSystemRules, getSystemRulesWithWorld, getWorldSetting, getGlobalRule } from '../db/index.js';
-import { chatSync } from '../llm/llm-client.js';
+import { chatSync } from '../services/lorebook/runtime.js';
 import { config } from '../config.js';
 import { getMomentDelay } from '../services/momentTiming.js';
 import { generateImageRaw } from '../services/imageSkill.js';
@@ -899,7 +899,8 @@ ${dynamicRules}`;
   if (worldSetting) msgs.push({ role: 'system', content: getWorldIntegrationRule('moments') });
   msgs.push({ role: 'system', content: postingTask });
   // 整卡人格（统一入口，含生效外观注入；输出含 imagePrompt，配图需体现当前外观）
-  msgs.push({ role: 'system', content: buildCharacterPersona(character, { variant: 'full' }) });
+  const lorePersona = buildCharacterPersona(character, { variant: 'full' });
+  msgs.push({ role: 'system', content: lorePersona });
   // 日程里提到了用户（如聊天约定改写的日程）→ 用户同框：注入用户信息与关系
   if (scheduleWithUser) {
     const relRow = db.prepare(
@@ -949,7 +950,7 @@ ${userName}的信息：${userDesc || '信息未知，按普通人处理'}
   }
   // 每多一张配图就多一段画面描述，max_tokens 相应放宽（一张 2048 / 两张 3072 / 三张 4096）
   const maxTokens = 2048 + (imageCount - 1) * 1024;
-  const result = await chatSync(msgs, { temperature: 0.8, max_tokens: maxTokens, response_format: { type: 'json_object' }, label: '发朋友圈助手' });
+  const result = await chatSync(msgs, { temperature: 0.8, max_tokens: maxTokens, response_format: { type: 'json_object' }, label: '发朋友圈助手', lorebook:{personaTexts:[lorePersona],characterName:character.display_name,scenario:scheduleContext} });
 
   // 解析 LLM 输出；失败时只回收正文，避免把 JSON 原文写进 content
   const parsed = parseMomentResponse(result);
@@ -1132,7 +1133,8 @@ ${weatherHint}`;
   const msgs = [{ role: 'system', content: permissionPrompt }];
   if (worldSetting) msgs.push({ role: 'system', content: getWorldIntegrationRule('moments') });
   msgs.push({ role: 'system', content: postingTask });
-  msgs.push({ role: 'system', content: buildCharacterPersona(character, { variant: 'full' }) });
+  const lorePersona = buildCharacterPersona(character, { variant: 'full' });
+  msgs.push({ role: 'system', content: lorePersona });
   // 约定对象「我」的外观设定：画面必须带上这个人
   msgs.push({
     role: 'system',
@@ -1157,6 +1159,7 @@ imagePrompt 中${userName}的外观以上述描述为准。`,
       max_tokens: 2048,
       response_format: { type: 'json_object' },
       label: '日程赴约朋友圈',
+      lorebook:{personaTexts:[lorePersona],characterName:character.display_name,scenario:doing},
     });
     const parsed = parseMomentResponse(result);
     let text = parsed.text || '出门赴约啦～';

@@ -1,5 +1,5 @@
 import { getDb, getSystemRules, getSetting, setSetting } from '../db/index.js';
-import { chatSync } from '../llm/llm-client.js';
+import { chatSync } from './lorebook/runtime.js';
 import { generateImageRaw } from './imageSkill.js';
 import { buildImageCrossRefInfo, buildCharacterAppearanceSection } from './characterPersona.js';
 import { saveBase64Image } from './imagePaths.js';

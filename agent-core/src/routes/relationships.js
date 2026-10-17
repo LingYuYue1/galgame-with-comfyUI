@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { getDb, getSystemRules, getWorldSetting } from '../db/index.js';
-import { chatSync } from '../llm/llm-client.js';
+import { chatSync } from '../services/lorebook/runtime.js';
 import { config } from '../config.js';
 import { getWorldIntegrationRule } from '../builtinRules.js';
 

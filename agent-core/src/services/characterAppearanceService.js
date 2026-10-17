@@ -7,7 +7,7 @@
  * 一次补全，之后酒馆详情卡可见、可编辑，小镇侧也一直拿得到。
  */
 import { getDb, getSystemRules } from '../db/index.js';
-import { chatSync } from '../llm/llm-client.js';
+import { chatSync } from './lorebook/runtime.js';
 import { extractAppearanceSection, replaceAppearanceSection } from './characterPersona.js';
 
 const BUILD_APPEARANCE_SYSTEM_PROMPT = `你是角色外观设定助手。

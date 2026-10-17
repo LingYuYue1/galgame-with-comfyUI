@@ -11,7 +11,7 @@
 import { getDb, getSystemRules, getWorldSetting } from '../../db/index.js';
 import { getWorldIntegrationRule } from '../../builtinRules.js';
 import { config } from '../../config.js';
-import { chatSync } from '../../llm/llm-client.js';
+import { chatSync } from '../lorebook/runtime.js';
 import { createAsset, regenerateAsset, getAssetsByKey, deleteAsset, SPRITE_DIRECTIONS, captureTownAssetWorld, registerAssetFromUrl } from './townAssetService.js';
 import { generateSpritePrompt, generatePortraitPrompt, generateNpcAssetPrompts } from './townPromptBuilder.js';
 import { buildCharacterAppearanceSection, buildCharacterPersona } from '../characterPersona.js';

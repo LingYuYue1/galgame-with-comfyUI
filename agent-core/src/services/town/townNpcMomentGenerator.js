@@ -8,7 +8,7 @@
  */
 
 import { getDb, getSystemRules, getSystemRulesWithWorld, getWorldSetting, getGlobalRule } from '../../db/index.js';
-import { chatSync as defaultChatSync } from '../../llm/llm-client.js';
+import { chatSync as defaultChatSync } from '../lorebook/runtime.js';
 import { generateImageRaw as defaultGenerateImageRaw } from '../imageSkill.js';
 import { saveBase64Image } from '../imagePaths.js';
 import { recordCompletedImageTask } from '../imageTaskRecorder.js';
@@ -185,7 +185,7 @@ ${weatherHint}`;
   let text = '', imagePrompt = '';
   try {
     const result = await chatSync(msgs, { temperature: 0.8, max_tokens: 2048,
-      response_format: { type: 'json_object' }, label: '镇民朋友圈' });
+      response_format: { type: 'json_object' }, label: '镇民朋友圈', lorebook:{personaTexts:[personaMsg],characterName:npc.display_name,characterDescription:personaMsg} });
     const parsed = parseMomentResponse(result);
     text = parsed.text;
     imagePrompt = parsed.imagePrompt || '';

@@ -4,7 +4,7 @@ import { randomUUID } from 'crypto';
 import sharp from 'sharp';
 import { getDb, getSystemRules, getSystemRulesWithWorld, getWorldSetting } from '../db/index.js';
 import { config } from '../config.js';
-import { chatSync } from '../llm/llm-client.js';
+import { chatSync } from './lorebook/runtime.js';
 import { buildStandingPersona, normalizeStandingOutfitScene, hasStandingOutfit, inspectStandingOutfits, validateMissingOutfitPolicy, completeStandingOutfit } from './expressionStandingAppearance.js';
 import { buildStandingPromptMessages } from './expressionStandingPrompt.js';
 import { charArtistOverride } from './characterImageOpts.js';

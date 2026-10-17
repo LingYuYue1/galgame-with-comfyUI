@@ -31,7 +31,7 @@ import { generateImage, getLastWorkflowMode } from '../services/imageSkill.js';
 import { charArtistOverride } from '../services/characterImageOpts.js';
 import { RAG_TIMEOUT_FAST_MS } from '../services/imagePromptKnowledge.js';
 import { broadcast } from '../services/unifiedStreamBus.js';
-import { chatSync } from '../llm/llm-client.js';
+import { chatSync } from '../services/lorebook/runtime.js';
 import { getTimeLightInline } from '../services/timeLight.js';
 import { saveBase64Image } from '../services/imagePaths.js';
 import { processWakeUp } from '../services/wakeService.js';

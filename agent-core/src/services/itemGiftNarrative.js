@@ -7,7 +7,7 @@
  */
 import { getDb, getSystemRules, getWorldSetting } from '../db/index.js';
 import { config } from '../config.js';
-import { chatSync } from '../llm/llm-client.js';
+import { chatSync } from './lorebook/runtime.js';
 import { extractFirstJson, repairJson } from './eventGenerator.js';
 import { buildCharacterPersona } from './characterPersona.js';
 import { generateImageRaw } from './imageSkill.js';

@@ -43,6 +43,7 @@ import { listLifeVenues } from './townAffordanceService.js';
 import { getDb } from '../../db/index.js';
 import { config } from '../../config.js';
 import { chatSync } from '../../llm/llm-client.js';
+import { chatSync as chatWithLorebook } from '../lorebook/runtime.js';
 import { getCurrentActivity, isSleeping } from '../scheduleManager.js';
 import { getTimeLight, getSeason } from '../timeLight.js';
 import { createTownWeatherFacts } from './townWeatherFacts.js';
@@ -1809,7 +1810,7 @@ async function runEncounterDialogue(enc) {
   ];
 
   try {
-    const content = await chatSync(messages, {
+    const content = await chatWithLorebook(messages, {
       max_tokens: 1200,
       temperature: 0.9,
       response_format: { type: 'json_object' },
@@ -2006,7 +2007,7 @@ function maybeStatusBubbles(now) {
 
   enqueueLlm(async () => {
     const weather = getWeatherNote();
-    const content = await chatSync([
+    const content = await chatWithLorebook([
       {
         role: 'system',
         content: [

@@ -11,7 +11,7 @@
  */
 
 import { getDb, getSystemRulesWithWorld } from '../db/index.js';
-import { chatSync } from '../llm/llm-client.js';
+import { chatSync } from './lorebook/runtime.js';
 
 export const PACK_SCHEMA_VERSION = 1;
 export const PACK_TEMPLATE_VERSION = 'reaction-pack-v1';

@@ -13,7 +13,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { getDb, getSystemRules } from '../../db/index.js';
 import { config } from '../../config.js';
-import { chatSync } from '../../llm/llm-client.js';
+import { chatSync } from '../lorebook/runtime.js';
 import { getWorldIntegrationRule } from '../../builtinRules.js';
 import { createAsset, listAssets, captureTownAssetWorld } from './townAssetService.js';
 import { getMapRow, getLayersAssets, listMaps, saveMap, buildWalkGridFromLayers, getObjectBlockingCells } from './townMapService.js';

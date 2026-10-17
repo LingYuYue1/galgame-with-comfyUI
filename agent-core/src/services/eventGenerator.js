@@ -15,7 +15,7 @@
 
 import { getDb, getSystemRules, getSystemRulesWithWorld, getWorldSetting, getGlobalRule } from '../db/index.js';
 import { appendOathRing } from './oathUtils.js';
-import { chatSync } from '../llm/llm-client.js';
+import { chatSync } from './lorebook/runtime.js';
 import { generateImageRaw } from './imageSkill.js';
 import { charArtistOverrideWithFallback } from './characterImageOpts.js';
 import { recordCompletedImageTask } from './imageTaskRecorder.js';
@@ -506,7 +506,7 @@ ${customKeyUnderstanding}
     }
   }
   try {
-    rawResult = await (options.llm?.chatSync || chatSync)(msgs, { temperature: 0.7, max_tokens: 4096, response_format: { type: 'json_object' }, label: '奇遇生成' });
+    rawResult = await (options.llm?.chatSync || chatSync)(msgs, { temperature: 0.7, max_tokens: 4096, response_format: { type: 'json_object' }, label: '奇遇生成', lorebook:{personaTexts:[personaMsg],characterName:displayName} });
     const jsonStr = extractFirstJson(rawResult);
     if (!jsonStr) throw new Error('No JSON found in LLM response');
     eventData = JSON.parse(repairJson(jsonStr));
@@ -865,7 +865,7 @@ ${timeTag2}${weatherHint}${multiPersonImageNote2}
   for (let attempt = 1; attempt <= MAX_BRANCH_ATTEMPTS; attempt++) {
     rawBranchResult = '';
     try {
-      rawBranchResult = await (deps.llm?.chatSync || chatSync)(msgs, { temperature: 0.7, max_tokens: 4096, response_format: { type: 'json_object' }, label: '事件分支' });
+      rawBranchResult = await (deps.llm?.chatSync || chatSync)(msgs, { temperature: 0.7, max_tokens: 4096, response_format: { type: 'json_object' }, label: '事件分支', lorebook:{personaTexts:[personaMsg2],characterName:displayName2} });
       const jsonStr = extractFirstJson(rawBranchResult);
       if (!jsonStr) throw new Error('No JSON found in LLM response');
       const parsed = JSON.parse(repairJson(jsonStr));
@@ -1089,7 +1089,7 @@ ${historyText}
 
   let conclusionData;
   try {
-    const result = await chatSync(msgs, { temperature: 0.7, max_tokens: 1024, response_format: { type: 'json_object' }, label: '事件结局' });
+    const result = await chatSync(msgs, { temperature: 0.7, max_tokens: 1024, response_format: { type: 'json_object' }, label: '事件结局', lorebook:{personaTexts:[personaMsg3],characterName:displayName3} });
     const jsonStr = extractFirstJson(result);
     if (!jsonStr) throw new Error('No JSON found');
     conclusionData = JSON.parse(repairJson(jsonStr));

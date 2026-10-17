@@ -18,7 +18,7 @@
  */
 
 import { getDb, getSystemRulesWithWorld, getWorldSetting } from '../db/index.js';
-import { chatSync } from '../llm/llm-client.js';
+import { chatSync } from './lorebook/runtime.js';
 import { IMAGE_PROMPT_RULE, getWorldIntegrationRule } from '../builtinRules.js';
 import { loadEmotionState, getCompositeEmotion, loadOath, loadAffinity } from './emotionEngine.js';
 import { buildCharacterPersona } from './characterPersona.js';

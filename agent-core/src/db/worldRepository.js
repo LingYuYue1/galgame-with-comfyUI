@@ -50,16 +50,21 @@ function isInDisturbTimeRange(now, startTime, endTime) {
 /** 获取世界观（独立消息注入，不拼入全局规则）
  *  防打扰模式 hideWorld 开启时，时间段内返回 null 但不修改 DB 原值
  *  优先从 world_settings 表读取激活项，兼容旧 global_rules.world_setting */
-export function getWorldSetting() {
+export function isWorldSettingHidden() {
   // 防打扰隐藏世界观：不改 DB，仅在 prompt 构建时返回 null
   if (config.features.disturbMode && config.disturb.hideWorld) {
     const now = new Date();
     if (isInDisturbTimeRange(now, config.disturb.startTime, config.disturb.endTime)) {
       if (!config.disturb.skipWeekends || (now.getDay() !== 0 && now.getDay() !== 6)) {
-        return null;
+        return true;
       }
     }
   }
+  return false;
+}
+
+export function getWorldSetting() {
+  if (isWorldSettingHidden()) return null;
 
   // 只要存在激活项就以它为准：内容为空视为用户主动选择"无世界观"，不再回退旧表
   const active = getActiveWorldSetting();

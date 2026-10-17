@@ -25,7 +25,7 @@
 
 import { getDb, getSystemRules, getSystemRulesWithWorld, getWorldSetting } from '../db/index.js';
 import { getWorldIntegrationRule } from '../builtinRules.js';
-import { chatSync } from '../llm/llm-client.js';
+import { chatSync } from './lorebook/runtime.js';
 import { generateImageRaw } from './imageSkill.js';
 import { saveBase64Image, deleteImageFileByUrl, imageUrlExists } from './imagePaths.js';
 import { PLAYER_ITEM_SQL, CHEST_ITEM_SQL, hasGeneratingChest, completeChestItem, completeStaleChestItems } from './itemLifecycle.js';

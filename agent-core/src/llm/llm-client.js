@@ -408,7 +408,7 @@ async function _chatSyncInner(messages, { model = config.llm.model || 'deepseek-
       console.log('═════════════════════════════════════════════\n');
 
       // finish_reason 只在 opts.returnMeta 时回传：调用方用它判断输出是不是被 max_tokens 砍断
-      return { content, finishReason: choice.finish_reason ?? null };
+      return { content, finishReason: choice.finish_reason ?? null, usage: res.usage ?? null, model: res.model ?? model };
     } catch (err) {
       throwIfSyncAborted(signal, err);
       lastError = err;

@@ -6,7 +6,7 @@
  *   system3 = 任务要求 + 素材/角色信息
  *   user    = 执行指令；用户额外指定也放在这里
  */
-import { chatSync } from '../../llm/llm-client.js';
+import { chatSync } from '../lorebook/runtime.js';
 import { getSystemRules, getWorldSetting } from '../../db/index.js';
 import { STANDING_IMAGE_PROMPT_RULE, getWorldIntegrationRule } from '../../builtinRules.js';
 
@@ -69,6 +69,7 @@ export async function generatePortraitPrompt({ appearanceInfo, requirement = '' 
     temperature: 0.7,
     max_tokens: 2048,
     label: '小镇立绘提示词',
+    lorebook:{personaTexts:[`【角色外观信息】\n${appearanceInfo}`],staticTexts:[PORTRAIT_TASK_REQUIREMENTS]},
   });
   const text = stripFence(out);
   if (!text || text.length < 10) throw new Error('LLM 生成的立绘提示词不完整');
@@ -116,6 +117,7 @@ export async function generateSpritePrompt({ appearanceInfo, direction = 'down' 
     temperature: 0.7,
     max_tokens: 2048,
     label: '小镇人物图片素材提示词',
+    lorebook:{personaTexts:[`【角色外观信息】\n${appearanceInfo}`],staticTexts:[SPRITE_OUTPUT_STRUCTURE,SPRITE_TASK_REQUIREMENTS]},
   });
   const text = stripFence(out);
   if (!text || text.length < 10) throw new Error('LLM 生成的提示词不完整');
@@ -162,6 +164,7 @@ export async function generateNpcAssetPrompts({ appearanceInfo }) {
     max_tokens: 3000,
     response_format: { type: 'json_object' },
     label: '小镇小人图提示词',
+    lorebook:{personaTexts:[`【角色外观信息】\n${appearanceInfo}`],staticTexts:[SPRITE_OUTPUT_STRUCTURE,SPRITE_TASK_REQUIREMENTS,PORTRAIT_TASK_REQUIREMENTS,NPC_SET_OUTPUT_STRUCTURE]},
   });
   return parseNpcAssetPrompts(out);
 }

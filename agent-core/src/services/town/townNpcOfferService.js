@@ -2,7 +2,7 @@
 // prompt 结构（与需求一致）：system1 破限+世界观、system2 世界观强化、system3 人格卡、user 本次任务目标。
 import { getDb, getSystemRules, getWorldSetting } from '../../db/index.js';
 import { getWorldIntegrationRule } from '../../builtinRules.js';
-import { chatSync } from '../../llm/llm-client.js';
+import { chatSync } from '../lorebook/runtime.js';
 import { extractFirstJson, repairJson } from '../eventGenerator.js';
 import { townError } from './townEventService.js';
 import { defaultTownCapabilities, parseCharacterCapabilities } from './townCapabilities.js';
@@ -175,7 +175,8 @@ function loadNpc(db, npcId) {
 async function requestOffers(kind, npc, options = {}) {
   const llm = options.llm?.chatSync || chatSync;
   const label = kind === 'service' ? '小镇服务项目生成' : '小镇打工项目生成';
-  const out = await llm(buildNpcOfferMessages(kind, npc), { temperature: 0.9, max_tokens: 1600, label });
+  const messages = buildNpcOfferMessages(kind, npc);
+  const out = await llm(messages, { temperature: 0.9, max_tokens: 1600, label, lorebook:{personaTexts:[messages.at(-2).content],characterName:npc.display_name} });
   return parseNpcOfferPayload(out);
 }
 

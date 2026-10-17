@@ -13,7 +13,7 @@
 import { getDb, getSystemRules, getSystemRulesWithWorld, getWorldSetting } from '../db/index.js';
 import { recallMomentMemories, formatMomentMemories } from './momentMemoryRecall.js';
 import { stripMomentImageRequest } from './momentImageRequest.js';
-import { chatSync } from '../llm/llm-client.js';
+import { chatSync } from './lorebook/runtime.js';
 import { config } from '../config.js';
 import { broadcast as broadcastToUnified } from './unifiedStreamBus.js';
 import { cropPersonalityForEmotion } from './emotionEngine.js';
@@ -134,7 +134,7 @@ ${MOMENT_COMMENT_RULES}
     : '';
   msgs.push({ role: 'user', content: worldRulePrefix + '去评论区留个言吧：' });
 
-  const result = await (deps.chatSync || chatSync)(msgs, { temperature: 0.7, max_tokens: 128, label: '朋友首评' });
+  const result = await (deps.chatSync || chatSync)(msgs, { temperature: 0.7, max_tokens: 128, label: '朋友首评', lorebook:{personaTexts:[friend.other_prompt],characterName:friendName,history:[{role:'user',content:post.content}],scenario:post.content} });
   return result.trim().replace(/^["']|["']$/g, '').slice(0, 200);
 }
 
@@ -194,7 +194,7 @@ ${MOMENT_COMMENT_RULES}
     : '';
   msgs.push({ role: 'user', content: worldRulePrefix + `回复${friendName}的最后一条评论：` });
 
-  const result = await (deps.chatSync || chatSync)(msgs, { temperature: 0.7, max_tokens: 128, label: '发帖人回朋友' });
+  const result = await (deps.chatSync || chatSync)(msgs, { temperature: 0.7, max_tokens: 128, label: '发帖人回朋友', lorebook:{personaTexts:[posterChar.base_prompt],characterName:posterName,history:[{role:'user',content:post.content},...(threadContext || []).map(c=>({role:'assistant',content:c.content})),{role:'user',content:friendComment}],scenario:post.content} });
   return result.trim().replace(/^["']|["']$/g, '').slice(0, 200);
 }
 
@@ -256,7 +256,7 @@ ${MOMENT_COMMENT_RULES}
     : '';
   msgs.push({ role: 'user', content: worldRulePrefix + '继续聊天：' });
 
-  const result = await (deps.chatSync || chatSync)(msgs, { temperature: 0.7, max_tokens: 128, label: '朋友续评' });
+  const result = await (deps.chatSync || chatSync)(msgs, { temperature: 0.7, max_tokens: 128, label: '朋友续评', lorebook:{personaTexts:[friend.other_prompt],characterName:friendName,history:[{role:'user',content:post.content},...threadContext.map(c=>({role:c.author_type==='character'?'assistant':'user',content:c.content}))],scenario:post.content} });
   return result.trim().replace(/^["']|["']$/g, '').slice(0, 200);
 }
 
