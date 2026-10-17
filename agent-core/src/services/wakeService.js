@@ -155,9 +155,9 @@ function buildWakeContext(char, conversationId, userName, mode, attempts, dream 
   const db = getDb();
   const msgs = [];
 
-  // [层 0] 破限词 + 世界观
+  // [层 0] 破限词 + 世界观（★ 星图 T08：按这个角色所在的世界）
   const jailbreak = getSystemRules();
-  const worldSetting = getWorldSetting();
+  const worldSetting = getWorldSetting(char?.id);
   const stageContent = [jailbreak, worldSetting].filter(Boolean).join('\n\n');
   if (stageContent) msgs.push({ role: 'system', content: stageContent });
 

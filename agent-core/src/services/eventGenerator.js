@@ -325,10 +325,10 @@ export async function generateEvent(character, options = {}) {
     }
   }
 
-  // 4. 生成初始场景
-  const worldSetting = getWorldSetting();
+  // 4. 生成初始场景（★ 星图 T08：按角色所在世界）
+  const worldSetting = getWorldSetting(character.id);
   const jailbreakPrompt = worldSetting
-    ? getSystemRulesWithWorld({ roleplay: false })
+    ? getSystemRulesWithWorld({ roleplay: false, characterId: character.id })
     : getSystemRules({ roleplay: false });
   const imageRules = getGlobalRule('image_prompt');
   const imageRulesText = imageRules?.rule_content || '';
@@ -715,9 +715,10 @@ export async function generateNextBranch(character, event, choice, deps = {}) {
   const choiceExtra = choice.choice !== 'C' && choice.customText ? '——' + choice.customText : '';
 
   // 4. LLM 生成下一步（try-catch 确保失败时清除 processing 标记）
-  const worldSetting2 = getWorldSetting();
+  // ★ 星图 T08：分支也要按角色所在世界（否则奇遇中途换世界会串味）
+  const worldSetting2 = getWorldSetting(character.id);
   const jailbreakPrompt = worldSetting2
-    ? getSystemRulesWithWorld({ roleplay: false })
+    ? getSystemRulesWithWorld({ roleplay: false, characterId: character.id })
     : getSystemRules({ roleplay: false });
   const imageRules = getGlobalRule('image_prompt');
   const imageRulesText = imageRules?.rule_content || '';
@@ -1027,10 +1028,10 @@ export async function concludeEvent(character, event, outcome) {
   const db = getDb();
   console.log(`[eventGen] Concluding event "${event.title}" for ${character.display_name} (engaged=${event.engaged}, outcome=${outcome})`);
 
-  // 1. LLM 生成结局和摘要
-  const worldSetting3 = getWorldSetting();
+  // 1. LLM 生成结局和摘要（★ 星图 T08：按角色所在世界）
+  const worldSetting3 = getWorldSetting(character.id);
   const permissionPrompt = worldSetting3
-    ? getSystemRulesWithWorld()
+    ? getSystemRulesWithWorld({ characterId: character.id })
     : getSystemRules();
   const worldIntegrationNote = worldSetting3
     ? getWorldIntegrationRule('eventConclusion')

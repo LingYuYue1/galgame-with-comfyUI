@@ -792,9 +792,10 @@ async function generateMomentPostImpl(character, opts = {}) {
   }
 
   // 3. LLM 生成文案 + 配图提示词
-  const worldSetting = getWorldSetting();
+  // ★ 星图 T08：朋友圈按「这个角色所在的世界」写（否则换世界后还在发旧世界的日常）
+  const worldSetting = getWorldSetting(character.id);
   const permissionPrompt = worldSetting
-    ? getSystemRulesWithWorld({ worldTransform: adaptWorldForMoment })
+    ? getSystemRulesWithWorld({ worldTransform: adaptWorldForMoment, characterId: character.id })
     : getSystemRules();
   const worldIntegrationNote = worldSetting
     ? getWorldIntegrationRule('moments')
@@ -1104,9 +1105,10 @@ async function generateSpecialScheduleMoment({ characterId, activity }) {
   if (existingGenerating) throw new Error('ALREADY_GENERATING');
 
   const userName = userNickname();
-  const worldSetting = getWorldSetting();
+  // ★ 星图 T08：同上，按角色所在世界生成
+  const worldSetting = getWorldSetting(character.id);
   const permissionPrompt = worldSetting
-    ? getSystemRulesWithWorld({ worldTransform: adaptWorldForMoment })
+    ? getSystemRulesWithWorld({ worldTransform: adaptWorldForMoment, characterId: character.id })
     : getSystemRules();
   const worldIntegrationNote = worldSetting
     ? getWorldIntegrationRule('moments')

@@ -129,10 +129,10 @@ export async function generateCharacterCommentReply(character, post, historyComm
     charRelMsg = `**【你与其他角色的关系】**\n${relLines}\n\n请在回复中自然体现这些关系，不必刻意说明。你的人设可能会有其他的性格，但是在私下里，你的关系网就是这样的，在回复里不用完全保持公开人设，以私下关系为最高优先级。`;
   }
 
-  // 权限层
-  const worldSettingReply = getWorldSetting();
+  // 权限层（★ 星图 T08：按「这个角色所在的世界」）
+  const worldSettingReply = getWorldSetting(character.id);
   const permissionPrompt = worldSettingReply
-    ? getSystemRulesWithWorld({ worldTransform: adaptWorldForMoment })
+    ? getSystemRulesWithWorld({ worldTransform: adaptWorldForMoment, characterId: character.id })
     : getSystemRules();
   const worldIntegrationNoteReply = worldSettingReply
     ? getWorldIntegrationRule('momentReply')

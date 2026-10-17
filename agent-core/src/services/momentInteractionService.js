@@ -88,9 +88,10 @@ function formatThreadContext(threadComments, friendName, posterName, userName) {
  * 朋友首轮评论（看到帖子后的第一反应）
  */
 export async function generateFriendInitialComment(friend, posterChar, post, relDesc, deps = {}) {
-  const worldSetting = getWorldSetting();
+  // ★ 星图 T08：评论按「发帖人所在的世界」写（帖子是那个世界的产物）
+  const worldSetting = getWorldSetting(posterChar?.id);
   const permissionPrompt = worldSetting
-    ? getSystemRulesWithWorld({ worldTransform: adaptWorldForMoment })
+    ? getSystemRulesWithWorld({ worldTransform: adaptWorldForMoment, characterId: posterChar?.id })
     : getSystemRules();
   const worldIntegrationNote = worldSetting
     ? getWorldIntegrationRule('interaction')
@@ -142,9 +143,10 @@ ${MOMENT_COMMENT_RULES}
  * 发帖人回复朋友的评论
  */
 export async function generatePosterReplyToFriend(posterChar, friend, post, friendComment, threadContext, deps = {}) {
-  const worldSetting = getWorldSetting();
+  // ★ 星图 T08：按发帖人所在的世界
+  const worldSetting = getWorldSetting(posterChar?.id);
   const permissionPrompt = worldSetting
-    ? getSystemRulesWithWorld({ worldTransform: adaptWorldForMoment })
+    ? getSystemRulesWithWorld({ worldTransform: adaptWorldForMoment, characterId: posterChar?.id })
     : getSystemRules();
   const worldIntegrationNote = worldSetting
     ? getWorldIntegrationRule('interaction')
@@ -202,9 +204,10 @@ ${MOMENT_COMMENT_RULES}
  * 朋友续评（30% 连锁触发后的再次回复）
  */
 export async function generateFriendContinuation(friend, posterChar, post, threadContext, deps = {}) {
-  const worldSetting = getWorldSetting();
+  // ★ 星图 T08：按发帖人所在的世界
+  const worldSetting = getWorldSetting(posterChar?.id);
   const permissionPrompt = worldSetting
-    ? getSystemRulesWithWorld({ worldTransform: adaptWorldForMoment })
+    ? getSystemRulesWithWorld({ worldTransform: adaptWorldForMoment, characterId: posterChar?.id })
     : getSystemRules();
   const worldIntegrationNote = worldSetting
     ? getWorldIntegrationRule('interaction')

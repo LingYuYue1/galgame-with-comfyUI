@@ -150,9 +150,10 @@ export async function generateUserPostComment(character, post, historyComments, 
   const userPersona = buildUserPersona();
   const displayName = character.display_name || character.name;
 
-  const worldSetting = getWorldSetting();
+  // ★ 星图 T08：按「这个角色所在的世界」写评论
+  const worldSetting = getWorldSetting(character.id);
   const permissionPrompt = worldSetting
-    ? getSystemRulesWithWorld({ worldTransform: adaptWorldForMoment })
+    ? getSystemRulesWithWorld({ worldTransform: adaptWorldForMoment, characterId: character.id })
     : getSystemRules();
   const worldIntegrationNote = worldSetting
     ? getWorldIntegrationRule('momentReply')

@@ -479,7 +479,8 @@ export async function generateSceneOutfits(character, opts = {}) {
   };
   const bodySource = pickBody();
 
-  const worldSetting = getWorldSetting();
+  // ★ 星图 T08：换装描述按「这个角色所在的世界」
+  const worldSetting = getWorldSetting(character?.id);
   const msgs = [
     { role: 'system', content: getSystemRules({ roleplay: false }) },
     { role: 'system', content: GEN_SYSTEM_PROMPT },

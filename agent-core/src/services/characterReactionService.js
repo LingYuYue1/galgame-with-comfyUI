@@ -307,10 +307,11 @@ export function buildPersonaSystem(character) {
   return String(character?.short_prompt || '').trim() || '（未提供角色人格资料，请只按世界观与操作事实给出克制的短反应）';
 }
 
-/** 只读取「稳定规则 + 世界观」与「世界观强化」两段，作为 system1 / system2 */
-export function promptPrefixFingerprint() {
-  const system1 = getSystemRulesWithWorld({ roleplay: false }) || '你是一个角色扮演 AI。';
-  const system2 = getWorldSetting()
+/** 只读取「稳定规则 + 世界观」与「世界观强化」两段，作为 system1 / system2
+ *  ★ 星图 T08：世界观按角色所在的世界（不传则回落激活世界） */
+export function promptPrefixFingerprint(characterId = null) {
+  const system1 = getSystemRulesWithWorld({ roleplay: false, characterId }) || '你是一个角色扮演 AI。';
+  const system2 = getWorldSetting(characterId)
     ? getWorldIntegrationRule('interaction')
     : '未提供额外世界观设定，不自行编造';
   return { system1, system2 };
@@ -321,7 +322,7 @@ export function promptPrefixFingerprint() {
  * `prefix` 可注入已算好的 system1 / system2，便于测试与缓存核对；生产路径按需现读。
  */
 export function buildMessages({ character, userContext, prefix = null, emojis = [] }) {
-  const { system1, system2 } = prefix || promptPrefixFingerprint();
+  const { system1, system2 } = prefix || promptPrefixFingerprint(character?.id);
   return [
     { role: 'system', content: system1 },
     { role: 'system', content: system2 },

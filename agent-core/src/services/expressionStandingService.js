@@ -115,9 +115,11 @@ export function startAllStandingBatches({ mode, requirement = '', outfitScene = 
 }
 
 export async function generateStandingPrompts(char, slots, requirement, persona, outfitScene = 'work') {
+  // ★ 星图 T08：立绘按「这个角色所在的世界」（原先这里调了两次，收敛成一次）
+  const worldSetting = getWorldSetting(char?.id);
   const messages = buildStandingPromptMessages({
-    systemRules: getWorldSetting() ? getSystemRulesWithWorld({ roleplay: false }) : getSystemRules({ roleplay: false }),
-    worldRule: getWorldSetting() ? getWorldIntegrationRule('interaction') : '',
+    systemRules: worldSetting ? getSystemRulesWithWorld({ roleplay: false, characterId: char?.id }) : getSystemRules({ roleplay: false }),
+    worldRule: worldSetting ? getWorldIntegrationRule('interaction') : '',
     slots, persona: persona ?? buildStandingPersona(char, outfitScene), requirement, outfitScene,
   });
   const raw = await chatSync(messages, { temperature: 0.7, max_tokens: Math.min(8192, Math.max(2048, slots.length * 512 + 512)), response_format: { type: 'json_object' }, label: '批量立绘提示词' });
@@ -169,8 +171,8 @@ export function generateStandingTouchLines(char) {
   const relationship=getDb().prepare('SELECT relationship_text, affinity, is_oath FROM user_relationships WHERE character_id=?').get(char.id);
   const messages=buildTouchLineMessages(char, {
     relationship,userName:config.user.nickname || '用户',
-    systemRules:getSystemRulesWithWorld({roleplay:false}),
-    worldRule:getWorldSetting()?getWorldIntegrationRule('interaction'):'当前未启用世界观，按角色资料与本次任务创作，不补造世界设定。',
+    systemRules:getSystemRulesWithWorld({roleplay:false, characterId: char?.id}),
+    worldRule:getWorldSetting(char?.id)?getWorldIntegrationRule('interaction'):'当前未启用世界观，按角色资料与本次任务创作，不补造世界设定。',
   });
   return chatSync(messages, { temperature: 0.8, max_tokens: 3000, response_format: { type: 'json_object' }, label: '立绘触摸台词', signal: AbortSignal.timeout(90000), timeout: 90000, retries: 0, maxRetries: 0, freeEggFailover: false });
 }

@@ -86,7 +86,8 @@ router.post('/deduce', async (req, res) => {
       .join('\n');
 
     const jailbreak = getSystemRules({ roleplay: false });
-    const worldSetting = boost ? getWorldSetting() : null;
+    // ★ 星图 T08：关系推演按「中心角色所在的世界」；用户视角模式没有角色 → 回落激活世界
+    const worldSetting = boost ? getWorldSetting(characterId || null) : null;
 
     const messages = [];
 

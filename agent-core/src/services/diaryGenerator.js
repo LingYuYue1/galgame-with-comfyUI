@@ -108,12 +108,15 @@ export function formatScheduleForDiary(activities = []) {
 export function buildDiaryMessages({ character, dateKey, scheduleText }) {
   const msgs = [];
 
+  // ★ 星图 T08：日记按「这个角色所在的世界」写；整轮只解析一次，别再各调一遍
+  const worldSetting = getWorldSetting(character?.id);
+
   // system0：破甲词 + 世界观
-  const stage0 = getSystemRulesWithWorld({ roleplay: false });
+  const stage0 = getSystemRulesWithWorld({ roleplay: false, characterId: character?.id });
   if (stage0) msgs.push({ role: 'system', content: stage0 });
 
   // system1：世界观强化（没有世界观就不要这一层）
-  if (getWorldSetting()) {
+  if (worldSetting) {
     msgs.push({ role: 'system', content: getWorldIntegrationRule('moments') });
   }
 

@@ -39,7 +39,8 @@ function stripFence(content) {
 export function buildGiftMessages({ item, character }) {
   const name = character?.display_name || '对方';
   const persona = buildCharacterPersona(character, { variant: 'short' }) || '';
-  const systemBase = [getSystemRules({ roleplay: false }), getWorldSetting()].filter(Boolean).join('\n\n');
+  // ★ 星图 T08：送礼小故事按「收礼角色所在的世界」写
+  const systemBase = [getSystemRules({ roleplay: false }), getWorldSetting(character?.id)].filter(Boolean).join('\n\n');
   const user = [
     '【本次任务】',
     `玩家把自己在小镇货摊上买来的一件东西送给了「${name}」。`,

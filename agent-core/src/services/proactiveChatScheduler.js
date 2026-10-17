@@ -400,7 +400,8 @@ async function generateGreeting(character, affinity, compositeVad, lastMessageAt
   const motiveLabel = motive?.name || '日常';
   const motiveDesc = motive?.desc || '你突然想和对方说说话';
 
-  const systemRules = getSystemRulesWithWorld();
+  // ★ 星图 T08：主动消息按「这个角色所在的世界」发起
+  const systemRules = getSystemRulesWithWorld({ characterId: character.id });
 
   // msgs[0] — 舞台：破限词 + 世界观
 
@@ -474,7 +475,7 @@ ${proactiveRules}
     const msgs = [];
     msgs.push({ role: 'system', content: systemRules || '你是一个角色扮演 AI。' });
     msgs.push({ role: 'system', content: msgIdentity });
-    const worldRulePrefix = getWorldSetting()
+    const worldRulePrefix = getWorldSetting(character.id)
       ? '请遵循当前世界观来主动发起聊天，角色人设如果和世界观有冲突，则以世界观最高优先级，人设会因为世界观改变。\n\n'
       : '';
     msgs.push({ role: 'user', content: worldRulePrefix + msgTask });

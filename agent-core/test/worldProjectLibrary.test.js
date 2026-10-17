@@ -474,22 +474,77 @@ test('★★★ T08：群聊整轮按「群主所在世界」解析，且不混�
 
 test('★★★ T08 接线护栏：已接线的调用点必须把角色 id 传下去', () => {
   const readSrc = (rel) => fs.readFileSync(path.join(SRC, rel), 'utf8');
-  // [文件, 必须出现的调用形态, 说明]
+  // [文件, 调用形态, 期望处数, 链路]
+  // ⚠ 用「计数」而不是「有匹配」：同一文件常有多处（如 moments ×2、eventGenerator ×3），
+  //   只改一处也能"有匹配"，计数才能防止漏改。
   const WIRED = [
-    ['routes/chat.js', /getWorldSetting\(characterId\)/, '单聊舞台'],
-    ['routes/chat.js', /getWorldSetting\(character\?\.id\)/, '对话预测'],
-    ['routes/characters.js', /getWorldSetting\(characterId\)/, '服装外观'],
-    ['routes/characters.js', /getWorldSetting\(char\?\.id\)/, '立绘'],
-    ['routes/schedule.js', /getWorldSetting\(characterId\)/, '日程快照'],
-    ['services/scheduleGenerator.js', /getWorldSetting\(character\?\.id\)/, '日程编排'],
-    ['services/dialogueBackground.js', /getWorldSetting\(character\?\.id\)/, '对话背景'],
-    ['services/groupChatEngine.js', /getWorldSetting\(groupWorldCharacterId\(group\)\)/, '群聊舞台'],
-    ['services/scheduleLedger.js', /clichePropsNow\(characterId\)/, '日程台账词表'],
+    ['routes/chat.js', /getWorldSetting\(characterId\)/g, 1, '单聊舞台'],
+    ['routes/chat.js', /getWorldSetting\(character\?\.id\)/g, 1, '对话预测'],
+    ['routes/characters.js', /getWorldSetting\(characterId\)/g, 1, '服装外观'],
+    ['routes/characters.js', /getWorldSetting\(char\?\.id\)/g, 1, '立绘'],
+    ['routes/schedule.js', /getWorldSetting\(characterId\)/g, 1, '日程快照'],
+    ['services/scheduleGenerator.js', /getWorldSetting\(character\?\.id\)/g, 1, '日程编排'],
+    ['services/dialogueBackground.js', /getWorldSetting\(character\?\.id\)/g, 1, '对话背景'],
+    ['services/groupChatEngine.js', /getWorldSetting\(groupWorldCharacterId\(group\)\)/g, 1, '群聊舞台'],
+    ['services/scheduleLedger.js', /clichePropsNow\(characterId\)/g, 1, '日程台账词表'],
+    ['routes/moments.js', /getWorldSetting\(character\.id\)/g, 2, '朋友圈生成 ×2'],
+    ['services/momentInteractionService.js', /getWorldSetting\(posterChar\?\.id\)/g, 3, '朋友圈互动 ×3'],
+    ['services/momentUserPostService.js', /getWorldSetting\(character\.id\)/g, 1, '用户动态评论'],
+    ['services/momentCommentService.js', /getWorldSetting\(character\.id\)/g, 1, '朋友圈回复'],
+    ['services/eventGenerator.js', /getWorldSetting\(character\.id\)/g, 3, '奇遇 ×3'],
+    ['services/diaryGenerator.js', /getWorldSetting\(character\?\.id\)/g, 1, '日记'],
+    ['services/dreamService.js', /getWorldSetting\(character\?\.id\)/g, 1, '梦境'],
+    ['services/wakeService.js', /getWorldSetting\(char\?\.id\)/g, 1, '叫醒'],
+    ['services/appointmentDetector.js', /getWorldSetting\(character\?\.id\)/g, 1, '约会检测'],
+    ['services/itemGiftNarrative.js', /getWorldSetting\(character\?\.id\)/g, 1, '送礼叙事'],
+    ['services/expressionStandingService.js', /getWorldSetting\(char\?\.id\)/g, 2, '表情立绘 ×2'],
+    ['services/proactiveChatScheduler.js', /getWorldSetting\(character\.id\)/g, 1, '主动消息'],
+    ['services/characterReactionService.js', /promptPrefixFingerprint\(character\?\.id\)/g, 1, '角色反应'],
+    ['services/outfitScene.js', /getWorldSetting\(character\?\.id\)/g, 1, '换装'],
+    ['services/replyQueueScheduler.js', /getWorldSetting\(characterId\)/g, 1, '延迟回复队列'],
+    ['routes/relationships.js', /getWorldSetting\(characterId \|\| null\)/g, 1, '关系推演'],
   ];
-  const missing = WIRED
-    .filter(([rel, re]) => !re.test(readSrc(rel)))
-    .map(([rel, , note]) => `${rel} 未传角色 id（${note}）`);
-  assert.deepEqual(missing, [], `这些接线断了：\n  ${missing.join('\n  ')}`);
+  const problems = [];
+  for (const [rel, re, want, note] of WIRED) {
+    const got = (readSrc(rel).match(re) || []).length;
+    if (got !== want) problems.push(`${rel} 期望 ${want} 处（${note}），实际 ${got} 处`);
+  }
+  assert.deepEqual(problems, [], `接线断了：\n  ${problems.join('\n  ')}`);
+});
+
+test('★★★ T08 第二轮：日常副线的消息构建器都吃「角色所在世界」', async () => {
+  const db = await import('../src/db/index.js');
+  const database = db.getDb();
+  const worldA = makeT07World(db, 'r2A', '# A世界\n角色所在ALPHA2\n');
+  const worldB = makeT07World(db, 'r2B', '# B世界\n激活世界不该出现BETA2\n');
+  try {
+    db.activateWorldSetting(worldB.id);
+    const row = database.prepare('SELECT * FROM characters WHERE id = ?').get(makeT07Character(database, worldA.id));
+
+    // ① 送礼叙事：拼进 systemBase 的世界块
+    const { buildGiftMessages } = await import('../src/services/itemGiftNarrative.js');
+    const gift = JSON.stringify(buildGiftMessages({ item: { name: '小石头', description: '河边捡的' }, character: row }));
+    assert.ok(gift.includes('ALPHA2'), '送礼叙事应吃角色所在世界');
+    assert.ok(!gift.includes('BETA2'), '送礼叙事不得混入激活世界');
+
+    // ② 日记：system0（getSystemRulesWithWorld）应带角色世界
+    const { buildDiaryMessages } = await import('../src/services/diaryGenerator.js');
+    const diary = JSON.stringify(buildDiaryMessages({ character: row, dateKey: '2026-10-17', scheduleText: '' }));
+    assert.ok(diary.includes('ALPHA2'), '日记应吃角色所在世界');
+    assert.ok(!diary.includes('BETA2'), '日记不得混入激活世界');
+
+    // ③ 角色反应：前缀指纹里的 system1
+    const { promptPrefixFingerprint } = await import('../src/services/characterReactionService.js');
+    const fp = promptPrefixFingerprint(row.id);
+    assert.ok(String(fp.system1).includes('ALPHA2'), '角色反应的 system1 应吃角色所在世界');
+    assert.ok(!JSON.stringify(fp).includes('BETA2'), '角色反应不得混入激活世界');
+
+    // ④ 对照：不传参仍走激活世界（回落没被改坏）
+    assert.ok(String(promptPrefixFingerprint().system1).includes('BETA2'), '不传参应回落激活世界');
+  } finally {
+    dropT07World(worldA.name, worldA.id);
+    dropT07World(worldB.name, worldB.id);
+  }
 });
 
 test('★★ T08：未绑定角色仍然回落激活世界（接线不能顺手改坏回落）', async () => {

@@ -193,12 +193,13 @@ function sampleMaterials(db, characterId, conversationId) {
 function buildDreamSystemLayers(character) {
   const msgs = [];
 
-  // system0: 破甲 + 世界观
-  msgs.push({ role: 'system', content: getSystemRulesWithWorld() || '你是一个角色扮演 AI。' });
+  // system0: 破甲 + 世界观（★ 星图 T08：按角色所在世界；整轮只解析一次）
+  const worldSetting = getWorldSetting(character?.id);
+  msgs.push({ role: 'system', content: getSystemRulesWithWorld({ characterId: character?.id }) || '你是一个角色扮演 AI。' });
 
   // system1: 世界观强化（有世界观时才注入）
   try {
-    if (getWorldSetting()) {
+    if (worldSetting) {
       msgs.push({ role: 'system', content: getWorldIntegrationRule('photo') });
     }
   } catch { /* 规则缺失非致命 */ }

@@ -286,9 +286,9 @@ function buildDelayedReplyContext(entry, allPending, isSleepWakeup, dream = null
 
   const msgs = [];
 
-  // msgs[0]: 舞台——破限词 + 世界观
+  // msgs[0]: 舞台——破限词 + 世界观（★ 星图 T08：按这个角色所在的世界，characterId 上面已取）
   const jailbreak = getSystemRules();
-  const worldSetting = getWorldSetting();
+  const worldSetting = getWorldSetting(characterId);
   const stageContent = [jailbreak, worldSetting].filter(Boolean).join('\n\n');
   if (stageContent) msgs.push({ role: 'system', content: stageContent });
 

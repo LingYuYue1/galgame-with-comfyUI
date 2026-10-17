@@ -101,9 +101,10 @@ async function judgeAppointmentNeeded(userText, replyText, characterName) {
  * @returns {Promise<object|null>} 单条日程对象，失败返回 null
  */
 async function requestScheduleChange(character, userText, replyText) {
-  const worldSetting = getWorldSetting();
+  // ★ 星图 T08：改日程也要按角色所在世界（否则改出来的日程落到旧世界）
+  const worldSetting = getWorldSetting(character?.id);
   const stageContent = worldSetting
-    ? getSystemRulesWithWorld()
+    ? getSystemRulesWithWorld({ characterId: character?.id })
     : getSystemRules();
   const worldIntegrationNote = worldSetting
     ? getWorldIntegrationRule('schedule')
