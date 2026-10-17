@@ -18,6 +18,7 @@ import { getStandingDisplay } from './standingDisplay.js';
 import { parseStandingPrompts, runStandingBatch, frameStandingPrompt } from './expressionStandingPipeline.js';
 import { buildTouchLineMessages, readTouchLines, startTouchLines, hasTouchLines } from './standingTouchLines.js';
 import { getWorldIntegrationRule } from '../builtinRules.js';
+import { recordCompletedImageTask } from './imageTaskRecorder.js';
 
 const CATEGORY = 'expression_standing';
 const busyCharacters = new Set();
@@ -126,7 +127,7 @@ export async function generateStandingPrompts(char, slots, requirement, persona,
   return parseStandingPrompts(raw, slots);
 }
 
-async function commitImage(id, slot, buffer, { removeBg = true, source = true } = {}) {
+async function commitImage(id, slot, buffer, { removeBg = true, source = true, prompt = null, workflowTemplate = null } = {}) {
   const previous = ensureSlot(id, slot); // Deleted characters must never be resurrected by a late job.
   const sourceBuffer = buffer;
   let image = sharp(buffer, { limitInputPixels: 67108864 });
@@ -157,6 +158,25 @@ async function commitImage(id, slot, buffer, { removeBg = true, source = true } 
     if (source) fs.writeFileSync(path.join(dir, sourceName), await sharp(sourceBuffer, { limitInputPixels: 67108864 }).png().toBuffer());
     const result = getDb().prepare(`UPDATE character_expression_standings SET image_url=?,source_url=CASE WHEN ? IS NULL THEN source_url ELSE ? END,bounds_json=?,status='done',error=NULL,version=version+1 WHERE character_id=? AND slot_id=? AND version=?`).run(url, source ? sourceName : null, source ? buildImageUrl(CATEGORY, sourceName) : null, JSON.stringify(bounds), id, slot, previous.version);
     if (!result.changes) throw fail('立绘已被修改或角色已删除，请刷新', 409);
+    // BUG-04：立绘/换装是**唯一没写 image_tasks 的落图点**（22 张图只有 7 条记录）。
+    // 没有记录 → 相册里既没有来源、也无从追溯，只能显示「未知来源」。
+    // 上传/裁剪不算生成任务（上传是用户素材，裁剪是既有图的派生），只由调用方传 prompt 触发。
+    // 记录失败只告警：它不能把一张已经落盘的立绘判成失败。
+    if (prompt) {
+      try {
+        recordCompletedImageTask({
+          conversationId: `char_${id}_standing`,
+          promptOriginal: prompt,
+          promptRefined: prompt,
+          outputPaths: [url],
+          resolution: `${info.width}x${info.height}`,
+          workflowTemplate,
+          db: getDb(),
+        });
+      } catch (err) {
+        console.warn(`[standing] 生成任务记录失败（不影响出图）: ${err.message}`);
+      }
+    }
   } catch (error) {
     for (const file of [filename, sourceName]) { try { fs.unlinkSync(path.join(dir, file)); } catch {} }
     throw error;
@@ -252,7 +272,8 @@ export function startStandingBatch(id, { slotIds, requirement = '', outfitScene 
           const framedPrompt = frameStandingPrompt(prompt);
           const result = await imageGenerator(framedPrompt, { ...opts, scene: 'portrait', workflowScene: null, promptScene: 'avatar', priority: 'high', disableRAG: true, alreadyPrepared: true, persistPreparation: false });
           if (!result.success || !result.images?.length) throw new Error(result.error || '未返回立绘图片');
-          await commitImage(id, slot.id, decodeImage(result.images[0].base64));
+          // prompt 传进 commitImage：落图成功时顺手写 image_tasks（BUG-04）
+          await commitImage(id, slot.id, decodeImage(result.images[0].base64), { prompt: framedPrompt, workflowTemplate: result.wfMode || null });
         },
         failed: (slot, error) => {
           control.failures++;
@@ -374,7 +395,7 @@ export async function editStandingImage(id, slot, action, payload = {}) {
       } else if (action === 'hires') {
         if (!row.prompt) throw fail('请先保存提示词');
         const result = await refineImage({ ...JSON.parse(row.config_json), buffer, ext: path.extname(filePath), promptText: row.prompt, scene: 'portrait', workflowScene: null, output: 'buffer' });
-        await commitImage(id, slot, decodeImage(result.base64));
+        await commitImage(id, slot, decodeImage(result.base64), { prompt: row.prompt });
       } else throw fail('未知图片操作');
     }
   } finally { busyCharacters.delete(id); notify(id); }
