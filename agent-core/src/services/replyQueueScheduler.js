@@ -26,7 +26,7 @@ import { getStandingDisplay } from './standingDisplay.js';
 import { getFreshUnsharedDream, markDreamShared } from './dreamService.js';
 import { maybeGenerateDailyNewspaper } from './newspaperService.js';
 // 本地口径（反删除）：保留本地媒体清理/日报链 + loot 状态自愈（上游侧仅为「未含这些」，非新增）
-import { maybeAutoGenerate as maybeAutoGenerateMedia, resetStaleMediaGenerating, cleanupOrphanMediaImages, maybeGenerateDailyIssues } from './mediaService.js';
+import { maybeAutoGenerate as maybeAutoGenerateMedia, resetStaleMediaGenerating, cleanupOrphanMediaImages, maybeGenerateDailyIssues, healStuckMediaImages } from './mediaService.js';
 import { resetStaleGenerating } from './lootService.js';
 
 const CHECK_INTERVAL = 1 * 60 * 1000; // 1 分钟
@@ -82,6 +82,11 @@ async function tick() {
     // 0.5 媒体内容页：到点补一批新帖；每轮顺带补几张缺封面（同为 fire-and-forget，
     //     内部自带节流与并发守卫，不阻塞下面的调度）
     maybeAutoGenerateMedia();
+
+    // 0.6 配图自愈兜底（BUG-02）：低频补齐卡住的 pending / generating。
+    //     与上面「新批次自带补图」是两条路：那条只在生成时跑一次，这条负责收尾。
+    //     节流与年龄判据都在 healStuckMediaImages / resetStaleMediaGenerating 里。
+    healStuckMediaImages().catch(err => console.error('[media] 配图自愈异常:', err.message));
 
     // 1. 日程分散刷新（每次 tick 最多 1 个角色）
     await maybeRefreshOneSchedule();

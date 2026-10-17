@@ -199,6 +199,22 @@ let generating = null;          // 当前批次生成任务
 let imageQueue = Promise.resolve(); // 配图请求串行排队，忙碌时不丢掉新批次
 let portalImageQueue = Promise.resolve();
 const manualImagePosts = new Set(); // 手动刷新批次由高优通道负责，后台扫描不能抢走。
+// 本进程内「这条帖子从什么时候开始生成」——BUG-02 的 generating 超时重置靠它。
+// 为什么不加数据库列：生成是**进程内**行为，进程重启时所有 generating 都是中断遗留
+// （启动自愈会全部重置），所以内存里的时间戳足够；加列要动全量 schema，代价不成比例。
+const imageClaims = new Map();      // postId -> 抢占时刻(ms)
+
+// ── 配图自愈闸（BUG-02）──
+// 补图队列只在内存里：进程重启、ComfyUI 忙住或异常中断后，卡在 pending/generating
+// 的帖子没有任何定时器来管（只有「生成新批次」和「打开传媒页」两个按需入口）。
+// 调度器每分钟 tick 一次，但真正补图每 5 分钟最多一次、每次最多 2 张。
+// ⚠ 红线：历史事故是「每分钟无条件 fillPendingImages(8)」+ 橱窗预生成，
+//   30 分钟内派单 46 次、同一 prompt 重生 4 次，把 ComfyUI 打满。
+//   这三个常数只能更保守，不许放宽。
+const IMAGE_HEAL_INTERVAL_MS = 5 * 60 * 1000;   // 每 5 分钟最多补一次
+const IMAGE_HEAL_LIMIT = 2;                     // 每次最多补 2 张
+const IMAGE_HEAL_STALE_MS = 30 * 60 * 1000;     // generating 卡满 30 分钟才判超时
+let lastImageHealAt = 0;
 let lastAutoAt = 0;             // 上次自动补充时间
 
 function imagePostScope(postIds) {
@@ -784,6 +800,8 @@ function claimPostForImage(postId) {
     UPDATE media_posts SET image_status = 'generating', image_error = NULL
     WHERE id = ? AND (image_status = 'pending' OR (published_seq IS NULL AND image_status = 'failed')) AND (image IS NULL OR image = '')
   `).run(postId);
+  // 记下开跑时刻：generating 卡死时按它判断超时（见 resetStaleMediaGenerating）。
+  if (r.changes === 1) imageClaims.set(postId, Date.now());
   return r.changes === 1;
 }
 
@@ -3097,9 +3115,10 @@ async function fillPendingImagesNow(limit, postIds = null, priority = 'low') {
   let filled = 0;
   // 上游 v3.8.1：先把配图已齐的草稿发布掉（补图期间可能刚集齐），再补新一批
   for (const { id } of db.prepare('SELECT id FROM media_posts WHERE published_seq IS NULL').all()) publishMediaPostIfReady(id);
-  // ⚠️ 这里**不要**调 resetStaleMediaGenerating —— 它每分钟跑一次会把
-  // 「正在生成中」的帖子反复重置为 pending，形成无限重生循环（详见该函数注释）。
-  // 自愈只在服务启动时做一次（见 startReplyQueueScheduler）。
+  // ⚠️ 这里**不要**调 resetStaleMediaGenerating —— 补图是"按需/高频"路径，
+  // 把超时重置塞进来就会退化成「每次补图都扫一遍 generating」，重演 2026-10-04 的
+  // 无限重生循环（详见该函数注释）。运行期自愈统一放在 replyQueueScheduler 的
+  // 低频闸里（每 5 分钟最多一次 + 30 分钟才判超时），启动时全量重置一次。
   const pending = listPostsNeedingImage(limit, postIds);
   for (const p of pending) {
     // ★ 原子抢占（CAS）：只有仍是 pending 的才抢得到。
@@ -3159,6 +3178,9 @@ async function fillPendingImagesNow(limit, postIds = null, priority = 'low') {
     } catch (err) {
       console.error(`[media] 配图失败 #${p.id}:`, err.message);
       updatePostImage(p.id, { status: 'failed', error: String(err.message).slice(0, 200) });
+    } finally {
+      // 无论成功、失败还是中途 continue，这条都不再是「本进程正在生成」。
+      imageClaims.delete(p.id);
     }
   }
 
@@ -3512,35 +3534,98 @@ export function maybeAutoGenerate(now = Date.now()) {  // ⚠️ 这里**不再*
 }
 
 /**
- * 启动自愈：把上次进程中断时遗留的 `generating` 放回 `pending`。
+ * 把卡在 `generating` 的帖子放回 `pending`。两种模式，判据完全不同 —— 别混用：
  *
- * 和橱窗图库同样的两段式问题：补图循环在内存、状态在 DB，
- * 进程一重启循环就没了、DB 却停在 `generating`，而 `listPostsNeedingImage`
- * 只查 `pending` → 这几条再也补不上图。
+ * · **不带年龄（启动 / 手动清理）**：进程刚启动时不存在"正在生成"的帖子，
+ *   所以 DB 里所有 generating 必然是上次中断的遗留，全量重置是安全的。
+ * · **带 maxAgeMs（运行期定时自愈）**：只有「本进程记录的开跑时刻」已超过阈值才算卡死。
+ *   记录在 `imageClaims`（claimPostForImage 时写入），**不是**帖子 `created_at`。
  *
- * ⚠️⚠️ **只能在服务启动时调用一次，绝不能放进每分钟的补图/定时循环里。**
- *
- * 曾经它被放在 `fillPendingImages()` 开头（等于每分钟跑一次），且用 `created_at`
- * 判"卡了多久" —— 但 `created_at` 是**帖子创建时间**，不是**生图开始时间**。
- * 于是一个「创建于 10 分钟前、此刻正在生成中」的帖子会被判定为卡死 → 重置为 pending
+ * ⚠️⚠️ 判据绝不能用 `created_at` —— 那是**帖子创建时间**，不是**生图开始时间**。
+ * 曾经它被放在 `fillPendingImages()` 开头（等于每分钟跑一次）并这样判"卡了多久"：
+ * 一个「创建于 10 分钟前、此刻正在生成中」的帖子被误判为卡死 → 重置 pending
  * → 下一轮又被捞去生成 → 再被重置……**形成无限重生循环，ComfyUI 被持续打满**。
  * （2026-10-04 实测：30 分钟内被反复派单 46 次、同一 prompt 重生 4 次。）
+ * 运行期模式必须同时满足「每 5 分钟才扫一次」+「30 分钟才判超时」两道闸。
  *
- * 进程刚启动时不存在"正在生成"的帖子，因此此时把所有 generating 视为中断遗留是安全的。
+ * @param {{maxAgeMs?: number|null}} [opts] 不传/传 null = 全量重置（仅限启动与手动清理）
  * @returns {number} 重置了几条
  */
-export function resetStaleMediaGenerating() {
+export function resetStaleMediaGenerating({ maxAgeMs = null } = {}) {
   try {
-    const r = getDb().prepare(`
-      UPDATE media_posts SET image_status = 'pending', image_error = '上次生成被中断，已重置'
-      WHERE image_status = 'generating'
-    `).run();
-    if (r.changes > 0) console.log(`[media] 启动自愈：重置了 ${r.changes} 条中断的配图状态`);
-    return r.changes;
+    const db = getDb();
+    if (!maxAgeMs) {
+      const r = db.prepare(`
+        UPDATE media_posts SET image_status = 'pending', image_error = '上次生成被中断，已重置'
+        WHERE image_status = 'generating'
+      `).run();
+      if (r.changes > 0) console.log(`[media] 启动自愈：重置了 ${r.changes} 条中断的配图状态`);
+      imageClaims.clear();
+      return r.changes;
+    }
+
+    const now = Date.now();
+    const rows = db.prepare("SELECT id FROM media_posts WHERE image_status = 'generating'").all();
+    // 没有记录 = 不是本进程在跑（重启遗留由启动自愈清过；其余只可能是异常路径）→ 也按卡死处理。
+    const stale = rows.filter(({ id }) => {
+      const startedAt = imageClaims.get(id);
+      return !startedAt || now - startedAt >= maxAgeMs;
+    });
+    if (!stale.length) return 0;
+    const minutes = Math.max(1, Math.round(maxAgeMs / 60000));
+    const update = db.prepare(`
+      UPDATE media_posts SET image_status = 'pending', image_error = ?
+      WHERE id = ? AND image_status = 'generating'
+    `);
+    let changed = 0;
+    db.transaction(() => {
+      for (const { id } of stale) {
+        if (update.run(`配图生成超过 ${minutes} 分钟未完成，已重新排队`, id).changes === 1) {
+          changed++;
+          imageClaims.delete(id);
+        }
+      }
+    })();
+    if (changed > 0) console.log(`[media] 配图超时自愈：重置了 ${changed} 条卡在 generating 的帖子`);
+    return changed;
   } catch (err) {
     console.error('[media] resetStaleMediaGenerating 失败:', err.message);
     return 0;
   }
+}
+
+/**
+ * BUG-02：配图自愈闸 —— 调度器每分钟 tick 调一次，但**实际动作每 5 分钟最多一次**、
+ * 每次最多补 `IMAGE_HEAL_LIMIT` 张。先释放超时的 generating（否则它抢不到补图机会），
+ * 再走正常的补图队列（队列本身串行 + CAS 抢占，两条补图路径不会重复生同一张）。
+ *
+ * ⚠ 历史上「每分钟无条件补图」把 ComfyUI 打满过（30 分钟派单 46 次），
+ * 所以间隔、批量、超时三个常数只能更保守，不许放宽。测试用 `force` 跳过节流。
+ * @returns {Promise<{reset:number, filled:number}|null>} 被节流时返回 null
+ */
+export async function healStuckMediaImages({ now = Date.now(), force = false } = {}) {
+  if (!force && now - lastImageHealAt < IMAGE_HEAL_INTERVAL_MS) return null;
+  lastImageHealAt = now;
+  const reset = resetStaleMediaGenerating({ maxAgeMs: IMAGE_HEAL_STALE_MS });
+  let filled = 0;
+  try {
+    filled = await fillPendingImages(IMAGE_HEAL_LIMIT);
+  } catch (err) {
+    console.error('[media] 定时补图失败:', err.message);
+  }
+  if (reset > 0 || filled > 0) console.log(`[media] 配图自愈：重置 ${reset} 条 / 补上 ${filled} 张`);
+  return { reset, filled };
+}
+
+/** 配图自愈节流状态（仅测试用：复位"上次补图时刻"） */
+export function __resetMediaHealThrottleForTest() {
+  lastImageHealAt = 0;
+}
+
+/** 生成中的内部时刻表（仅测试用：模拟「这条已经跑了 N 毫秒」；at=null 清除） */
+export function __setImageClaimForTest(postId, at = Date.now()) {
+  if (at == null) imageClaims.delete(postId);
+  else imageClaims.set(postId, at);
 }
 
 /**
