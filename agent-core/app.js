@@ -47,6 +47,7 @@ import { restoreInitJob } from './src/services/town/townInitService.js';
 import { refresh as refreshCharSearch } from './src/services/characterSearch.js';
 import { ensureDefaultMemoryIndexes, stopMemoryIndexWorker } from './src/services/memory/memoryRepository.js';
 import { startConsolidationScheduler, stopConsolidationScheduler } from './src/services/memory/consolidationScheduler.js';
+import { startTripScheduler, stopTripScheduler } from './src/services/tripScheduler.js';
 
 const app = express();
 
@@ -338,6 +339,9 @@ startConsolidationScheduler();
 // 启动道具系统调度器（每 10 分钟清理到期效果、恢复变身、标记卡死的生成中道具）
 startItemScheduler();
 
+// 启动旅程调度器（星图 T15：每分钟把到期旅程结算成「已到达 + 改绑角色世界」）
+startTripScheduler();
+
 // 启动小镇调度器（世界页：瓦片地图 + 轻量居民生态，由 config.features.town 控制）
 restoreInitJob();  // 恢复未完成的初始化向导（断点续跑）
 startTownScheduler();
@@ -403,6 +407,7 @@ const shutdown = () => {
   stopConsolidationScheduler();
   stopTownScheduler();
   stopTownNpcStockScheduler();
+  stopTripScheduler();
 
   // 1. WAL checkpoint：确保所有未落盘事务写入主 DB
   try {

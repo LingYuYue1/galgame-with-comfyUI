@@ -97,7 +97,24 @@
         <div v-for="c in chars" :key="c.id" class="smd-row">
           <span class="smd-avatar">{{ (c.display_name || c.name || '?').slice(0, 1) }}</span>
           <span class="smd-row-name">{{ c.display_name || c.name }}</span>
-          <linshe-button variant="ghost" size="sm" class="smd-row-act" @click="removeFromWorld(c)">移出</linshe-button>
+          <!-- ★ 星图 T15：在途的人不给"前往"（一段没走完不能再起一段），显示倒计时 -->
+          <span v-if="transitOf(c.id)" class="smd-transit-badge">在途 · 还需 {{ remainText(transitOf(c.id)) }}</span>
+          <linshe-button
+            v-else
+            variant="ghost"
+            size="sm"
+            class="smd-row-act"
+            title="发起一段跨世界旅程（路上要花时间）"
+            @click="openTrip(c)"
+          >前往…</linshe-button>
+          <linshe-button
+            variant="ghost"
+            size="sm"
+            class="smd-row-act"
+            :disabled="!!transitOf(c.id)"
+            :title="transitOf(c.id) ? '她正在路上，等到了再改归属' : ''"
+            @click="removeFromWorld(c)"
+          >移出</linshe-button>
         </div>
       </div>
 
@@ -122,11 +139,38 @@
       </p>
     </section>
 
-    <section v-else class="smd-body">
-      <div class="smd-placeholder">
+    <section v-else-if="tab === 'trip'" class="smd-body">
+      <div v-if="!transitTrips.length && !historyTrips.length" class="smd-placeholder">
         <p class="smd-placeholder-title">旅程还没有开启</p>
-        <p class="smd-placeholder-sub">跨世界旅行（在途时间 + 日程联动）将在后续版本落地。</p>
+        <p class="smd-placeholder-sub">在「角色」页签点「前往…」，让她花点时间走过去 —— 角色不会一瞬间到达。</p>
       </div>
+
+      <template v-else>
+        <div v-if="transitTrips.length" class="smd-trip-list">
+          <div v-for="t in transitTrips" :key="t.id" class="smd-trip-card">
+            <div class="smd-trip-top">
+              <span class="smd-trip-who">{{ charName(t.character_id) }}</span>
+              <span class="smd-trip-route">{{ worldName(t.from_world_id) || '未指定' }} → {{ worldName(t.to_world_id) }}</span>
+            </div>
+            <div class="smd-trip-bottom">
+              <span class="smd-trip-meta">{{ t.transport_label }} · 还需 {{ remainText(t) }}</span>
+              <linshe-button variant="ghost" size="sm" @click="cancelTrip(t)">取消这一段</linshe-button>
+            </div>
+            <p v-if="t.note" class="smd-trip-note">{{ t.note }}</p>
+          </div>
+        </div>
+
+        <div v-if="historyTrips.length" class="smd-trip-history">
+          <p class="smd-trip-history-title">历史旅程</p>
+          <div v-for="t in historyTrips" :key="'h' + t.id" class="smd-trip-hist-row">
+            <span class="smd-trip-hist-who">{{ charName(t.character_id) }}</span>
+            <span class="smd-trip-hist-route">{{ worldName(t.from_world_id) || '未指定' }} → {{ worldName(t.to_world_id) }}</span>
+            <span class="smd-trip-hist-state" :class="{ 'is-cancelled': t.status === 'cancelled' }">
+              {{ t.status === 'arrived' ? '已抵达' : '已取消' }}
+            </span>
+          </div>
+        </div>
+      </template>
     </section>
 
     <linshe-modal v-model="renameOpen" title="重命名世界">
@@ -136,11 +180,51 @@
         <linshe-button variant="primary" :disabled="!renameValue.trim()" @click="confirmRename">保存</linshe-button>
       </template>
     </linshe-modal>
+
+    <!-- ★ 星图 T15：发起跨世界旅程 -->
+    <linshe-modal v-model="tripOpen" title="前往别的世界">
+      <div class="smd-trip-form">
+        <div class="smd-trip-who-row">
+          <span class="smd-avatar">{{ (tripCharName || '?').slice(0, 1) }}</span>
+          <span class="smd-trip-who-name">{{ tripCharName }}</span>
+          <span class="smd-trip-who-from">从 {{ world?.name || '当前世界' }} 出发</span>
+        </div>
+        <label class="smd-field">
+          <span class="smd-field-label">目的地</span>
+          <linshe-select
+            v-model="tripToWorldId"
+            :options="tripDestOptions"
+            placeholder="选一个世界"
+          />
+        </label>
+        <label class="smd-field">
+          <span class="smd-field-label">交通方式</span>
+          <linshe-select v-model="tripTransport" :options="transportOptions" />
+        </label>
+        <label class="smd-field">
+          <span class="smd-field-label">路上带一句<span class="smd-optional">（可选，会写进她的旅途语境）</span></span>
+          <linshe-input v-model="tripNote" placeholder="例如：她带了一只旧行李箱，一路上没怎么说话" />
+        </label>
+        <p class="smd-trip-cost">
+          路上要花 <strong>{{ tripDurationHours }}</strong> 小时。这段时间她的世界观语境是「旅途本身」，
+          日程排成赶路，到点自动落在目的地。
+        </p>
+      </div>
+      <template #footer>
+        <linshe-button variant="secondary" @click="tripOpen = false">再想想</linshe-button>
+        <linshe-button
+          variant="primary"
+          :disabled="tripToWorldId === '' || tripBusy"
+          :loading="tripBusy"
+          @click="startTrip"
+        >出发</linshe-button>
+      </template>
+    </linshe-modal>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, inject } from 'vue'
+import { ref, computed, onMounted, onUnmounted, inject } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import * as api from '../api/index.js'
 import LinsheButton from '../components/ui/LinsheButton.vue'
@@ -173,10 +257,134 @@ const busyChar = ref(false)
 const renameOpen = ref(false)
 const renameValue = ref('')
 
+// ★ 星图 T15：旅程
+const worlds = ref([])            // 全部世界（目的地候选 + 世界名反查）
+const trips = ref([])             // 本世界相关的旅程（出发地或目的地命中）
+const tripsFetchedAt = ref(Date.now()) // 倒计时基准：列表拉取时刻
+const nowTick = ref(Date.now())   // 每 30s 跳一次，驱动倒计时刷新
+const tripConfig = ref(null)
+const tripOpen = ref(false)
+const tripCharId = ref(null)
+const tripToWorldId = ref('')
+const tripTransport = ref('train')
+const tripNote = ref('')
+const tripBusy = ref(false)
+let tickTimer = null
+
+const tripDurationHours = computed(() => tripConfig.value?.duration_hours ?? 6)
+
+const transportOptions = computed(() =>
+  (tripConfig.value?.transports || []).map((t) => ({ label: t.label, value: t.value }))
+)
+
+const tripCharName = computed(() => {
+  const c = allChars.value.find((x) => Number(x.id) === Number(tripCharId.value))
+  return c?.display_name || c?.name || ''
+})
+
+// 目的地候选：排除当前世界（去了等于没去，后端也会拦）
+const tripDestOptions = computed(() =>
+  worlds.value
+    .filter((w) => Number(w.id) !== worldId.value)
+    .map((w) => ({
+      label: `${w.name}${w.is_active ? ' · 激活' : (w.is_enabled ? '' : ' · 休眠')}`,
+      value: w.id,
+    }))
+)
+
+const transitTrips = computed(() => trips.value.filter((t) => t.status === 'transit'))
+const historyTrips = computed(() =>
+  trips.value.filter((t) => t.status !== 'transit').slice(0, 20)
+)
+
+/** 角色 id → 在途那一段（没在途 → undefined） */
+const transitByChar = computed(() => {
+  const map = {}
+  for (const t of transitTrips.value) map[Number(t.character_id)] = t
+  return map
+})
+
+function transitOf(characterId) {
+  return transitByChar.value[Number(characterId)]
+}
+
+function worldName(id) {
+  if (id == null) return ''
+  return worlds.value.find((w) => Number(w.id) === Number(id))?.name || `#${id}`
+}
+
+function charName(id) {
+  const c = allChars.value.find((x) => Number(x.id) === Number(id))
+  return c?.display_name || c?.name || `角色 #${id}`
+}
+
+/**
+ * 剩余时间文案。后端给的是「拉取那一刻的剩余分钟」，这里按流逝时间扣减，
+ * 否则页面开着一小时，倒计时会一直停在 5 小时。
+ */
+function remainText(trip) {
+  if (!trip) return ''
+  const elapsed = (nowTick.value - tripsFetchedAt.value) / 60000
+  const m = Math.max(0, Math.round(Number(trip.remaining_minutes || 0) - elapsed))
+  if (m <= 0) return '即将抵达'
+  if (m < 60) return `${m} 分钟`
+  const h = Math.floor(m / 60)
+  const r = m % 60
+  return r >= 5 ? `${h} 小时 ${r} 分` : `${h} 小时`
+}
+
+async function loadTrips() {
+  try {
+    const r = await api.listTrips({ world_id: worldId.value, limit: 50 })
+    trips.value = r?.items || []
+    tripsFetchedAt.value = Date.now()
+  } catch { /* 旅程读取失败不阻断页面（后端未重启时新接口会 404） */ }
+}
+
+function openTrip(c) {
+  tripCharId.value = c.id
+  tripToWorldId.value = ''
+  tripTransport.value = 'train'
+  tripNote.value = ''
+  tripOpen.value = true
+}
+
+async function startTrip() {
+  if (tripBusy.value || tripToWorldId.value === '') return
+  tripBusy.value = true
+  try {
+    await api.createTrip({
+      character_id: Number(tripCharId.value),
+      to_world_id: Number(tripToWorldId.value),
+      transport: tripTransport.value,
+      note: tripNote.value.trim() || undefined,
+    })
+    tripOpen.value = false
+    await loadTrips()
+    tab.value = 'trip'
+    toastFn?.(`出发了 —— 路上要 ${tripDurationHours.value} 小时`, 'success')
+  } catch (err) {
+    toastFn?.('出发失败：' + (err?.message || ''), 'error')
+  } finally {
+    tripBusy.value = false
+  }
+}
+
+async function cancelTrip(t) {
+  try {
+    await api.cancelTrip(t.id)
+    await loadTrips()
+    toastFn?.('已取消这一段，她留在原地', 'success')
+  } catch (err) {
+    toastFn?.('取消失败：' + (err?.message || ''), 'error')
+  }
+}
+
 async function load() {
   try {
     const r = await api.getWorldSettings()
     const list = Array.isArray(r) ? r : (r?.list || [])
+    worlds.value = list
     world.value = list.find((w) => w.id === worldId.value) || null
     if (!world.value) {
       toastFn?.('世界不存在', 'error')
@@ -201,6 +409,9 @@ async function load() {
     allChars.value = all
     chars.value = all.filter((c) => Number(c.world_setting_id) === worldId.value)
   } catch { /* 角色读取失败不阻断页面 */ }
+  // ★ 星图 T15：旅程配置 + 本世界的旅程列表
+  try { tripConfig.value = await api.getTripConfig() } catch { /* 老后端没有这个接口 → 用默认 6 */ }
+  await loadTrips()
 }
 
 // ★ 星图 T10：候选 = 还没归属本世界的角色（含"不指定"的）
@@ -356,6 +567,13 @@ async function removeWorld() {
 }
 
 onMounted(load)
+// ★ 星图 T15：倒计时每 30s 跳一次；顺带在切到这个页面时重拉一次旅程（可能在别处发起了）
+onMounted(() => {
+  tickTimer = setInterval(() => { nowTick.value = Date.now() }, 30000)
+})
+onUnmounted(() => {
+  if (tickTimer) { clearInterval(tickTimer); tickTimer = null }
+})
 </script>
 
 <style scoped>
@@ -441,7 +659,7 @@ onMounted(load)
 .smd-fields { display: flex; flex-direction: column; gap: 12px; }
 .smd-field { display: flex; flex-direction: column; gap: 6px; }
 .smd-field-label { font-size: 13px; color: var(--text-secondary); }
-.smd-optional { font-size: 11px; color: var(--text-tertiary); }
+.smd-optional { font-size: 11px; color: var(--text-secondary); }
 
 .smd-list { display: flex; flex-direction: column; gap: 8px; }
 .smd-row {
@@ -489,8 +707,88 @@ onMounted(load)
 .smd-placeholder-title { margin: 0 0 6px; font-size: 15px; color: var(--text-primary); }
 .smd-placeholder-sub { margin: 0; font-size: 12.5px; color: var(--text-secondary); }
 
+/* ── ★ 星图 T15：旅程 ─────────────────────────────────────
+   全部走主题变量（不写死色值）：暗夜档自动翻转，亮色档沿用 --text-*。
+   在途卡片是"这一页唯一有重量"的东西 → 用 --bg-secondary + 左侧强调条，
+   不套卡片套卡片，也不加玻璃/光斑。 */
+.smd-transit-badge {
+  margin-left: auto;
+  flex: none;
+  font-size: 11.5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--bg-tertiary, var(--bg-secondary));
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.smd-trip-list { display: flex; flex-direction: column; gap: 10px; }
+.smd-trip-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+}
+.smd-trip-top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.smd-trip-who { font-size: 13.5px; color: var(--text-primary); }
+.smd-trip-route { font-size: 12.5px; color: var(--text-secondary); }
+.smd-trip-bottom {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: space-between;
+}
+.smd-trip-meta { font-size: 12.5px; color: var(--text-secondary); }
+.smd-trip-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.smd-trip-history { display: flex; flex-direction: column; gap: 4px; padding-top: 4px; }
+.smd-trip-history-title {
+  margin: 0 0 2px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.smd-trip-hist-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+.smd-trip-hist-row:nth-child(odd) { background: var(--bg-secondary); }
+.smd-trip-hist-who { color: var(--text-primary); flex: none; }
+.smd-trip-hist-route { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.smd-trip-hist-state { flex: none; font-size: 11.5px; }
+.smd-trip-hist-state.is-cancelled { color: var(--text-secondary); }
+
+/* 发起旅程弹窗 */
+.smd-trip-form { display: flex; flex-direction: column; gap: 12px; }
+.smd-trip-who-row { display: flex; align-items: center; gap: 8px; }
+.smd-trip-who-name { font-size: 13.5px; color: var(--text-primary); }
+.smd-trip-who-from { margin-left: auto; font-size: 12px; color: var(--text-secondary); }
+.smd-trip-cost {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+.smd-trip-cost strong { color: var(--text-primary); font-weight: 600; }
+
 @media (max-width: 560px) {
   .smd-page { padding: 12px 12px 40px; }
   .smd-head-actions { margin-left: 0; width: 100%; justify-content: flex-end; }
+  .smd-trip-bottom { flex-wrap: wrap; }
+  .smd-transit-badge { margin-left: 0; }
 }
 </style>

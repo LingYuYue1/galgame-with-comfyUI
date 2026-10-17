@@ -341,6 +341,11 @@ defaultTimeoutMs: parseInt(process.env.VECTOR_DEFAULT_TIMEOUT_MS, 10) || 120000,
     hideWorld: false, // 隐藏世界观（DB 加载覆盖）
     skipWeekends: false, // 跳过周末（DB 加载覆盖）
   },
+  // 跨世界旅程（星图 T15）—— 用户拍板「角色不可能一瞬间到达」
+  // durationHours = 全局统一时长；将来要按路线/世界区分时，再升级成矩阵
+  trip: {
+    durationHours: Number(process.env.TRIP_DURATION_HOURS) || 6,
+  },
   compression: {
     enabled: false,
     type: 'oxipng',   // 'oxipng' | 'avif'

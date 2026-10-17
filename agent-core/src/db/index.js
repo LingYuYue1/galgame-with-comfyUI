@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { config } from '../config.js';
 import { initSettingsHandle, loadSystemSettings } from './settings.js';
 import { initWorldRepository } from './worldRepository.js';
+import { initTripRepository } from './tripRepository.js';
 // 世界观项目库（通勤种子等**世界观数据**的家，见 2026-10-07 引擎实例化污染审计）
 import { readProject, slugForWorld } from '../services/worldProjectLibrary.js';
 import { seedAll } from './seedData.js';
@@ -1239,6 +1240,7 @@ function initSchema(db) {
   initSettingsHandle(db);
   loadSystemSettings(db);
   initWorldRepository(db);
+  initTripRepository(db);
 
   // 重建 FTS5 索引
   rebuildFtsIndex(db);
@@ -2805,6 +2807,23 @@ export {
   deleteWorldSetting,
   activateWorldSetting,
 } from './worldRepository.js';
+
+// ── 跨世界旅程（星图 T15）──
+// 与 worldRepository 同款：句柄由 initTripRepository 注入，此处只做兼容再导出，
+// 让 routes/services 可以继续从 db/index.js 单点取用。
+export {
+  TRIP_STATUS,
+  TRIP_TRANSPORTS,
+  getTripDurationHours,
+  getActiveTrip,
+  getTripById,
+  listTrips,
+  createTrip,
+  cancelTrip,
+  finalizeDueTrips,
+  getTripStatusFor,
+  formatRemain,
+} from './tripRepository.js';
 
 // ── 系统设置已下沉到 db/settings.js（打破 config↔db 循环依赖）──
 // getSetting/setSetting/SETTING_TO_CONFIG/loadSystemSettings 均由 settings.js 提供，

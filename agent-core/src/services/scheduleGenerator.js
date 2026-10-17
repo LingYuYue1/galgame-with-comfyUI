@@ -10,7 +10,7 @@
  *   - 手动强制：API POST /api/schedule/:id/regenerate
  */
 
-import { getDb, getWorldSetting, getSystemRules, listTransitEdges } from '../db/index.js';
+import { getDb, getWorldSetting, getSystemRules, listTransitEdges, getTripStatusFor, formatRemain } from '../db/index.js';
 import { chatSync } from '../llm/llm-client.js';
 import { config } from '../config.js';
 import { getLocalDateKey, shiftDateKey } from '../utils/localDate.js';
@@ -554,6 +554,47 @@ export function readCharacterTransitMode(characterId) {
 }
 
 /**
+ * 旅途日约束层（星图 T15）—— 角色在路上时，这一天只能排「赶路」。
+ *
+ * ── 为什么必须单独成层（而不是塞进 scheduleInst）────────────
+ * ① `scheduleInst` 是跨角色共享常量，吃 LLM 前缀缓存，塞动态内容会打穿缓存；
+ * ② 更要紧的是**语义冲突**：`scheduleInst` 整套逻辑建立在「<world_setting> 定义了这个
+ *    世界的职业、地点与日常」之上。而在途期间 `<world_setting>` 已被**旅途语境整体覆盖**
+ *    （T15 的「覆盖不拼接」）—— 此时还按"谋生方式"排日程，模型只能凭空编职业与街景。
+ *    所以这里要显式把口径换成"赶路"，并明令不许编造目的地。
+ *
+ * ── 默认不改行为 ──────────────────────────────────────────
+ * 不在途 → 返回 null，提示词与从前**逐字节一致**。
+ *
+ * @param {object|null} trip `getTripStatusFor(characterId)` 的结果
+ */
+export function buildTripDayBlock(trip) {
+  if (!trip) return null;
+  const label = trip.transport_label || '列车';
+  const toName = trip.to_world_name || '目的地';
+  const fromName = trip.from_world_name;
+  const remain = formatRemain(trip.remaining_minutes);
+  return `## ★ 旅途日（本层覆盖「谋生方式」与「性日常」两节，冲突时以本层为准）
+角色此刻**正在旅途中**，尚未抵达「${toName}」${fromName ? `（从「${fromName}」出发）` : ''}。
+今天这一天都发生在**路上**，不是任何一个世界的日常。
+- 交通工具：**${label}**
+- 预计还需：**${remain}**（只有到达时刻之后的那一段，才可以写"落地"）
+
+### 必须这样排
+1. **地点只写在途空间**：座位/卧铺/包厢、过道、餐车或配餐区、洗手间、窗边、休息舱、
+   站台或候车区、换乘通道。仍按「<区域>·<具体地点>」的归属式写法，区域就是车厢/舱内/站台这类。
+2. **赶路本身占主体**：长段乘车、打盹、看窗外、吃东西、整理行李、和邻座或同厢的人打交道、
+   停靠时下去透气。全天**不少于 60%** 的时段属于这类在途活动。
+3. **谋生方式今天不上工**：她不在岗上——接不了客、开不了播、看不了摊、办不了公。
+   若是她自己的营生，最多写"在路上惦记着、发条消息交代"，**不能写成正在营业**。
+4. **抵达之后若落在这一天内**：只写过渡——下车、出站、找落脚处、先歇口气。
+   ⚠ **不要编造目的地的地名、机构、行话、熟人与街景**：她还没到，写到"落脚"为止。
+5. **性活动照常有**（这个世界里性是日常，旅途中也一样），但场景必须是**路上能发生的**：
+   卧铺、洗手间、深夜空车厢、和同厢的人——不是目的地的街边与店堂。
+6. 到达时刻**之前**的任何时段，都不许出现"已经在那里生活"的内容。`;
+}
+
+/**
  * 为角色生成日程模板
  * @param {object} character - { id, display_name, base_prompt }
  * @param {string} [direction] - 用户指定的日程方向
@@ -881,6 +922,11 @@ ${direction}**
     characterName: character.display_name || character.name || '',
   });
   if (constraintLayer) msgs.push({ role: 'system', content: constraintLayer });
+  // msgs[3.8]: 旅途日（星图 T15）—— 角色在途时整天的口径换成"赶路"；不在途则整层不出现
+  //   ★ 必须放在约束层**之后**：它是覆盖性的（旅途日优先于谋生与性日常），
+  //     排在后面才符合"后出现的指令权重更高"的通用体感。
+  const tripBlock = buildTripDayBlock(getTripStatusFor(character?.id));
+  if (tripBlock) msgs.push({ role: 'system', content: tripBlock });
   // msgs[4]: 触发消息（融合用户指定的日程方向）
   let triggerContent = worldSetting
     ? `请遵循<world_setting>来安排日程，角色设定如果和<world_setting>有冲突，则以<world_setting>最高优先级，角色设定会因为<world_setting>改变,日程内容必须体现<world_setting>的设定。

@@ -950,6 +950,38 @@ export async function activateWorldSetting(id) {
   return request(`/config/world-settings/${id}/activate`, { method: 'POST' })
 }
 
+// ── 跨世界旅程（星图 T15）──
+// 口径在后端 db/tripRepository.js；这里只转 HTTP。失败原因的 `code` 由 request 层
+// 塞进 Error（见本文件顶部 `throw new Error(result.error || ...)`），页面拿 err.message 显示。
+export async function getTripConfig() {
+  return request(`/trips/config`)
+}
+
+export async function listTrips(params = {}) {
+  const qs = new URLSearchParams()
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== '') qs.set(k, String(v))
+  }
+  const q = qs.toString()
+  return request(`/trips${q ? `?${q}` : ''}`)
+}
+
+export async function getActiveTrip(characterId) {
+  return request(`/trips/active/${characterId}`)
+}
+
+export async function getCharacterTrips(characterId, limit = 20) {
+  return request(`/trips/character/${characterId}?limit=${limit}`)
+}
+
+export async function createTrip(data) {
+  return request(`/trips`, { method: 'POST', body: data })
+}
+
+export async function cancelTrip(id) {
+  return request(`/trips/${id}/cancel`, { method: 'POST' })
+}
+
 // ── Global Rules ──
 export async function getGlobalRules() {
   return request(`/config/rules`)

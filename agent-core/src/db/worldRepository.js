@@ -13,6 +13,8 @@ import {
   guessSlotsFromContent,
   neutralProject,
 } from '../services/worldProjectLibrary.js';
+// ★ 星图 T15：在途旅途语境（本模块只读它；tripRepository 不反向依赖本模块，无环）
+import { getTripWorldContext } from './tripRepository.js';
 
 let _db = null;
 
@@ -132,11 +134,26 @@ export function getWorldSetting(characterId = null) {
  *
  * 不依赖角色仓储，直接查表 —— 本模块的依赖方向是单向的（不可反向 import db/index.js）。
  * 任何异常（表没有该列 / 角色已删）都当作"未绑定"返回 null，绝不让解析失败拖垮 prompt 构建。
+ *
+ * ★ 星图 T15（2026-10-17）：**在途优先**。
+ *   角色在路上时，她此刻的世界语境是「旅途本身」——不是出发地，也不是目的地。
+ *   所以这里第一件事是问 tripRepository「她在途吗」，命中就返回**旅途伪世界**并早返回。
+ *   把判断放在这个函数里而不是 `getWorldSetting` 里，是因为所有入口
+ *   （getWorldSetting / getWorldSettingRaw / getWorldSlotsFor / getCharacterWorldSettingId）
+ *   最终都汇到这里 —— 一处收口，全链路自动吃旅途语境，不必再逐个调用点改造。
  */
 function resolveBoundWorld(characterId) {
   if (characterId == null || characterId === '') return null;
   const id = Number(characterId);
   if (!Number.isFinite(id)) return null;
+  // ① 在途 → 旅途语境整体覆盖（覆盖不拼接：出发地与目的地的正文一个字都不进 prompt）
+  try {
+    const tripWorld = getTripWorldContext(id);
+    if (tripWorld) return tripWorld;
+  } catch (err) {
+    // 旅程表未建 / 查询异常 → 当"不在途"，继续走正常绑定解析（绝不因旅程拖垮世界观）
+    console.warn(`[worldRepository] 旅途语境解析失败，按正常绑定处理: ${err.message}`);
+  }
   try {
     const row = handle().prepare(`SELECT world_setting_id FROM characters WHERE id = ?`).get(id);
     const wid = row?.world_setting_id;
