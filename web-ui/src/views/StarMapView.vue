@@ -210,10 +210,12 @@ onMounted(loadWorlds)
   line-height: 1;
   padding: 4px 7px;
   border-radius: 999px;
-  background: #ae6451;
+  /* 暖纸底是恒亮的（质感岛特例），所以徽标文字/底色按「亮底」算对比度：
+     原 #ae6451 配 #fff7ef 实测 4.18，未过 4.5 → 压深到 5.1 */
+  background: #9c5745;
   color: #fff7ef;
 }
-.sm-badge-off { background: #9b8c80; }
+.sm-badge-off { background: #6f6359; }
 
 .sm-tagline {
   margin: 0;
@@ -231,7 +233,8 @@ onMounted(loadWorlds)
   align-items: center;
   justify-content: space-between;
   font-size: 11.5px;
-  color: #9b8c80;
+  /* 亮纸上的次要文字：#9b8c80 实测仅 2.89 → 压到 #746759 得 4.57 */
+  color: #746759;
 }
 
 .sm-card-add {
@@ -240,10 +243,12 @@ onMounted(loadWorlds)
   gap: 6px;
   border-style: dashed;
   background: transparent;
-  color: #9b8c80;
+  /* 这张卡不在暖纸上（横跨页面底色），必须跟主题翻转 → 用主题变量，
+     不写死灰色（写死 #9b8c80 在暗夜 5.65 合格、在亮色反而不够） */
+  color: var(--text-secondary);
   box-shadow: none;
 }
-.sm-card-add:hover { color: #ae6451; border-color: #ae6451; }
+.sm-card-add:hover { color: var(--accent); border-color: var(--accent); }
 .sm-add-plus { font-size: 22px; line-height: 1; }
 .sm-add-text { font-size: 13px; }
 

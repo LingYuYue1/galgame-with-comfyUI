@@ -360,7 +360,7 @@ onMounted(load)
   color: #4a3f38;
   --ls-input-focus-color: #ae6451;
 }
-.smd-paper :deep(.ls-input::placeholder) { color: #9b8c80; }
+.smd-paper :deep(.ls-input::placeholder) { color: #786a5e; }
 
 .smd-textarea { width: 100%; }
 .smd-paper-foot {
@@ -370,7 +370,8 @@ onMounted(load)
   gap: 10px;
   padding-top: 10px;
 }
-.smd-dirty { font-size: 12px; color: #ae6451; margin-right: auto; }
+/* 亮纸上的强调小字：#ae6451 实测 3.95 → 压到 #8f4a38 得 5.84 */
+.smd-dirty { font-size: 12px; color: #8f4a38; margin-right: auto; }
 
 .smd-fields { display: flex; flex-direction: column; gap: 12px; }
 .smd-field { display: flex; flex-direction: column; gap: 6px; }
