@@ -257,8 +257,12 @@ export function updateEmojiFixedTags(tags, styleMode, resolution) {
   })
 }
 
-export function generateEmojiPrompts(character_ids, style = '', setId = null) {
-  return request(`/characters/emoji/prompts`, { method: 'POST', body: { character_ids, style, set_id: setId } })
+export function preflightEmojiOutfits(character_ids, outfitScene = 'work') {
+  return request(`/characters/emoji/outfits/preflight`, { method: 'POST', body: { character_ids, outfitScene } })
+}
+
+export function generateEmojiPrompts(character_ids, style = '', setId = null, options = {}) {
+  return request(`/characters/emoji/prompts`, { method: 'POST', body: { character_ids, style, set_id: setId, ...options } })
 }
 
 export function generateEmojiImages(character_ids, keys = [], artist = '@ebora', includeDone = false, setId = null) {
@@ -268,8 +272,8 @@ export function generateEmojiImages(character_ids, keys = [], artist = '@ebora',
   })
 }
 
-export function regenerateEmojiPrompt(characterId, key, style = '', setId = null) {
-  return request(`/characters/emoji/${characterId}/${key}/prompt`, { method: 'POST', body: { style, set_id: setId } })
+export function regenerateEmojiPrompt(characterId, key, style = '', setId = null, options = {}) {
+  return request(`/characters/emoji/${characterId}/${key}/prompt`, { method: 'POST', body: { style, set_id: setId, ...options } })
 }
 
 export function regenerateEmojiImage(characterId, key, artist = '@ebora', setId = null) {

@@ -4,6 +4,7 @@ import { generateImageRaw } from './imageSkill.js';
 import { buildImageCrossRefInfo, buildCharacterAppearanceSection } from './characterPersona.js';
 import { saveBase64Image } from './imagePaths.js';
 import { invalidateGalleryCache } from '../routes/images.js';
+import { resolveStandingOutfits, normalizeStandingOutfitScene, validateMissingOutfitPolicy, hasStandingOutfit, completeStandingOutfit } from './expressionStandingAppearance.js';
 
 export const DEFAULT_EMOJI_KEYS = [
   '开心', '难过', '哭', '生气', '哈哈大笑', '卖萌', '晕倒',
@@ -336,7 +337,7 @@ function prependFixedEmojiTags(prompt, tagsText) {
 
 /** 兜底 prompt：当创造助手返回 JSON 缺某个 key 时使用，固定 tag 由 prependFixedEmojiTags 统一前置 */
 function fallbackEmojiPrompt(char, key) {
-  const cross = buildImageCrossRefInfo(char);
+  const cross = buildImageCrossRefInfo(char, { outfits: null });
   const identity = cross.split('\n')[0] || char.display_name || 'character';
   return [
     `${key} expression`,
@@ -412,11 +413,17 @@ function buildEmojiImageRule(styleMode) {
 }
 
 /** 调创造助手生成表情 prompt（json_object，温度 0.75），keys 缺省读取 DB 中可编辑的类别 */
-export async function generateEmojiPrompts(char, style = '', keys = null) {
+export async function generateEmojiPrompts(char, style = '', keys = null, options = {}, dependencies = {}) {
+  const outfitScene = normalizeStandingOutfitScene(options.outfitScene);
+  validateMissingOutfitPolicy(options.missingOutfitPolicy);
+  if (!hasStandingOutfit(char.id, outfitScene)) {
+    if (!options.missingOutfitPolicy) throw Object.assign(new Error('所选服装尚未配置，请选择自动补全或使用默认外观'), { status: 409 });
+    if (options.missingOutfitPolicy === 'generate') await completeStandingOutfit(char, outfitScene, dependencies.outfitGenerator);
+  }
   const emojiKeys = keys || getEmojiCategories();
   const system0 = getSystemRules({ roleplay: false });
-  // 完整外观段（含生效外观注入）剥掉「## 你的外观」标题行，由下方「角色外观：」标签替代
-  const appearanceSection = buildCharacterAppearanceSection(char);
+  // 与表情立绘共用显式选装，禁止从日程或临时服饰重新推导。
+  const appearanceSection = buildCharacterAppearanceSection(char, { outfits: resolveStandingOutfits(char, outfitScene) });
   const appearance = appearanceSection ? appearanceSection.replace(/^##[^\n]*\n?/, '').trim() : '';
   const styleMode = getEmojiStyleMode();
   const system1 = buildEmojiImageRule(styleMode);
@@ -432,11 +439,14 @@ export async function generateEmojiPrompts(char, style = '', keys = null) {
   const requirements = [
     `prompt 生成格式遵循前面生图规则中的角色写法，${emojiKeys.length} 条 prompt 中的角色写法必须保持一致。`,
     '在此前提下，每个 prompt 只描述该表情下的表情、神态与肢体动作，英文，不超过 80 词，不出现中文，不使用双引号（需要引用时一律用单引号）。',
+    '角色外观已按用户所选形象组装。服装遵循其中的着装优先级，不自行按时间、日程或场景换装；用户明确要求修改外观时，以用户要求为准并删除冲突的旧特征。猪鼻大头模式仍禁止描写服装。',
   ];
   requirements.push(`不要写背景、画风、构图类描述（${tagsText}）。这些固定 tag 由系统在生成后自动前置到每条 prompt 开头，你重复输出只会浪费 token。`);
   requirements.push('输出严格 JSON object：键是上面的中文表情名，值是对应 prompt 字符串。不要 Markdown 代码块，不要解释。');
   // 输出示例演示双重转义：JSON 源码里的 \\( 解析后即生图规则要求的 \(；单个 \( 是非法 JSON 转义
-  const outputExample = '{"开心": "Name \\\\(Series\\\\) has white hair and blue eyes. She grins happily.", "难过": "Name \\\\(Series\\\\) has white hair and blue eyes. She frowns with teary eyes."}';
+  const outputExample = JSON.stringify(Object.fromEntries(emojiKeys.map(key => [key,
+    `Name \\(Series\\) has white hair and blue eyes. Replace with this character's selected appearance and the expression for ${key}; English only, at most 80 words, no background/style/framing tags, follow the selected mode's clothing constraints.`,
+  ])));
   const system2 = `你是 LINE 表情包提示词生成助手。
 请为角色生成 ${emojiKeys.length} 种表情的 SDXL 英文提示词。
 
@@ -445,7 +455,7 @@ export async function generateEmojiPrompts(char, style = '', keys = null) {
 固定要求：
 ${requirements.map((r, i) => `${i + 1}. ${r}`).join('\n')}
 
-输出格式示例（只演示格式与转义写法，示例仅展示前 2 个键，实际必须输出全部 ${emojiKeys.length} 个键；角色名与外观锚点必须来自角色资料，不得照抄示例内容）：
+完整输出格式示例（必须原样保留全部 ${emojiKeys.length} 个键，各值按其中的要求填写；角色名与外观锚点必须来自角色资料，不得照抄示例内容或字段说明）：
 ${outputExample}
 注意：生图规则中的角色写法 \\( 是指最终 prompt 文本；写进 JSON 字符串时必须把每个反斜杠写成两个，即 \\\\(，只写一个反斜杠属于非法 JSON 转义，会导致解析失败。`;
   const system3 = `${char.short_prompt || ''}\n\n角色外观：\n${appearance || '以 short_prompt 为准，保持角色原有辨识度'}`;
@@ -459,18 +469,26 @@ ${outputExample}
   }
   const userPrompt = userPromptParts.join('\n');
 
-  const raw = await chatSync(
-    [
+  const messages = [
       { role: 'system', content: system0 },
       { role: 'system', content: system1 },
       { role: 'system', content: system2 },
       { role: 'system', content: system3 },
       { role: 'user', content: userPrompt },
-    ],
+    ];
+  const raw = await (dependencies.chat || chatSync)(
+    messages,
     {
       temperature: 0.7,
       response_format: { type: 'json_object' },
       label: '表情包生成',
+      lorebook: {
+        personaTexts: [system3],
+        staticTexts: [system0, system1, system2],
+        cacheBoundary: { index: messages.findIndex(message => message.content === system3), offset: 0 },
+        characterName: displayName,
+        history: [{ role: 'user', content: userPrompt }],
+      },
     }
   );
 

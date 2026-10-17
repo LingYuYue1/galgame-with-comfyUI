@@ -1409,10 +1409,12 @@ onMounted(async () => {
   }, 1000)
 
   unsubNew = onEvent('media_new_posts', async () => {
+    const wasManualRefresh = refreshing.value
     refreshing.value = false
     clearTimeout(refreshTimer)
     await refreshMediaUnread()
-    await reloadAll()
+    // 后台新帖只更新提示，避免打断阅读；主动刷新才重新加载列表。
+    if (wasManualRefresh) await reloadAll()
     loadAuto() // 自动批次刚跑过 → 倒计时归零重算
     toastFn?.('新帖已到', 'success')
   })
