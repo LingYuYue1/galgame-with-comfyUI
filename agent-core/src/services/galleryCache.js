@@ -4,6 +4,8 @@
 import { readdir, stat } from 'fs/promises';
 import { join } from 'path';
 import { getAllImageDirs } from './imagePaths.js';
+import { getDb } from '../db/index.js';
+import { buildImageSourceIndex, attachSource } from './imageSourceResolver.js';
 
 export const galleryCache = {
   data: null,       // { images: [...], total: number }
@@ -53,7 +55,18 @@ export async function refreshGalleryCache() {
 
   allResults.sort((a, b) => b.mtime - a.mtime);
 
-  galleryCache.data = { images: allResults, total: allResults.length };
+  // BUG-03：按 URL 反查 image_tasks，补上「来源 / 角色 / 出口」。
+  // 相册本来是纯磁盘扫描，来源数据一直躺在 DB 里没被读出来。
+  // 索引构建失败不能让相册整体挂掉 —— 降级为「全部未知来源」。
+  let sourceIndex = null;
+  try {
+    sourceIndex = buildImageSourceIndex(getDb());
+  } catch (err) {
+    console.error('[gallery] 来源索引构建失败（相册仍可用）:', err.message);
+  }
+  const images = sourceIndex ? allResults.map(img => attachSource(img, sourceIndex)) : allResults;
+
+  galleryCache.data = { images, total: images.length };
   galleryCache.mtime = Date.now();
 }
 

@@ -67,6 +67,8 @@
               decoding="async"
               alt=""
             >
+            <!-- 来源（BUG-03）：桌面悬停显示，触屏常显（见样式里的 hover:none 兜底） -->
+            <span class="img-source" :title="img.source_label">{{ img.source_label }}</span>
             <!-- 多选态：右上角勾选标记（未选中是空心圈，选中填充打勾） -->
             <span v-if="selectMode" class="pick" :class="{ on: isSelected(img) }" aria-hidden="true">
               <svg v-if="isSelected(img)" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round">
@@ -587,6 +589,35 @@ defineExpose({ refresh, toggleSelectMode })
   box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.28);
 }
 .gallery-item.is-selected .img-wrapper { opacity: 0.82; }
+
+/* ── 来源标签（BUG-03）：贴在图片底部，桌面悬停才出现 ── */
+.img-source {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  z-index: 2;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.5);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  pointer-events: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gallery-item:hover .img-source { opacity: 1; transform: none; }
+/* 触屏没有 hover：常显（桌面行为不变 = 红线） */
+@media (hover: none), (pointer: coarse) {
+  .img-source { opacity: 1; transform: none; }
+}
 
 /* 勾选标记：未选 = 半透明空心圈，选中 = 实心打勾 */
 .pick {

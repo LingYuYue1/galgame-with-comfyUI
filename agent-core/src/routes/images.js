@@ -76,7 +76,19 @@ router.get('/gallery', async (req, res) => {
 
     const pageImages = images.slice(offset, offset + limit);
     res.json({
-      images: pageImages.map(img => ({ name: img.name, url: img.url, size: img.size, mtime: img.mtime, folder: img.folder })),
+      // BUG-03：source / source_label / character_* 由 galleryCache 反查 image_tasks 补上；
+      // 查不到的给「未知来源」（老图没留下任务记录，不硬猜）。
+      images: pageImages.map(img => ({
+        name: img.name,
+        url: img.url,
+        size: img.size,
+        mtime: img.mtime,
+        folder: img.folder,
+        source: img.source || null,
+        source_label: img.source_label || '未知来源',
+        character_id: img.character_id ?? null,
+        character_name: img.character_name ?? null,
+      })),
       total,
       hasMore: offset + limit < total,
       folders,
