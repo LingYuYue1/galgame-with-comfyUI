@@ -916,8 +916,8 @@ export async function giveGift(characterId, giftType, character, userName = '你
   const currentAffinity = loadAffinity(characterId);
   const baseDelta = GIFT_AFFINITY[giftType];
 
-  // 4. LLM 生成角色反应 + 生图描述
-  const systemRules = getSystemRulesWithWorld();
+  // 4. LLM 生成角色反应 + 生图描述（★ 星图 T08：按收礼角色所在的世界）
+  const systemRules = getSystemRulesWithWorld({ characterId });
   // 整卡人格（统一入口，含生效外观注入；base_prompt 缺失时回退 short_prompt）
   const basePrompt = buildCharacterPersona(character, { variant: 'full' });
   const affinityDesc = affinityToPrompt(currentAffinity);

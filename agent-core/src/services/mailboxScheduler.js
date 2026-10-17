@@ -208,8 +208,8 @@ async function generateReplyData(charId, charName, charBasePrompt, userContent, 
 
   const userName = config.user.nickname || '用户';
 
-  // ── system 0: 破限词 + 世界观 ──
-  const stage = getSystemRulesWithWorld();
+  // ── system 0: 破限词 + 世界观（★ 星图 T08：按收信角色所在的世界）──
+  const stage = getSystemRulesWithWorld({ characterId: charId });
   if (stage) msgs.push({ role: 'system', content: stage });
 
   // ── system 1: 角色完整人格 ──

@@ -503,6 +503,12 @@ test('★★★ T08 接线护栏：已接线的调用点必须把角色 id 传�
     ['services/outfitScene.js', /getWorldSetting\(character\?\.id\)/g, 1, '换装'],
     ['services/replyQueueScheduler.js', /getWorldSetting\(characterId\)/g, 1, '延迟回复队列'],
     ['routes/relationships.js', /getWorldSetting\(characterId \|\| null\)/g, 1, '关系推演'],
+    // ↓ 这批只调 getSystemRulesWithWorld（不经 getWorldSetting），首轮扫描漏掉了
+    ['services/characterReactionPackService.js', /getSystemRulesWithWorld\(\{ roleplay: false, characterId: character\?\.id \}\)/g, 1, '角色反应包'],
+    ['services/emotionEngine.js', /getSystemRulesWithWorld\(\{ characterId \}\)/g, 1, '送礼反应'],
+    ['services/mailboxScheduler.js', /getSystemRulesWithWorld\(\{ characterId: charId \}\)/g, 1, '信箱回信'],
+    ['services/proactiveChatScheduler.js', /getSystemRulesWithWorld\(\{ roleplay: false, characterId: character\?\.id \}\)/g, 1, '主动消息配图'],
+    ['services/eventScheduler.js', /getSystemRulesWithWorld\(\{ roleplay: true, characterId: event\.character_id \}\)/g, 1, '奇遇紧急联络'],
   ];
   const problems = [];
   for (const [rel, re, want, note] of WIRED) {

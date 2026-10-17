@@ -125,7 +125,8 @@ ${example}`;
 }
 
 export function buildPackMessages({ character, eventTypes }) {
-  const systemRules = getSystemRulesWithWorld({ roleplay: false }) || '你是一个角色扮演 AI。';
+  // ★ 星图 T08：按「这个角色所在的世界」
+  const systemRules = getSystemRulesWithWorld({ roleplay: false, characterId: character?.id }) || '你是一个角色扮演 AI。';
   const persona = String(character?.base_prompt || '').trim()
     || String(character?.short_prompt || '').trim()
     || '（未提供角色人格资料，请给出克制、中性的短反应）';

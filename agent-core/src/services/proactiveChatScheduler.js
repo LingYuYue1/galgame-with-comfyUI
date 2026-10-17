@@ -568,8 +568,8 @@ async function generateImageForGreeting(character, greeting, motiveName, msgId, 
   try {
     console.log(`⚡ Generating image for ${character.display_name} (motive: ${motiveName})...`);
 
-    // 1. LLM 生成画面描述 prompt
-    const systemRules = getSystemRulesWithWorld({ roleplay: false });
+    // 1. LLM 生成画面描述 prompt（★ 星图 T08：按角色所在世界，与上面主动消息正文同口径）
+    const systemRules = getSystemRulesWithWorld({ roleplay: false, characterId: character?.id });
     const imagePromptRule = getGlobalRule('image_prompt');
     let imagePromptInst = imagePromptRule?.rule_content || '';
     // 追加 Environment reference，去重：天气仅由此处提供，不单独出现 lightHint

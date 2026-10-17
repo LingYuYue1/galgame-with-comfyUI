@@ -281,7 +281,8 @@ ${eventRules}`;
 
         // 生成主动消息内容
         const { chatSync } = await import('../llm/llm-client.js');
-        const jailbreak = getSystemRulesWithWorld({ roleplay: true });
+        // ★ 星图 T08：奇遇紧急联络按该角色所在世界
+        const jailbreak = getSystemRulesWithWorld({ roleplay: true, characterId: event.character_id });
         const greeting = await chatSync([
           { role: 'system', content: jailbreak },
           { role: 'system', content: event.base_prompt },
