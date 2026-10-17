@@ -79,3 +79,43 @@ test('指定话题：未勾选、同名不同来源和空描述均按所选 id �
   // 不同指定话题保持前面的任务和人格层稳定，话题只出现在变量尾层。
   assert.deepEqual(requests[0].messages.slice(0, 3), requests[1].messages.slice(0, 3));
 });
+
+test('随机梦境：单图与多图请求均强化梦内画面，普通朋友圈不注入梦境规则', async t => {
+  const characterId = seedCharacter();
+  const requests = [];
+  t.mock.method(OpenAI.Chat.Completions.prototype, 'create', async params => {
+    requests.push(params);
+    throw Object.assign(new Error('TEST_PROMPT_CAPTURED'), { status: 400 });
+  });
+  let rolls = [];
+  t.mock.method(Math, 'random', () => rolls.length ? rolls.shift() : 0.5);
+
+  for (const imageCount of [1, 2, 3]) {
+    // 模式抽签、特殊模式抽签、配图张数；后续随机不影响所选分支。
+    rolls = [0.01, 0, [0, 0.5, 0.8, 0.99][imageCount]];
+    const result = await generate({ character_id: characterId });
+    assert.equal(result.payload.error, 'TEST_PROMPT_CAPTURED');
+    const { messages } = requests.at(-1);
+    const task = messages.find(m => m.content.startsWith('你正在发朋友圈。')).content;
+    assert.match(task, /每个 imagePrompt 都必须以 "A surreal dreamscape scene:" 开头/);
+    assert.match(task, /至少两处相互关联的非现实变化/);
+    assert.match(task, /ethereal soft lighting/);
+    assert.match(task, /Environment reference 只约束醒着时的叙述/);
+    assert.match(task, /未采纳梦境时完全忽略本条/);
+    assert.match(task, /有当前日程时，做梦\/幻想动因也必须非常契合日程才可采用/);
+    const example = JSON.parse(task.split('输出格式（严格 JSON）：\n')[1].split('\n')[0]);
+    assert.equal(Object.keys(example).length, imageCount + 1);
+    for (const [field, value] of Object.entries(example)) {
+      if (field === 'text') continue;
+      assert.match(value, /A surreal dreamscape scene:/);
+      assert.match(value, /若未采纳，正常描绘当前日程/);
+    }
+    assert.equal(messages.filter(m => m.role === 'user').length, 1);
+    assert.equal(messages.at(-1).role, 'user');
+  }
+
+  rolls = [0.5];
+  assert.equal((await generate({ character_id: characterId })).payload.error, 'TEST_PROMPT_CAPTURED');
+  const ordinary = requests.at(-1).messages.map(m => m.content).join('\n');
+  assert.doesNotMatch(ordinary, /A surreal dreamscape scene|梦境配图（仅在采纳/);
+});

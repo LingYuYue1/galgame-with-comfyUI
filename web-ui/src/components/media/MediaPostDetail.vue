@@ -38,7 +38,9 @@
                 社区来稿
               </span>
             </div>
-            <span class="reader-length">约 {{ readingMinutes }} 分钟阅读</span>
+            <time v-if="publishedTime" class="reader-published" :datetime="publishedTime.iso">
+              发布于 {{ publishedTime.label }}
+            </time>
           </div>
         </header>
         <figure v-if="post.image" class="reader-figure">
@@ -172,9 +174,20 @@ const paragraphs = computed(() =>
     .split(/\n+/)
     .filter((p) => p.trim())
 )
-const readingMinutes = computed(() =>
-  Math.max(1, Math.ceil(String(props.post?.content || '').length / 400))
-)
+const publishedTime = computed(() => {
+  const value = props.post?.created_at
+  if (!value) return null
+  // SQLite CURRENT_TIMESTAMP stores UTC without a timezone suffix.
+  const normalized = String(value).trim().replace(' ', 'T')
+  const date = new Date(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(normalized)
+    ? `${normalized}Z`
+    : normalized)
+  if (Number.isNaN(date.getTime())) return null
+  return {
+    iso: date.toISOString(),
+    label: `${date.getMonth() + 1}月${date.getDate()}日 ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+  }
+})
 function formatNum(n) {
   const value = Number(n) || 0
   return value >= 10000
@@ -276,8 +289,9 @@ function zoom() {
   margin-top: 3px;
   font-size: 12px;
 }
-.reader-length {
+.reader-published {
   margin-left: auto;
+  flex-shrink: 0;
   font-family: monospace;
   font-size: 12px;
   border-bottom: 2px solid var(--media-ink);
@@ -497,8 +511,14 @@ function zoom() {
     margin: 18px 0 22px;
     font-size: 29px;
   }
-  .reader-length {
-    display: none;
+  .reader-byline {
+    flex-wrap: wrap;
+  }
+  .reader-published {
+    flex-basis: 100%;
+    margin-left: 0;
+    border-bottom: 0;
+    padding: 0;
   }
   .reader-figure {
     margin: 22px 18px 0;

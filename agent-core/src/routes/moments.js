@@ -19,6 +19,7 @@ import { handleUserComment } from '../services/momentCommentService.js';
 import { getWorldIntegrationRule } from '../builtinRules.js';
 import { DEFAULT_MOMENT_IMAGE_PROMPT, parseMomentResponse, sanitizeMomentContent } from '../services/momentResponseParser.js';
 import { MOMENT_FORMS, weightedPick, pickMomentImageCount, MOMENT_SINGLE_FOCUS_RULE, MOMENT_TONE_RULES, MOMENT_IMAGE_RULES, buildMomentOutputFormat, buildMomentMotiveDirective, buildMomentScheduleContext, buildMomentMultiImageRule, MOMENT_RECORD_BACKDROP_RULE } from '../services/momentForms.js';
+import { MOMENT_DREAM_IMAGE_RULES, MOMENT_DREAM_IMAGE_REQUIREMENT } from '../services/momentForms.js';
 
 import { startMomentBackfill, stopMomentBackfill, isMomentBackfillRunning } from '../services/momentBackfill.js';
 
@@ -658,7 +659,7 @@ async function generateMomentPostImpl(character, opts = {}) {
   // 1. 一维/二维组合选取，代码侧硬随机避免 LLM 偏见
 
   const SPECIAL_MODES = [
-    { name: '做梦/幻想', desc: '候选动因：分享怪梦或白日梦。仅在非常契合当前日程或未提供日程时采用；采用后可描述梦境场景、超现实体验或脑洞，配图可用超现实或梦幻风格' },
+    { name: '做梦/幻想', desc: '候选动因：分享怪梦或白日梦。仅在非常契合当前日程或未提供日程时采用；采用后描述一场具体的梦境或超现实体验，配图必须呈现梦内的超现实意象与梦幻光影' },
   ];
 
   // 5% 特殊叙事模式 / 10% 完全自由发挥 / 85% Topic 模式
@@ -829,7 +830,11 @@ async function generateMomentPostImpl(character, opts = {}) {
     const textShape = isSpecialMode
       ? '中文口语，第一人称，优先围绕当前日程；仅在梦境或幻想动因符合采纳条件时讲一场梦或幻想'
       : '中文口语，只围绕一个具体中心，用角色自己的语气表达';
-    const jsonFmt = buildMomentOutputFormat({ imageCount, textRequirement: textShape });
+    const jsonFmt = buildMomentOutputFormat({
+      imageCount,
+      textRequirement: textShape,
+      imageRequirement: isSpecialMode ? MOMENT_DREAM_IMAGE_REQUIREMENT : '',
+    });
 
     const multiImageRule = buildMomentMultiImageRule(imageCount);
 
@@ -852,6 +857,7 @@ ${continuationNote}
 生图格式（每个 imagePrompt 均适用）：
 ${imagePromptGuide || '一段完整的自然英文，描述具体画面，避免标签堆砌。'}
 ${weatherHint}
+${isSpecialMode ? MOMENT_DREAM_IMAGE_RULES : ''}
 ${multiPersonImageNote}
 ${oathImageNote}`;
 
