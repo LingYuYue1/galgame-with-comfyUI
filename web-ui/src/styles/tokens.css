@@ -50,7 +50,11 @@
   --dialogue-photo-shutter: #24212a;
   --dialogue-photo-caption: #777078;
   --dialogue-photo-shadow: 0 3px 10px #18101f29, 0 1px 3px #18101f1a;
-  --text-secondary: #8c8074;
+  /* 次要文字（时间戳/计数/字段标签/空态提示/返回链接…）。
+     2026-10-17 由 #8c8074 调深一档：原值在主底色上只有 3.28，小字需 ≥4.5。
+     新值 #6f655b → 主底 4.84 / 白卡 5.69 / 次底 4.78 / 暖纸 5.06（暗夜档不变）。
+     ⚠ 这是**全站**观感调整，改这里即全站生效（777 处引用），不要逐页覆盖。 */
+  --text-secondary: #6f655b;
   --text-bright: #111111;
   --on-accent: #ffffff;
 
