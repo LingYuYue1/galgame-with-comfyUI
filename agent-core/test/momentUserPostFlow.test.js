@@ -16,7 +16,7 @@ config.llm.baseURL = 'http://127.0.0.1:9';
 const { resetClient } = await import('../src/llm/llm-client.js');
 resetClient();
 
-const { getDb, closeDb } = await import('../src/db/index.js');
+const { getDb, closeDb, invalidateWorldCache } = await import('../src/db/index.js');
 const router = (await import('../src/routes/moments.js')).default;
 const {
   parseMentionedCharacters,
@@ -316,6 +316,8 @@ test('generateUserPostComment 用户画像和动态先于角色人设，且不�
   const db = getDb();
   const id = seedCharacter(db, { name: 'cache1', display_name: '缓存朋友', base_prompt: '缓存朋友的人设' });
   db.prepare("UPDATE world_settings SET content = '<world_setting>测试世界观</world_setting>', is_active = 1").run();
+  // ★ T13：绕开仓储直改库 → 必须显式声明缓存失效，否则读到旧世界观（见 worldCacheSignal.js）
+  invalidateWorldCache('test.rawUpdate');
   db.prepare('INSERT INTO user_relationships (character_id, relationship_text) VALUES (?, ?)')
     .run(id, '互相看不顺眼的同事');
 

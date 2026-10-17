@@ -12,9 +12,12 @@ import {
   slugForWorld,
   guessSlotsFromContent,
   neutralProject,
+  getProjectCacheStats,
 } from '../services/worldProjectLibrary.js';
 // ★ 星图 T15：在途旅途语境（本模块只读它；tripRepository 不反向依赖本模块，无环）
 import { getTripWorldContext } from './tripRepository.js';
+// ★ 星图 T13：缓存代数（一个只装计数器的模块，谁都能 import，不成环）
+import { bumpWorldCache, worldCacheEpoch, worldCacheLog } from './worldCacheSignal.js';
 
 let _db = null;
 
@@ -26,6 +29,86 @@ export function initWorldRepository(db) {
 function handle() {
   if (!_db) throw new Error('worldRepository: db handle not initialized (initWorldRepository)');
   return _db;
+}
+
+// ── 世界文本 memo（星图 T13）────────────────────────────────
+// 为什么值得缓存：`getWorldSetting` 是**所有** prompt 的必经之路（T08 之后 36 处调用点 +
+// `getSystemRulesWithWorld` 46 处），每次都要：resolver 查角色行（T15 之后还要查旅程表）
+// + 查世界行 + 读 project.json + 正则裁剪。同一角色在同一分钟内会被问几十次，结果却完全一样。
+//
+// 失效模型（两条腿）：
+//   · **代数**（worldCacheSignal）：所有写入口主动 bump —— 建/改/删/激活世界、改绑角色、
+//     发起/取消/结算旅程、写项目库。这是主路径，命中即刻生效。
+//   · **TTL 3s**：兜住"没人 bump 的外部修改"（例如用户直接编辑 project.json）。
+//     3 秒是权衡：再短等于没缓存，再长会让手工改库后要等一会儿才生效。
+const WORLD_MEMO_TTL_MS = Number(process.env.WORLD_MEMO_TTL_MS) > 0
+  ? Number(process.env.WORLD_MEMO_TTL_MS)
+  : 3000;
+const WORLD_MEMO_LIMIT = 200;
+const _worldMemo = new Map(); // key -> { value, epoch, at }
+const _worldStats = { hits: 0, misses: 0, builds: 0, lastBuildMs: 0, lastChars: 0 };
+
+/** 缓存键：未传角色 = 单独一格（激活世界），不能和任何角色共用 */
+function worldMemoKey(characterId) {
+  if (characterId == null || characterId === '') return '__active__';
+  const n = Number(characterId);
+  return Number.isFinite(n) ? `c${n}` : `x${String(characterId)}`;
+}
+
+/** 读 memo：代数不一致或过期 → 当作未命中（惰性失效，不主动清表） */
+function readWorldMemo(key) {
+  const hit = _worldMemo.get(key);
+  if (!hit) { _worldStats.misses++; return undefined; }
+  if (hit.epoch !== worldCacheEpoch() || Date.now() - hit.at > WORLD_MEMO_TTL_MS) {
+    _worldMemo.delete(key);
+    _worldStats.misses++;
+    return undefined;
+  }
+  _worldStats.hits++;
+  return hit.value;
+}
+
+function writeWorldMemo(key, value) {
+  if (_worldMemo.size >= WORLD_MEMO_LIMIT && !_worldMemo.has(key)) _worldMemo.clear();
+  _worldMemo.set(key, { value, epoch: worldCacheEpoch(), at: Date.now() });
+  _worldStats.builds++;
+  _worldStats.lastChars = typeof value === 'string' ? value.length : 0;
+}
+
+/**
+ * 让世界文本缓存整体作废。
+ * 写入口调用（本模块 CRUD / 角色改绑 / 旅程变更）；也供调试接口手动清。
+ */
+export function invalidateWorldCache(reason = 'manual') {
+  return bumpWorldCache(reason);
+}
+
+/** 缓存统计（`GET /api/config/world-cache-stats`） */
+export function getWorldCacheStats() {
+  let project = null;
+  try { project = getProjectCacheStats(); } catch { /* 项目库模块异常不影响主统计 */ }
+  // 用量度量：谁的世界块最吃 token（只统计仍在缓存里的条目，够用且零额外记账）
+  const topChars = [..._worldMemo.entries()]
+    .map(([key, hit]) => ({ key, chars: typeof hit.value === 'string' ? hit.value.length : 0 }))
+    .sort((a, b) => b.chars - a.chars)
+    .slice(0, 5);
+  return {
+    epoch: worldCacheEpoch(),
+    world: { ..._worldStats, entries: _worldMemo.size, limit: WORLD_MEMO_LIMIT, ttlMs: WORLD_MEMO_TTL_MS },
+    project,
+    topChars,
+    recentInvalidations: worldCacheLog().slice(0, 10),
+  };
+}
+
+/** 仅供测试：清空 memo 与计数 */
+export function __resetWorldCacheForTest() {
+  _worldMemo.clear();
+  _worldStats.hits = 0;
+  _worldStats.misses = 0;
+  _worldStats.builds = 0;
+  _worldStats.lastBuildMs = 0;
+  _worldStats.lastChars = 0;
 }
 
 /**
@@ -94,6 +177,8 @@ function isInDisturbTimeRange(now, startTime, endTime) {
  */
 export function getWorldSetting(characterId = null) {
   // 防打扰隐藏世界观：不改 DB，仅在 prompt 构建时返回 null
+  // ⚠ 这一层**不进缓存**：它随「当前时刻」变化（同一角色白天有世界、夜里没有），
+  //   进缓存就得给"时间段"再造一套失效逻辑，得不偿失。它只是两次 Date 比较，很便宜。
   if (config.features.disturbMode && config.disturb.hideWorld) {
     const now = new Date();
     if (isInDisturbTimeRange(now, config.disturb.startTime, config.disturb.endTime)) {
@@ -103,30 +188,43 @@ export function getWorldSetting(characterId = null) {
     }
   }
 
+  // ★ 星图 T13：进程内 memo（命中直接返回，未命中重建后回填）
+  //   失效靠 `worldCacheSignal` 的代数 + 3 秒 TTL 双保险：
+  //     · 代数：建/改/删/激活世界、改绑角色、发起/取消/结算旅程 —— 都会 bump；
+  //     · TTL ：兜住"手工改了 project.json 但没人 bump"这种外部修改。
+  const memoKey = worldMemoKey(characterId);
+  const memoHit = readWorldMemo(memoKey);
+  if (memoHit !== undefined) return memoHit;
+
+  let out = null;
   // ① 角色绑定了世界 → 覆盖（早返回，绝不与激活世界拼接）
   const bound = resolveBoundWorld(characterId);
   if (bound) {
-    if (!bound.content?.trim()) return null;
-    const raw = `<world_setting>\n${bound.content}\n</world_setting>`;
-    return adaptWorldText(raw, 'strip', safeSlotsFor(bound));
+    if (bound.content?.trim()) {
+      const raw = `<world_setting>\n${bound.content}\n</world_setting>`;
+      out = adaptWorldText(raw, 'strip', safeSlotsFor(bound));
+    }
+  } else {
+    // ② 未绑定 → 回落激活世界（以下为改造前原样逻辑）
+    // 只要存在激活项就以它为准：内容为空视为用户主动选择"无世界观"，不再回退旧表
+    const active = getActiveWorldSetting();
+    if (active) {
+      if (active.content?.trim()) {
+        const raw = `<world_setting>\n${active.content}\n</world_setting>`;
+        // ★ 单点收口：按该世界观项目库声明的氛围节裁剪（未声明 → 原样，保守默认）
+        out = adaptWorldText(raw, 'strip', safeActiveSlots());
+      }
+    } else {
+      // 兼容旧表（仅 world_settings 表无激活项时）
+      const world = getGlobalRule('world_setting');
+      if (world?.rule_content && world.is_active) {
+        out = adaptWorldText(world.rule_content, 'strip', safeActiveSlots());
+      }
+    }
   }
 
-  // ② 未绑定 → 回落激活世界（以下为改造前原样逻辑）
-  // 只要存在激活项就以它为准：内容为空视为用户主动选择"无世界观"，不再回退旧表
-  const active = getActiveWorldSetting();
-  if (active) {
-    if (!active.content?.trim()) return null;
-    const raw = `<world_setting>\n${active.content}\n</world_setting>`;
-    // ★ 单点收口：按该世界观项目库声明的氛围节裁剪（未声明 → 原样，保守默认）
-    return adaptWorldText(raw, 'strip', safeActiveSlots());
-  }
-
-  // 兼容旧表（仅 world_settings 表无激活项时）
-  const world = getGlobalRule('world_setting');
-  if (world?.rule_content && world.is_active) {
-    return adaptWorldText(world.rule_content, 'strip', safeActiveSlots());
-  }
-  return null;
+  writeWorldMemo(memoKey, out);
+  return out;
 }
 
 /**
@@ -485,6 +583,8 @@ export function createWorldSetting({ name, content, tagline = '' }) {
     console.warn(`[worldRepository] 世界观项目库建立失败（不影响创建）: ${err.message}`);
   }
 
+  // ★ T13：新世界可能立刻成为某角色的回落目标 → 缓存整体作废
+  invalidateWorldCache(`world.create#${created.id}`);
   return created;
 }
 
@@ -516,6 +616,8 @@ export function updateWorldSetting(id, { name, content, tagline, visual_tone, is
     console.warn(`[worldRepository] 世界观项目库同步失败（不影响保存）: ${err.message}`);
   }
 
+  // ★ T13：正文/名字/启用状态都可能改到注入结果 → 作废
+  invalidateWorldCache(`world.update#${id}`);
   return updated;
 }
 
@@ -588,6 +690,8 @@ export function deleteWorldSetting(id) {
     console.warn(`[worldRepository] 项目库归档失败（已删世界观，目录留在原地）: ${err.message}`);
   }
 
+  // ★ T13：删世界会改变"未绑定角色"的回落结果 → 作废
+  invalidateWorldCache(`world.delete#${id}`);
   return { ok: true };
 }
 
@@ -597,5 +701,7 @@ export function activateWorldSetting(id) {
   if (!target) return null;
   database.prepare(`UPDATE world_settings SET is_active = 0`).run();
   database.prepare(`UPDATE world_settings SET is_active = 1, updated_at = datetime('now') WHERE id = ?`).run(id);
+  // ★ T13：激活世界是所有"未绑定角色"的兜底世界，换它等于换一大片 prompt
+  invalidateWorldCache(`world.activate#${id}`);
   return getWorldSettingById(id);
 }

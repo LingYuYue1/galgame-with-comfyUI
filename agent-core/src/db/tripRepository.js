@@ -19,6 +19,8 @@
 // 本模块**不得** import `worldRepository.js` / `db/index.js`（会成环）。
 // 需要世界名、角色名时直接查表；查不到就降级成「未知世界」，绝不让旅程功能瘫痪。
 import { config } from '../config.js';
+// ★ T13：旅程状态直接决定「她此刻吃哪套世界」→ 每次状态变化都要让世界文本缓存作废
+import { bumpWorldCache } from './worldCacheSignal.js';
 
 let _db = null;
 
@@ -268,7 +270,9 @@ export function createTrip({ characterId, toWorldId, transport = 'train', scene 
          (character_id, from_world_id, to_world_id, status, transport, scene, note, started_at, arrive_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now', ?))`
     ).run(cid, ch.world_setting_id ?? null, tw, TRIP_STATUS.TRANSIT, tp, sceneText, noteText, `+${hours} hours`);
-    return { ok: true, item: getTripById(Number(info.lastInsertRowid)) };
+    const newId = Number(info.lastInsertRowid);
+    bumpWorldCache(`trip.create#${newId}`);
+    return { ok: true, item: getTripById(newId) };
   } catch (err) {
     return { ok: false, code: 'DB_ERROR', error: `发起旅程失败：${err.message}` };
   }
@@ -288,6 +292,7 @@ export function cancelTrip(id) {
     db.prepare(
       `UPDATE character_trips SET status = ?, updated_at = datetime('now') WHERE id = ? AND status = ?`
     ).run(TRIP_STATUS.CANCELLED, tid, TRIP_STATUS.TRANSIT);
+    bumpWorldCache(`trip.cancel#${tid}`);
     return { ok: true, item: getTripById(tid) };
   } catch (err) {
     return { ok: false, code: 'DB_ERROR', error: `取消失败：${err.message}` };
@@ -358,6 +363,7 @@ export function finalizeDueTrips(opts = {}) {
         } catch { /* 老库没有这张表 */ }
       }
 
+      if (rebound) bumpWorldCache(`trip.arrive#${t.id}`);
       done.push({ ...t, status: TRIP_STATUS.ARRIVED, to_world_name: target?.name || '' });
     }
   });

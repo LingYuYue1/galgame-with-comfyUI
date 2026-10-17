@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 process.env.DB_PATH = ':memory:';
 globalThis.fetch = async () => { throw new Error('Network forbidden'); };
-const { getDb, closeDb } = await import('../src/db/index.js');
+const { getDb, closeDb, invalidateWorldCache } = await import('../src/db/index.js');
 const registry = await import('../src/services/town/townBuildingFeatureRegistry.js');
 const generatorModule = await import('../src/services/town/townBuildingFeatureGenerator.js');
 const mediaModule = await import('../src/services/town/buildingFeatures/media.js');
@@ -305,6 +305,10 @@ test('generation layers: shared prefix and world setting are injected exactly on
   // 真实环境配了世界观：补一套，复现「system0 被重复拼进任务层」的场景（当时世界观出现在 2 条 system）
   const WORLD_BODY = '这是一套用于测试的虚构世界设定，只在本测试内生效。';
   db.prepare(`UPDATE world_settings SET content = ?, is_active = 1`).run(WORLD_BODY);
+  // ★ 星图 T13：`getWorldSetting` 有进程内缓存，**绕开仓储直改库**必须显式声明变更，
+  //   否则读到的是缓存里的旧世界观，本断言会误报「世界观没注入」。
+  //   （生产路径都走 worldRepository 的 CRUD，那里已自带失效；这里只是测试绕道。）
+  invalidateWorldCache('test.rawUpdate');
   const { mapId } = buildTown({
     ...env,
     buildings: [{ key: 'tailor', name: '云锦裁衣铺', businessKind: 'salon',

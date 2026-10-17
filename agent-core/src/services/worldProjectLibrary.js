@@ -29,6 +29,8 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
+// ★ 星图 T13：写入项目库后要让「世界文本缓存」整体作废（方向：services → db/signal，无环）
+import { bumpWorldCache } from '../db/worldCacheSignal.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const DATA_ROOT = path.resolve(__dirname, '../../data');
@@ -43,6 +45,25 @@ export const WORLD_PROJECTS_DIR = process.env.LINSHE_WORLD_PROJECTS_DIR
 
 /** 项目库结构版本：将来加槽位时用它做迁移判据 */
 export const PROJECT_SCHEMA_VERSION = 1;
+
+// ── 进程内 memo（星图 T13）────────────────────────────────
+// 条目数上限 = 世界数（一般个位数），给 200 只是防"世界被疯狂改名/重建"时的极端情况。
+const PROJECT_CACHE_LIMIT = 200;
+const _projectCache = new Map(); // slug -> { mtimeMs, size, value }
+const _projectStats = { hits: 0, misses: 0, errors: 0 };
+
+/** 缓存统计（`GET /api/config/world-cache-stats` 用） */
+export function getProjectCacheStats() {
+  return { ..._projectStats, entries: _projectCache.size, limit: PROJECT_CACHE_LIMIT };
+}
+
+/** 仅供测试：清空缓存与计数（生产路径不需要） */
+export function __resetProjectCacheForTest() {
+  _projectCache.clear();
+  _projectStats.hits = 0;
+  _projectStats.misses = 0;
+  _projectStats.errors = 0;
+}
 
 /**
  * 项目库的**全部可填槽位**（引擎只会读这些）。
@@ -139,6 +160,16 @@ export function projectDirFor(slug) {
  * ⚠ 失败语义（与红线 0 同源）：
  *   · **不存在** → 返回中性项目（`exists:false`），**完全静默**（存量常态，不是异常）；
  *   · **存在但解析失败** → 返回中性项目并 **warn 留痕**（这是异常，不能装看不见）。
+ *
+ * ★★ 星图 T13：进程内 memo。
+ *   `getWorldSetting()` 每到一次都会走到这里（`safeSlotsFor`）→ 改造前是
+ *   **每次一次 existsSync + readFileSync + JSON.parse**。多世界 + 高频链路下纯浪费。
+ *   缓存判据用 **mtimeMs + size**：既不用每次解析，又能发现「用户手工改了 project.json」。
+ *   （只按 slug 缓存的方案会一直读旧值 —— 手工编辑是这套项目库的**明确用法**，不能赌。）
+ *
+ *   ⚠ 写入方（writeProject / scaffoldProject）必须**显式丢缓存**：Windows 上两次写入
+ *     可能落在同一毫秒、字节数又相同，只靠 mtime 比对会假命中。
+ *
  * @param {string} slug
  * @param {{logger?: Pick<Console,'warn'|'error'>}} [opts]
  */
@@ -146,10 +177,24 @@ export function readProject(slug, opts = {}) {
   const log = opts.logger || console;
   if (!slug) return neutralProject();
   const file = path.join(projectDirFor(slug), 'project.json');
-  if (!fs.existsSync(file)) return neutralProject();
+
+  // 一次 statSync 同时回答「有没有」与「变没变」，比 existsSync + readFileSync 便宜得多
+  let st = null;
+  try { st = fs.statSync(file); } catch { /* 不存在 = 存量常态 */ }
+  const cached = _projectCache.get(slug);
+  if (!st) {
+    if (cached) _projectCache.delete(slug); // 库被删了 → 顺手丢缓存
+    return neutralProject();
+  }
+  if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) {
+    _projectStats.hits++;
+    return cached.value;
+  }
+
+  _projectStats.misses++;
   try {
     const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
-    return {
+    const value = {
       ...neutralProject(),
       ...raw,
       // 数组槽位必须归一为数组：手工编辑时写成字符串/对象都不该让下游炸
@@ -161,7 +206,11 @@ export function readProject(slug, opts = {}) {
       mapIds: Array.isArray(raw.mapIds) ? raw.mapIds.map(Number).filter(Number.isFinite) : [],
       exists: true,
     };
+    if (_projectCache.size >= PROJECT_CACHE_LIMIT && !_projectCache.has(slug)) _projectCache.clear();
+    _projectCache.set(slug, { mtimeMs: st.mtimeMs, size: st.size, value });
+    return value;
   } catch (err) {
+    _projectStats.errors++;
     log.warn(`[worldProject] ${slug}/project.json 解析失败，回落中性默认值: ${err.message}`);
     return neutralProject();
   }
@@ -172,6 +221,9 @@ export function writeProject(slug, project) {
   const dir = ensureDir(projectDirFor(slug));
   const payload = { schemaVersion: PROJECT_SCHEMA_VERSION, slug, ...project };
   fs.writeFileSync(path.join(dir, 'project.json'), JSON.stringify(payload, null, 2), 'utf8');
+  // ★ T13：写入即丢缓存（别指望 mtime 一定能变），并让世界文本缓存整体作废
+  _projectCache.delete(slug);
+  try { bumpWorldCache(`project.write:${slug}`); } catch { /* 信号模块异常不该挡住写入 */ }
   return payload;
 }
 

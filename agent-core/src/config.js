@@ -346,6 +346,14 @@ defaultTimeoutMs: parseInt(process.env.VECTOR_DEFAULT_TIMEOUT_MS, 10) || 120000,
   trip: {
     durationHours: Number(process.env.TRIP_DURATION_HOURS) || 6,
   },
+  // 世界块在 system 里的位置（星图 T13）。
+  //   · 'tail' （默认）：排在**稳定块最后**（活人感规则之后）—— 世界一改只冲掉尾部，
+  //     前面的破限词/人格/格式规则仍吃前缀缓存。多世界下世界会被改（改绑/旅程到达）。
+  //   · 'stage'：旧行为（紧跟破限词，在稳定块最前）。留这个开关是为了"输出格式突然不听话"
+  //     这类软性回归能一条环境变量回退，不必改代码重发版。
+  world: {
+    blockPosition: process.env.WORLD_BLOCK_POSITION === 'stage' ? 'stage' : 'tail',
+  },
   compression: {
     enabled: false,
     type: 'oxipng',   // 'oxipng' | 'avif'

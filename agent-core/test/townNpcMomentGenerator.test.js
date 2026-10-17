@@ -8,7 +8,7 @@ process.env.DB_PATH = ':memory:';
 process.env.LINSHE_WORLD_PROJECTS_DIR = path.join(os.tmpdir(), 'linshe-town-npc-moment-no-world-projects');
 globalThis.fetch = async () => { throw new Error('Network forbidden'); };
 const { config } = await import('../src/config.js');
-const { getDb, closeDb } = await import('../src/db/index.js');
+const { getDb, closeDb, invalidateWorldCache } = await import('../src/db/index.js');
 const gen = await import('../src/services/town/townNpcMomentGenerator.js');
 
 config.dbPath = ':memory:';
@@ -22,6 +22,8 @@ test('town npc moments post with npc authorship, day facts in the prompt, and de
 
   const world = '## 基本规则\n居民使用魔法。\n## 人们的行为\n夜间禁止出门，茶摊只在白天营业。';
   db.prepare('UPDATE world_settings SET content = ? WHERE is_active = 1').run(world);
+  // ★ T13：绕开仓储直改库 → 显式失效（否则缓存可能还是上一份世界观）
+  invalidateWorldCache('test.rawUpdate');
 
   db.prepare(`INSERT INTO town_maps (name, grid_cols, grid_rows) VALUES ('m', 10, 10)`).run();
   db.prepare(`INSERT INTO town_locations (map_id, key, name, kind, grid_x, grid_y)

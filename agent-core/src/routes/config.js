@@ -6,7 +6,7 @@ import { load as yamlLoad } from 'js-yaml';
 import { config, updateComfyConfig, getNovelaiApiKey, updateFeatureFlag, getLlmConfig, getLlmApiKey, updateLlmConfig, updateFreeEggEnabled, updateUserConfig, getUserConfig, updateProactiveFreq, updateEventFreq, updateMomentFreq, updateBackgroundConcurrency, updateDisturbMode, updateDisturbSettings, updateWorkflowMode, updateWorkflowScene, updateWorkflowCustomTemplate, getWorkflowConfig, getLlmProfiles, getActiveProfileId, addLlmProfile, deleteLlmProfile, activateLlmProfile, syncActiveLlmProfile, updateWeatherConfig, updateGlobalLora, updateHiresSettings, updateHiresLora, updateGroupSummaryInterval, updateGroupTemperature, updateGroupActivity, updateScheduleRefreshDays } from '../config.js';
 import { resetClient, chatSync, resetFreeEggFailureCount, testLlmConnection } from '../llm/llm-client.js';
 import { getDb, getSystemRules } from '../db/index.js';
-import { listWorldSettings, getActiveWorldSetting, getWorldSettingById, createWorldSetting, updateWorldSetting, deleteWorldSetting, activateWorldSetting } from '../db/index.js';
+import { listWorldSettings, getActiveWorldSetting, getWorldSettingById, createWorldSetting, updateWorldSetting, deleteWorldSetting, activateWorldSetting, getWorldCacheStats } from '../db/index.js';
 import { DEFAULT_GLOBAL_RULES } from '../db/seedData.js';
 import { restartProactiveFreq } from '../services/proactiveChatScheduler.js';
 import { restartEventScheduler } from '../services/eventScheduler.js';
@@ -921,6 +921,14 @@ router.post('/world-settings/:id/activate', (req, res) => {
 // GET /api/config/system-rules — 获取系统破限词（供世界观润色等 AI 功能请求体携带）
 router.get('/system-rules', (_req, res) => {
   res.json({ content: getSystemRules({ roleplay: false }) || '' });
+});
+
+// ── 星图 T13：世界文本缓存观测量 ─────────────────────────────
+// 为什么不静默缓存：缓存出错的形态是「改了世界但 prompt 没变」，很难肉眼发现。
+// 这里把命中率、代数、最近几次失效原因摊开，排查时第一眼就能判断是"没失效"还是别的问题。
+// 用法：连续聊几句后看 hits 涨不涨；改一次世界后看 recentInvalidations 有没有对应条目。
+router.get('/world-cache-stats', (_req, res) => {
+  res.json({ ok: true, ...getWorldCacheStats() });
 });
 
 // POST /api/world-settings/polish — AI 一键润色扩写世界观（酒馆世界书风格）

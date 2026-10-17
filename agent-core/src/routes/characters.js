@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import zlib from 'zlib';
 import { fileURLToPath } from 'url';
-import { getDb, getSystemRules, getSystemRulesWithWorld, getWorldSetting, getWorldSettingById, getGlobalRule, getSetting, setSetting, repairFtsIndex } from '../db/index.js';
+import { getDb, getSystemRules, getSystemRulesWithWorld, getWorldSetting, getWorldSettingById, getGlobalRule, getSetting, setSetting, repairFtsIndex, invalidateWorldCache } from '../db/index.js';
 import { listAppearanceTraitCatalog } from '../db/imagePromptTagKnowledgeData.js';
 import { normalizeTransitMode, TRANSIT_MODES } from '../services/characterTransitMode.js';
 import { chatSync } from '../llm/llm-client.js';
@@ -552,6 +552,12 @@ router.put('/:id', (req, res) => {
   if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
   params.push(req.params.id);
   db.prepare(`UPDATE characters SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+
+  // ★ T13：改绑世界 = 这个角色从此吃另一套设定 → 世界文本缓存必须整体作废
+  //   （其它字段更新不影响世界解析，不 bump，免得多世界高频编辑把缓存打空）
+  if (world_setting_id !== undefined) {
+    invalidateWorldCache(`character.rebind#${req.params.id}`);
+  }
 
   // 托管影子档案（character_managed=1）只是角色卡在小镇里的投影、没有独立演化：
   // 角色卡改了人格就跟着改，避免小镇侧一直用建档时那份旧快照（普通居民档案不动）。

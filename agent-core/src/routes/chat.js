@@ -710,11 +710,15 @@ router.post('/characters/:id/chat', createCharacterTownChatGuard({ getDb, getTow
 
     // 当前用户 raw message ID 在幂等命中或写入时已精确记录，用于审计快照。
 
-    // ── 稳定块 [0]：舞台 — 破限词 + 世界观 ──
+    // ── 稳定块 [0]：舞台 — 破限词（+ 世界观，取决于 T13 的位置策略）──
     const jailbreak = getSystemRules();
     // ★ 星图 T08：世界观按**这个角色所在的世界**解析（未绑定 → 回落激活世界）
     const worldSetting = getWorldSetting(characterId);
-    const stageContent = [jailbreak, worldSetting].filter(Boolean).join('\n\n');
+    // ★ 星图 T13：世界块默认排到稳定块**最后**（见 config.world.blockPosition 注释）。
+    //   破限词是跨角色完全一致的 → 放最前吃满前缀缓存；世界块随角色/世界变 → 放最后，
+    //   世界一改（改绑 / 旅程到达）只冲掉尾部，不会把人格与格式规则一起作废。
+    const worldAtTail = config.world?.blockPosition !== 'stage';
+    const stageContent = [jailbreak, worldAtTail ? null : worldSetting].filter(Boolean).join('\n\n');
 
     // ── 稳定块 [1]：角色基础人格（不含日程、不含奇遇）+ 道具临时状态 ──
     let charBaseContent = character?.base_prompt || getDefaultPrompt();
@@ -783,7 +787,6 @@ ${coreRules}
 
     // ── 稳定块集合 ──
     const stableBlocks = [stageContent, charBaseContent, formatContextBlock].filter(Boolean);
-
     // Memory v3 阶段二：@memory 主动回想协议（仅 1v1 聊天，群聊明确排除）。
     // 放 stableBlocks 尾部：稳定前缀之外，开关关闭时不进 prompt（零影响，方案 §5.1）。
     const activeSearchConfig = config.features.memory ? getActiveSearchConfig() : { enabled: false, timeoutMs: 4000 };
@@ -799,6 +802,9 @@ ${coreRules}
 每轮最多使用一次；只是闲聊或记忆片段已够用时不要使用。
 </recall_tool>`);
     }
+
+    // ★ 星图 T13：世界块排稳定块最后（`worldAtTail` 为 false 时它已在 stageContent 里）
+    if (worldAtTail && worldSetting) stableBlocks.push(worldSetting);
 
     // ── 摘要块 ──
     const summaries = getRecentSummaries(conversationId, 1);
@@ -2384,14 +2390,16 @@ async function generateReplyGuessesUncached(conversationId, character) {
   // 角色人设（short_prompt 已裁剪并替换过 "你"→"assistant"）
   const personalityBrief = character?.short_prompt || '';
 
-  // msgs[0] — 舞台：破限词 + 世界观（不含 roleplay，避免预测助手站错角色）
+  // msgs[0] — 舞台：破限词（不含 roleplay，避免预测助手站错角色）
   const jailbreak = getSystemRules({ roleplay: false });
   // ★ 星图 T08：对话预测也要吃「这个角色所在的世界」，否则预测用的设定与正片不一致
   let worldSetting = getWorldSetting(character?.id);
   if (worldSetting && worldSetting.length > 500) {
     worldSetting = worldSetting.slice(0, 500);
   }
-  const stageContent = [jailbreak, worldSetting].filter(Boolean).join('\n\n');
+  // ★ 星图 T13：与主聊天同一套位置策略（世界块默认排 system 末尾）
+  const worldAtTail = config.world?.blockPosition !== 'stage';
+  const stageContent = [jailbreak, worldAtTail ? null : worldSetting].filter(Boolean).join('\n\n');
 
   // msgs[1] — 任务：预测指令（先定义任务） + 角色背景（后补充上下文）
   const taskParts = [];
@@ -2429,6 +2437,8 @@ async function generateReplyGuessesUncached(conversationId, character) {
   const msgs = [];
   if (stageContent) msgs.push({ role: 'system', content: stageContent });
   msgs.push({ role: 'system', content: taskParts.join('\n\n') });
+  // ★ 星图 T13：世界块排 system 末尾（预测链路的任务说明在它前面，位置策略与主聊天一致）
+  if (worldAtTail && worldSetting) msgs.push({ role: 'system', content: worldSetting });
   msgs.push(...cleanedHistory);
 
   msgs.push({ role: 'user', content: '请根据以上对话，预测user接下来最可能回复的两句话。只输出 JSON：' });

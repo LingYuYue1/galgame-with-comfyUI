@@ -6,6 +6,7 @@ import { config } from '../config.js';
 import { initSettingsHandle, loadSystemSettings } from './settings.js';
 import { initWorldRepository } from './worldRepository.js';
 import { initTripRepository } from './tripRepository.js';
+import { bumpWorldCache } from './worldCacheSignal.js';
 // 世界观项目库（通勤种子等**世界观数据**的家，见 2026-10-07 引擎实例化污染审计）
 import { readProject, slugForWorld } from '../services/worldProjectLibrary.js';
 import { seedAll } from './seedData.js';
@@ -2806,6 +2807,10 @@ export {
   updateWorldSetting,
   deleteWorldSetting,
   activateWorldSetting,
+  // ★ 星图 T13：世界文本缓存（写入口/角色改绑要调 invalidateWorldCache）
+  invalidateWorldCache,
+  getWorldCacheStats,
+  __resetWorldCacheForTest,
 } from './worldRepository.js';
 
 // ── 跨世界旅程（星图 T15）──
@@ -2954,6 +2959,7 @@ function migrateWorldSettings(db) {
       db.prepare(
         `INSERT INTO world_settings (name, content, is_active, sort_order) VALUES (?, ?, 1, 0)`
       ).run('默认世界观', content);
+      bumpWorldCache('db.migrateWorldSettings');   // T13：世界写入必声明，无例外
       console.log('[db] migrateWorldSettings: moved existing world_setting to world_settings table');
     }
 
@@ -2973,6 +2979,7 @@ export function seedDefaultWorldSetting(db) {
     db.prepare(
       `INSERT INTO world_settings (name, content, is_active, sort_order) VALUES (?, '', 1, 0)`
     ).run('默认世界观');
+    bumpWorldCache('db.seedDefaultWorld');   // T13：世界写入必声明，无例外
     console.log('[db] seedDefaultWorldSetting: created default active world setting');
   } catch (err) {
     console.log('[db] seedDefaultWorldSetting error:', err.message);
