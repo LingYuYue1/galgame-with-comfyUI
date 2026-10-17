@@ -842,7 +842,8 @@ router.post('/:characterId/peek', async (req, res) => {
 
     // system0: 系统规则(角色扮演=no) + 世界观
     const systemRules = getSystemRules({ roleplay: false });
-    const worldSetting = getWorldSetting();
+    // ★ 星图 T08：日程快照的生图设定跟「这个角色所在的世界」
+    const worldSetting = getWorldSetting(characterId);
     const system0 = [systemRules, worldSetting].filter(Boolean).join('\n\n');
 
     // system1: 世界观强化 + 人像摄影师指令

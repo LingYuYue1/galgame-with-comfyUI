@@ -438,6 +438,74 @@ test('★★★ T07：槽位必须跟"取到的那个世界"配对，不能拿�
   }
 });
 
+// ─────────────────────────────────────────────────────────
+// T08（2026-10-17 星图）：把 characterId 接到实际链路上
+// ─────────────────────────────────────────────────────────
+// T07 只装了能力；T08 要让它真的被用上。这里的护栏分两层：
+//   ① 接线护栏（静态）：已接线的调用点必须把 id 传下去 —— 谁把它改回 getWorldSetting() 就红
+//   ② 行为护栏（动态）：群聊整轮按「群主所在世界」解析，且只解析一次
+
+test('★★★ T08：群聊整轮按「群主所在世界」解析，且不混入激活世界', async () => {
+  const db = await import('../src/db/index.js');
+  db.getDb();
+  const worldB = makeT07World(db, 'gcB', '# B世界\n群聊不该吃到的BETA\n');
+  const worldA = makeT07World(db, 'gcA', '# A世界\n群主所在ALPHA\n');
+  try {
+    db.activateWorldSetting(worldB.id);
+    const ownerId = makeT07Character(db.getDb(), worldA.id);
+    const { buildGroupContext } = await import('../src/services/groupChatEngine.js');
+
+    // 不插群表：buildGroupContext 只读群 id 拼会话名，取不到历史摘要就当空
+    const group = { id: 987654, creator_character_id: ownerId, members: [{ id: ownerId }] };
+    const msgs = buildGroupContext(group, ['本轮：随便聊聊']);
+    const stage = msgs[0]?.content || '';
+
+    assert.ok(stage.includes('ALPHA'), '群聊舞台应吃群主所在的 A 世界');
+    assert.ok(!stage.includes('BETA'), '激活世界 B 的内容不得混进群聊');
+
+    // 两次取到的舞台必须一致 —— 证明整轮只解析一次（不会上下半场换世界）
+    const msgs2 = buildGroupContext(group, ['本轮：再聊一句']);
+    assert.equal(msgs2[0].content, stage, '同一群同一轮的世界块必须稳定');
+  } finally {
+    dropT07World(worldA.name, worldA.id);
+    dropT07World(worldB.name, worldB.id);
+  }
+});
+
+test('★★★ T08 接线护栏：已接线的调用点必须把角色 id 传下去', () => {
+  const readSrc = (rel) => fs.readFileSync(path.join(SRC, rel), 'utf8');
+  // [文件, 必须出现的调用形态, 说明]
+  const WIRED = [
+    ['routes/chat.js', /getWorldSetting\(characterId\)/, '单聊舞台'],
+    ['routes/chat.js', /getWorldSetting\(character\?\.id\)/, '对话预测'],
+    ['routes/characters.js', /getWorldSetting\(characterId\)/, '服装外观'],
+    ['routes/characters.js', /getWorldSetting\(char\?\.id\)/, '立绘'],
+    ['routes/schedule.js', /getWorldSetting\(characterId\)/, '日程快照'],
+    ['services/scheduleGenerator.js', /getWorldSetting\(character\?\.id\)/, '日程编排'],
+    ['services/dialogueBackground.js', /getWorldSetting\(character\?\.id\)/, '对话背景'],
+    ['services/groupChatEngine.js', /getWorldSetting\(groupWorldCharacterId\(group\)\)/, '群聊舞台'],
+    ['services/scheduleLedger.js', /clichePropsNow\(characterId\)/, '日程台账词表'],
+  ];
+  const missing = WIRED
+    .filter(([rel, re]) => !re.test(readSrc(rel)))
+    .map(([rel, , note]) => `${rel} 未传角色 id（${note}）`);
+  assert.deepEqual(missing, [], `这些接线断了：\n  ${missing.join('\n  ')}`);
+});
+
+test('★★ T08：未绑定角色仍然回落激活世界（接线不能顺手改坏回落）', async () => {
+  const db = await import('../src/db/index.js');
+  const database = db.getDb();
+  const worldB = makeT07World(db, 'unboundB', '# B世界\n回落标记DELTA\n');
+  try {
+    db.activateWorldSetting(worldB.id);
+    const chId = makeT07Character(database, null);
+    assert.ok(db.getWorldSetting(chId).includes('回落标记DELTA'), '未绑定角色必须仍吃激活世界');
+    assert.equal(db.getWorldSetting(chId), db.getWorldSetting(), '与不传参完全一致');
+  } finally {
+    dropT07World(worldB.name, worldB.id);
+  }
+});
+
 test('★★ 静默兜底必须能区分"数据层未就绪"与"真出错"（本次踩过的坑）', () => {
   // 实况：forumAlias 里写了空 catch 吞掉 ReferenceError（漏 import 导致 getActiveWorldSlots 未定义），
   // 表现成"专属取材维度神秘消失"，排查时才发现。空 catch 是红线 0 的同源陷阱。
@@ -451,7 +519,10 @@ test('★★ 静默兜底必须能区分"数据层未就绪"与"真出错"（本
 
 test('★ 同类兜底：scheduleLedger 也得真 import，不能靠 catch 兜', () => {
   const sl = fs.readFileSync(path.join(SRC, 'services/scheduleLedger.js'), 'utf8');
-  assert.match(sl, /^import \{ getActiveWorldSlots \}/m, 'scheduleLedger 依赖必须真的 import');
+  // T08 起槽位入口由 getActiveWorldSlots 换成 getWorldSlotsFor(characterId)；
+  // 这条护栏守的是"依赖真的被 import"（防 ReferenceError 被空 catch 吞掉），不是某个具体名字。
+  assert.match(sl, /^import \{ get(?:ActiveWorldSlots|WorldSlotsFor) \}/m, 'scheduleLedger 依赖必须真的 import');
+  assert.match(sl, /clichePropsNow\(characterId\)/, '词表必须按角色所在世界取（T08）');
 });
 
 // ─────────────────────────────────────────────────────────

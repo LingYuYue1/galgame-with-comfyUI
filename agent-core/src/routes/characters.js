@@ -71,9 +71,10 @@ router.post('/clothing-appearance-draft', async (req, res) => {
   const character = getDb().prepare('SELECT id, short_prompt, base_prompt FROM characters WHERE id = ?').get(Number(characterId));
   if (!character) return res.status(404).json({ error: '角色不存在' });
   try {
-    const world = getWorldSetting();
+    // ★ 星图 T08：服装外观也要跟「这个角色所在的世界」（否则换世界后穿衣风格串味）
+    const world = getWorldSetting(characterId);
     const messages = buildClothingAppearanceMessages({
-      systemRules: getSystemRulesWithWorld({ roleplay: false }),
+      systemRules: getSystemRulesWithWorld({ roleplay: false, characterId }),
       worldRule: world ? getWorldIntegrationRule('interaction') : '',
       persona: buildCharacterPersona({ ...character, base_prompt: basePrompt }, { variant: 'full', outfits: null }),
       scene, entries, brief: brief.trim(),
@@ -1499,10 +1500,11 @@ router.use(createCharacterBackgroundRouter({ getDb, saveBase64Image, deleteImage
  *   「私服形象」会被日程的睡眠规则强制换成睡衣。null = 默认形象（沿用 auto 选装，与旧行为一致）。
  */
 function buildStandingMessages(char, requirement, mode = 'normal', scene = null) {
-  const worldSetting = getWorldSetting();
+  // ★ 星图 T08：立绘的舞台设定跟「这个角色所在的世界」
+  const worldSetting = getWorldSetting(char?.id);
   const msgs = [
     { role: 'system', content: worldSetting
-      ? getSystemRulesWithWorld({ roleplay: false })
+      ? getSystemRulesWithWorld({ roleplay: false, characterId: char?.id })
       : getSystemRules({ roleplay: false }) },
     {
       role: 'system',

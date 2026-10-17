@@ -712,7 +712,8 @@ router.post('/characters/:id/chat', createCharacterTownChatGuard({ getDb, getTow
 
     // ── 稳定块 [0]：舞台 — 破限词 + 世界观 ──
     const jailbreak = getSystemRules();
-    const worldSetting = getWorldSetting();
+    // ★ 星图 T08：世界观按**这个角色所在的世界**解析（未绑定 → 回落激活世界）
+    const worldSetting = getWorldSetting(characterId);
     const stageContent = [jailbreak, worldSetting].filter(Boolean).join('\n\n');
 
     // ── 稳定块 [1]：角色基础人格（不含日程、不含奇遇）+ 道具临时状态 ──
@@ -2385,7 +2386,8 @@ async function generateReplyGuessesUncached(conversationId, character) {
 
   // msgs[0] — 舞台：破限词 + 世界观（不含 roleplay，避免预测助手站错角色）
   const jailbreak = getSystemRules({ roleplay: false });
-  let worldSetting = getWorldSetting();
+  // ★ 星图 T08：对话预测也要吃「这个角色所在的世界」，否则预测用的设定与正片不一致
+  let worldSetting = getWorldSetting(character?.id);
   if (worldSetting && worldSetting.length > 500) {
     worldSetting = worldSetting.slice(0, 500);
   }

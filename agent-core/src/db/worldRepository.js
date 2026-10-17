@@ -345,6 +345,25 @@ export function getActiveWorldSlots() {
   }
 }
 
+/**
+ * 取【某角色该吃哪套】项目库槽位（星图 T08）。
+ *
+ * 世界与它的槽位必须**成对**取：文本按角色所在世界解析、词表却按激活世界取，
+ * 结果就是「用 A 世界的氛围节去裁 B 世界的文本」「B 世界的口头禅套在 A 世界的角色身上」。
+ * 所以凡是"已经调用 getWorldSetting(characterId)"的链路，取槽位一律走这里。
+ *
+ * @param {number|string|null} [characterId] 不传 → 等同 getActiveWorldSlots()
+ */
+export function getWorldSlotsFor(characterId = null) {
+  if (characterId == null || characterId === '') return getActiveWorldSlots();
+  try {
+    return slotsForCharacter(characterId);
+  } catch (err) {
+    console.warn(`[worldRepository] 读取角色所在世界的项目库失败，回落激活世界槽位: ${err.message}`);
+    return getActiveWorldSlots();
+  }
+}
+
 /** getSystemRules() + 世界观拼接，供需要世界设定的调用方使用。
  *
  * ★ 裁剪**由世界观自己声明**（项目库 `ambienceSections`），引擎不内置任何章节名。

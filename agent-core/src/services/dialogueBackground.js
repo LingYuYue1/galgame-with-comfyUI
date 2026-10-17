@@ -25,9 +25,10 @@ export function buildDialogueBackgroundMessages({ systemRules, worldRule, person
 }
 
 export async function generateDialogueBackground(character, requirement) {
-  const world = getWorldSetting();
+  // ★ 星图 T08：对话背景的环境要跟「这个角色所在的世界」（换世界后巷子/街景才对得上）
+  const world = getWorldSetting(character?.id);
   const messages = buildDialogueBackgroundMessages({
-    systemRules: world ? getSystemRulesWithWorld({ roleplay: false }) : getSystemRules({ roleplay: false }),
+    systemRules: world ? getSystemRulesWithWorld({ roleplay: false, characterId: character?.id }) : getSystemRules({ roleplay: false }),
     worldRule: world ? getWorldIntegrationRule('town_asset') : '',
     persona: buildCharacterPersona(character, { variant: 'full', person: character.display_name, outfits: null }),
     requirement,

@@ -102,14 +102,16 @@ function jaccard(a, b) {
  *   现在：通用词留在这里；专有词由该世界观的**项目库**（`clicheProps` 槽位）提供。
  *   这样换世界观时，检测表会自动跟着换，不会再把别的世界的词当成"口头禅"。
  */
-import { getActiveWorldSlots } from '../db/index.js';
+import { getWorldSlotsFor } from '../db/index.js';
 
-/** 本次检测用的道具词表 = 引擎通用词 + **当前世界观**项目库声明的专有词。
- *  ★ 专有词归项目库（换世界观自动跟着换），不写死在引擎里。 */
-function clichePropsNow() {
+/** 本次检测用的道具词表 = 引擎通用词 + **该角色所在世界观**项目库声明的专有词。
+ *  ★ 专有词归项目库（换世界观自动跟着换），不写死在引擎里。
+ *  ★ 星图 T08：词表必须跟「这个角色所在的世界」—— 若仍取激活世界的槽位，
+ *    角色搬到 B 世界后，检测表还拿 A 世界的专有词，会把 A 的口头禅当成 B 的。 */
+function clichePropsNow(characterId = null) {
   let extra = [];
   try {
-    extra = getActiveWorldSlots()?.clicheProps || [];
+    extra = getWorldSlotsFor(characterId)?.clicheProps || [];
   } catch { /* 项目库读不到就只用通用词 */ }
   return [...CLICHE_PROPS_GENERIC, ...extra];
 }
@@ -302,7 +304,7 @@ export function auditCharacter(characterId, ctx = {}) {
 
   const records = loadSchedules(characterId);
   const perRecord = [];
-  const clicheProps = clichePropsNow();   // 通用词 + 当前世界观专有词（每次审计算一次）
+  const clicheProps = clichePropsNow(characterId);   // 通用词 + 该角色所在世界的专有词（每次审计算一次）
   for (const r of records) {
     const acts = parseSchedule(r.json);
     if (!acts.length) continue;

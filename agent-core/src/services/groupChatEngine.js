@@ -408,6 +408,19 @@ function buildTranscript(db, conversationId) {
 }
 
 /**
+ * 群聊该按谁的世界解析（星图 T08 · 简报 §八「系统联动规范」首期最小默认）。
+ *
+ * 群聊没有"一个"角色主语，但**必须选一个**，否则群里的混排会各说各世界。
+ * 用户拍板的规则：**按群主 / 发起者所在世界**。
+ * 群主字段缺失时退到首位群员（老群没有 creator_character_id 也不至于落回激活世界）。
+ */
+function groupWorldCharacterId(group) {
+  if (!group) return null;
+  if (group.creator_character_id != null) return group.creator_character_id;
+  return group.members?.[0]?.id ?? null;
+}
+
+/**
  * 组装一轮群聊生成的完整 messages
  * @param {object} group - getGroupWithMembers 结果
  * @param {string[]} directiveBlocks - 本轮动态指令块
@@ -415,8 +428,10 @@ function buildTranscript(db, conversationId) {
 export function buildGroupContext(group, directiveBlocks = []) {
   const db = getDb();
   const conversationId = groupConvId(group.id);
+  // ★ 星图 T08：整轮群聊只解析**一次**世界（防"上半场 A 世界、下半场 B 世界"）
+  const worldSetting = getWorldSetting(groupWorldCharacterId(group));
 
-  const stage = [getSystemRules(), getWorldSetting()].filter(Boolean).join('\n\n');
+  const stage = [getSystemRules(), worldSetting].filter(Boolean).join('\n\n');
   const groupCard = buildGroupCard(group);
 
   const messages = [];
@@ -436,7 +451,7 @@ export function buildGroupContext(group, directiveBlocks = []) {
   });
 
   const directive = directiveBlocks.filter(Boolean).join('\n');
-  const worldRulePrefix = getWorldSetting()
+  const worldRulePrefix = worldSetting
     ? '请遵循<world_setting>来参与群聊，角色人设如果和<world_setting>有冲突，则以<world_setting>为最高优先级，人设会因为<world_setting>改变。\n\n'
     : '';
   messages.push({ role: 'user', content: worldRulePrefix + `<round_directive>\n${directive}\n</round_directive>\n\n现在按输出协议续写群聊：` });

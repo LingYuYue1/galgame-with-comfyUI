@@ -601,7 +601,10 @@ async function generateScheduleImpl(character, direction, options = {}) {
       }
     } catch { /* 取不到就不加这一段 */ }
   }
-  const worldSetting = getWorldSetting();
+  // ★ 星图 T08：日程必须按**这个角色所在的世界**编排 ——
+  //   下面的人格段明说「职业/地点/组织一律作废，由 <world_setting> 重新定义」，
+  //   若这里仍吃激活世界，角色被移到 B 世界后职业骨架会按 A 世界重写。
+  const worldSetting = getWorldSetting(character?.id);
   const persona = cropPersonaForSchedule(character.base_prompt);
 
   // ── 舞台：破限词 + 世界观 ──

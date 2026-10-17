@@ -2792,6 +2792,7 @@ export {
   getWorldSettingSample,
   getCharacterWorldSettingId,
   getActiveWorldSlots,
+  getWorldSlotsFor,
   getSystemRulesWithWorld,
   getGlobalRule,
   getSystemRules,
