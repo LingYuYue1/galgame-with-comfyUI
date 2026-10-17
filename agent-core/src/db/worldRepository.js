@@ -68,11 +68,12 @@ function readWorldMemo(key) {
   return hit.value;
 }
 
-function writeWorldMemo(key, value) {
+function writeWorldMemo(key, value, buildMs = 0) {
   if (_worldMemo.size >= WORLD_MEMO_LIMIT && !_worldMemo.has(key)) _worldMemo.clear();
   _worldMemo.set(key, { value, epoch: worldCacheEpoch(), at: Date.now() });
   _worldStats.builds++;
   _worldStats.lastChars = typeof value === 'string' ? value.length : 0;
+  if (Number.isFinite(buildMs)) _worldStats.lastBuildMs = buildMs;
 }
 
 /**
@@ -196,6 +197,8 @@ export function getWorldSetting(characterId = null) {
   const memoHit = readWorldMemo(memoKey);
   if (memoHit !== undefined) return memoHit;
 
+  // 构建耗时：只统计"未命中"的那一次（这正是缓存想省掉的工作量）
+  const buildStart = Date.now();
   let out = null;
   // ① 角色绑定了世界 → 覆盖（早返回，绝不与激活世界拼接）
   const bound = resolveBoundWorld(characterId);
@@ -223,7 +226,7 @@ export function getWorldSetting(characterId = null) {
     }
   }
 
-  writeWorldMemo(memoKey, out);
+  writeWorldMemo(memoKey, out, Date.now() - buildStart);
   return out;
 }
 
