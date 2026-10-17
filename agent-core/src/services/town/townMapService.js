@@ -14,7 +14,7 @@ import { getDb } from '../../db/index.js';
 import { broadcastTownMapUpdated } from './townBus.js';
 import { reconcileTownResponsibilities } from './townResponsibilityRuntime.js';
 import { townBuildingKind } from './townResponsibilityDefinitions.js';
-import { townCapabilities, defaultTownCapabilities } from './townCapabilities.js';
+import { townLocationCapabilities, defaultTownCapabilities } from './townCapabilities.js';
 
 /** 对象占用的阻挡格：建筑 = footprint 全格 - 门前格；道具 = blocking 锚点，或有 footprintKind 时按全 footprint */
 export function getObjectBlockingCells(obj, assetMeta, assetKind = assetMeta?.kind) {
@@ -191,7 +191,7 @@ export function getMapPayload(mapId = null) {
       aliases: (() => { try { return JSON.parse(l.aliases_json || '[]'); } catch { return []; } })(),
       kind: l.kind, x: l.grid_x, y: l.grid_y, radius: l.radius, ambient: l.ambient || '',
       businessKind: l.business_kind || 'none',
-      capabilities: townCapabilities(l, defaultTownCapabilities(l.business_kind)),
+      capabilities: townLocationCapabilities(l, defaultTownCapabilities(l.business_kind)),
       objectId: l.object_id ?? null,
     }));
   const assets = getLayersAssets(row.layers);
@@ -332,7 +332,7 @@ export function saveMap({ name, cols, rows, tileSize = 32, layers, worldSettingI
         const businessKind = loc.businessKind ?? old?.business_kind;
         if (businessKind != null) db.prepare('UPDATE town_locations SET business_kind=? WHERE map_id=? AND key=?')
           .run(townBuildingKind({ businessKind }), mapId, loc.key);
-        const capabilities = townCapabilities({ ...old, ...loc }, defaultTownCapabilities(townBuildingKind(loc)));
+        const capabilities = townLocationCapabilities({ ...old, ...loc }, defaultTownCapabilities(townBuildingKind(loc)));
         db.prepare('UPDATE town_locations SET capabilities_json=? WHERE map_id=? AND key=?').run(JSON.stringify(capabilities), mapId, loc.key);
       }
       for (const old of oldLocations) {

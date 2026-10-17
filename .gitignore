@@ -67,3 +67,4 @@ agent-core/test/*
 !agent-core/test/emojiOutfits.test.js
 !agent-core/test/llmOutputTokens.test.js
 !agent-core/test/llmConfig.test.js
+!agent-core/test/townMapCapabilities.test.js

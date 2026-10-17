@@ -5,8 +5,8 @@ import { townError } from './townEventService.js';
 export const TOWN_CAPABILITIES = Object.freeze(['service', 'trade', 'work']);
 // 打工只给「有具体活可干」的岗位，免得掌柜 / 先生这类只动嘴的角色也冒出打工入口。
 const TOWN_WORK_JOB_PATTERN = /学徒|帮工|杂役|跑腿|搬运|苦力|矿工|渔夫|农夫|农妇|佃农|庄稼|耕作|樵夫|马夫|仆役|侍从|伙计|小二|打杂|园丁|花匠|木工|铁匠|工匠|匠人|织|磨坊|厨|洗衣|洒扫|挑水|护院|更夫|船夫|车夫/;
-export function normalizeTownCapabilities(value) {
-  if (!Array.isArray(value) || !value.length || value.some(type => !TOWN_CAPABILITIES.includes(type))) {
+export function normalizeTownCapabilities(value, { allowEmpty = false } = {}) {
+  if (!Array.isArray(value) || (!allowEmpty && !value.length) || value.some(type => !TOWN_CAPABILITIES.includes(type))) {
     throw townError('INVALID_TOWN_CAPABILITIES');
   }
   return TOWN_CAPABILITIES.filter(type => value.includes(type));
@@ -27,18 +27,24 @@ export function shouldHaveWorkPermission(job) {
 function withWorkPermission(list, job) {
   return shouldHaveWorkPermission(job) ? [...list, 'work'] : list;
 }
-export function townCapabilities(entity = {}, defaults = ['service']) {
+export function townCapabilities(entity = {}, defaults = ['service'], options = {}) {
   const explicit = entity.capabilities ?? entity.meta?.capabilities;
-  if (explicit !== undefined) return normalizeTownCapabilities(explicit);
+  if (explicit !== undefined) return normalizeTownCapabilities(explicit, options);
   if (entity.capabilities_json != null) {
-    try { return normalizeTownCapabilities(JSON.parse(entity.capabilities_json)); }
+    try { return normalizeTownCapabilities(JSON.parse(entity.capabilities_json), options); }
     catch { return []; } // Corrupt saved permissions fail closed.
   }
   return [...defaults];
 }
+/** 地点可无旧 NPC 职能（建筑玩法走功能模板）；空数组必须能随地图载荷往返，不能补授权限。 */
+export function townLocationCapabilities(entity = {}, defaults = ['service']) {
+  return townCapabilities(entity, defaults, { allowEmpty: true });
+}
 export function ensureTownCapabilities(db, table, entity, defaults) {
   if (!['town_npcs', 'town_locations'].includes(table)) throw new Error('Invalid capability owner');
-  const capabilities = townCapabilities(entity, defaults);
+  const capabilities = table === 'town_locations'
+    ? townLocationCapabilities(entity, defaults)
+    : townCapabilities(entity, defaults);
   if (entity.capabilities_json == null) {
     entity.capabilities_json = JSON.stringify(capabilities);
     db.prepare(`UPDATE ${table} SET capabilities_json=? WHERE id=?`).run(entity.capabilities_json, entity.id);
