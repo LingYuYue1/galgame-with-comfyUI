@@ -61,8 +61,10 @@
             <div class="mg-thumb" :style="{ '--mg-ar': ratioOf(p) }">
               <img v-if="p.image" :src="p.image" alt="" loading="lazy" decoding="async" />
               <div v-else class="mg-thumb-ph">
-                <span class="mg-ph-icon">{{ isSfwStation ? '📷' : '🔞' }}</span>
-                <span class="mg-ph-text">{{ p.image_status === 'failed' ? '生成失败' : '排队生图中…' }}</span>
+                <!-- ★ 三种无图状态要分开说：none = 这条本来就没有配图（纯文字帖），
+                     不是「在排队」—— 一律写「排队生图中…」会让论坛帖永远显示假进度。 -->
+                <span class="mg-ph-icon">{{ p.image_status === 'none' ? '📝' : (isSfwStation ? '📷' : '🔞') }}</span>
+                <span class="mg-ph-text">{{ p.image_status === 'failed' ? '生成失败' : p.image_status === 'none' ? '纯文字' : '排队生图中…' }}</span>
               </div>
               <!-- 批量模式：右上角勾选框。**整卡可点**（触屏也好用），这里只做视觉、不单独绑事件。
                    放右上是因为左上已被体位贴纸占用。 -->
