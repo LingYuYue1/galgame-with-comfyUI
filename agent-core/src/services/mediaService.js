@@ -2065,11 +2065,17 @@ async function generateGalleryBatch(outlet, count, withCharacters) {
 function insertDrafts(outlet, drafts, requested) {
   const db = getDb();
   const batchId = `mb_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  // ⚠ published_seq 必须**显式写 NULL**（待发布）。
+  //   本列由 db/index.js 的 ALTER 加上，默认值是 0 —— 0 是「升级前已展示的旧帖」标记，
+  //   不是「待发布」。漏写这一列会让新帖吃默认值 0，publishMediaPostIfReady 便把它当成
+  //   「已发布」直接返回：不广播 media_new_posts、不写正式序号、不置 image_status='done'
+  //   → 前端收不到 SSE 就「像没生成」。这是 2026-10-17 排查的 BUG-01 根因
+  //   （本文件另 4 条 INSERT 都写了 NULL，只有这条批量形态漏了）。
   const ins = db.prepare(`
     INSERT INTO media_posts (outlet_id, board_id, batch_id, title, content, tags_json,
       author_type, character_id, author_name, author_avatar, likes, views, comments_json,
-      image_prompt, payload_json, image_status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      image_prompt, payload_json, image_status, published_seq)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
   `);
   let inserted = 0;
   const tx = db.transaction(() => {
