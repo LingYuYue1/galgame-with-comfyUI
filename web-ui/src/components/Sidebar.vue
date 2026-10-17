@@ -181,13 +181,21 @@
             </div>
             <span>酒馆</span>
           </router-link>
+          <router-link to="/starmap" class="more-menu-item" @click="onMenuItemClick">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="5" cy="6" r="1.5"/><circle cx="12" cy="3.5" r="1.5"/><circle cx="19" cy="8" r="1.5"/>
+              <circle cx="8" cy="14.5" r="1.5"/><circle cx="16" cy="17.5" r="1.5"/>
+              <path d="M5 6l7-2.5M12 3.5l7 4.5M19 8l-4 8.5M8 14.5l8 3M5 6l3 8.5"/>
+            </svg>
+            <span>星图</span>
+          </router-link>
           <router-link to="/town" class="more-menu-item" @click="onMenuItemClick">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="10" />
               <line x1="2" y1="12" x2="22" y2="12" />
               <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
             </svg>
-            <span>世界（内测）</span>
+            <span>小镇</span>
           </router-link>
           <router-link to="/schedule" class="more-menu-item" @click="onMenuItemClick">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">

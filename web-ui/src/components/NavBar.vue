@@ -7,9 +7,10 @@
              否则指示器会跑到别处（该键现在由路由首段推导，一般无需再改）。 -->
       <div class="nav-indicator" :style="indicatorStyle" aria-hidden="true"></div>
 
-      <!-- 顺序（2026-10-04 按用户要求重排）：世界 → 奇遇 → 地图 → 网络 → 聊天 → 朋友圈 → 日程 → 相册 → 酒馆
-           世界/奇遇/地图是「规划与沉浸玩法」入口，提到最前；聊天/朋友圈是日常高频，居中。 -->
-      <router-link to="/town" data-nav="town" class="nav-item" :class="{ active: $route.path.startsWith('/town') }" title="世界">
+      <!-- 顺序（2026-10-04 按用户要求重排，2026-10-17 加星图）：小镇 → 奇遇 → 地图 → 星图 → 网络 → 聊天 → 朋友圈 → 日程 → 相册 → 酒馆
+           小镇/奇遇/地图/星图是「规划与沉浸玩法」入口，提到最前；聊天/朋友圈是日常高频，居中。
+           （旧标签「世界(内测)」于 2026-10-17 更名「小镇」——「世界」一词留给星图，见 docs/星图-施工文档） -->
+      <router-link to="/town" data-nav="town" class="nav-item" :class="{ active: $route.path.startsWith('/town') }" title="小镇">
         <div class="nav-icon-wrap">
           <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="10" />
@@ -17,7 +18,7 @@
             <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
           </svg>
         </div>
-        <span class="nav-label">世界(内测)</span>
+        <span class="nav-label">小镇</span>
       </router-link>
 
       <div class="nav-item" data-nav="events" :class="{ active: $route.path.startsWith('/events') }" title="奇遇" @click="handleEventsClick">
@@ -41,6 +42,22 @@
           </svg>
         </div>
         <span class="nav-label">地图</span>
+      </router-link>
+
+      <!-- 星图（2026-10-17）：多世界管理 —— 世界观 / 挂载地图 / 居住角色 / 跨世界旅程。
+           与「地图」同族：地图 = 从世界观落出地理结构（单世界内）；星图 = 管理多个世界本身。 -->
+      <router-link to="/starmap" data-nav="starmap" class="nav-item" :class="{ active: $route.path.startsWith('/starmap') }" title="星图">
+        <div class="nav-icon-wrap">
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="5" cy="6" r="1.5"/>
+            <circle cx="12" cy="3.5" r="1.5"/>
+            <circle cx="19" cy="8" r="1.5"/>
+            <circle cx="8" cy="14.5" r="1.5"/>
+            <circle cx="16" cy="17.5" r="1.5"/>
+            <path d="M5 6l7-2.5M12 3.5l7 4.5M19 8l-4 8.5M8 14.5l8 3M5 6l3 8.5"/>
+          </svg>
+        </div>
+        <span class="nav-label">星图</span>
       </router-link>
 
       <!-- 「网络」= 原「传媒」（2026-10-04 改名；路由与 data-nav 仍为 media，避免破坏深链与前端逻辑） -->

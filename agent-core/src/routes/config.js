@@ -875,18 +875,30 @@ router.get('/world-settings', (req, res) => {
 
 // POST /api/world-settings — 创建新世界观
 router.post('/world-settings', (req, res) => {
-  const { name, content } = req.body;
+  const { name, content, tagline } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'name is required' });
-  const item = createWorldSetting({ name: name.trim(), content: content?.trim() || '' });
+  const item = createWorldSetting({
+    name: name.trim(),
+    content: content?.trim() || '',
+    tagline: typeof tagline === 'string' ? tagline.trim() : '',
+  });
   res.json({ ok: true, item });
 });
 
-// PUT /api/world-settings/:id — 编辑某个世界观
+// PUT /api/world-settings/:id — 编辑某个世界观（含星图新字段：tagline / visual_tone / is_enabled）
 router.put('/world-settings/:id', (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id || !getWorldSettingById(id)) return res.status(404).json({ error: 'not found' });
-  const { name, content } = req.body;
-  const item = updateWorldSetting(id, { name: name?.trim(), content: content?.trim() });
+  const { name, content, tagline, visual_tone, is_enabled } = req.body;
+  // 注：name/content 用 typeof 判定而非 !== undefined —— 老前端可能传 null，
+  // 原实现 `name?.trim()` 能容忍 null，这里保持同等宽容度（null 视作"不改"）。
+  const item = updateWorldSetting(id, {
+    name: typeof name === 'string' ? name.trim() : undefined,
+    content: typeof content === 'string' ? content.trim() : undefined,
+    tagline: typeof tagline === 'string' ? tagline.trim() : undefined,
+    visual_tone: typeof visual_tone === 'string' ? visual_tone.trim() : undefined,
+    is_enabled: is_enabled === undefined ? undefined : !!is_enabled,
+  });
   res.json({ ok: true, item });
 });
 

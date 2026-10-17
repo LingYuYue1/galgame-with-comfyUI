@@ -358,12 +358,12 @@ export function getWorldSettingById(id) {
   return database.prepare(`SELECT * FROM world_settings WHERE id = ?`).get(id);
 }
 
-export function createWorldSetting({ name, content }) {
+export function createWorldSetting({ name, content, tagline = '' }) {
   const database = handle();
   const maxOrder = database.prepare(`SELECT COALESCE(MAX(sort_order), -1) AS m FROM world_settings`).get().m;
   const result = database.prepare(
-    `INSERT INTO world_settings (name, content, is_active, sort_order) VALUES (?, ?, 0, ?)`
-  ).run(name, content, maxOrder + 1);
+    `INSERT INTO world_settings (name, content, tagline, is_active, sort_order) VALUES (?, ?, ?, 0, ?)`
+  ).run(name, content, tagline, maxOrder + 1);
   const created = getWorldSettingById(result.lastInsertRowid);
 
   // ── 同步建立**独立项目库**（2026-10-07 用户裁定）────────────────
@@ -379,12 +379,16 @@ export function createWorldSetting({ name, content }) {
   return created;
 }
 
-export function updateWorldSetting(id, { name, content }) {
+export function updateWorldSetting(id, { name, content, tagline, visual_tone, is_enabled } = {}) {
   const database = handle();
   const sets = [];
   const params = [];
   if (name !== undefined) { sets.push('name = ?'); params.push(name); }
   if (content !== undefined) { sets.push('content = ?'); params.push(content); }
+  // 星图（2026-10-17）：世界卡片/生图联动字段
+  if (tagline !== undefined) { sets.push('tagline = ?'); params.push(tagline); }
+  if (visual_tone !== undefined) { sets.push('visual_tone = ?'); params.push(visual_tone); }
+  if (is_enabled !== undefined) { sets.push('is_enabled = ?'); params.push(is_enabled ? 1 : 0); }
   if (sets.length === 0) return null;
   sets.push("updated_at = datetime('now')");
   params.push(id);

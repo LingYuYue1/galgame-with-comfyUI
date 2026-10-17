@@ -44,6 +44,9 @@ const routes = [
   { path: '/events', component: EventsView },
   { path: '/town', component: TownView, props: route => ({ initialPanel: route.query.panel === 'life' ? 'life' : '' }) },
   { path: '/worldmap', component: WorldMapView },
+  // 「星图」（2026-10-17）：多世界管理 —— 世界卡片墙 + 世界详情（四页签）。懒加载，低频页面。
+  { path: '/starmap', component: () => import('./views/StarMapView.vue') },
+  { path: '/starmap/:id', component: () => import('./views/StarMapDetailView.vue') },
   { path: '/schedule', component: ScheduleView },
   { path: '/gallery', component: GalleryView },
   { path: '/draw', component: DrawView },
