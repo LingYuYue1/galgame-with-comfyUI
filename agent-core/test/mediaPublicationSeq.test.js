@@ -9,7 +9,7 @@
  *
  * ── 本文件钉住 ──────────────────────────────────────────────
  * ① 图库批次落库后 `published_seq` 必须是 NULL（待发布），不是 0；
- * ② 0 不能挡住发布（第二道防线）：配图齐了照样能补发布、照样广播一次且只一次；
+ * ② 0 是「升级前已展示」的旧帖标记 —— 不得被重新发布（否则老帖会凭空广播一轮）；
  * ③ 迁移 010 把已可见帖按 created_at 重排成 1..N，真草稿（NULL）不被顺手发布。
  */
 import { test, after } from 'node:test';
@@ -69,21 +69,25 @@ test('图库批次落库必须是待发布（NULL），不能吃 DEFAULT 0', asy
   publishMediaPostIfReady(row.id);
 });
 
-test('0 是历史脏值：配图齐了仍能补发布，且只广播一次', () => {
+test('0 是旧帖标记：不得被重新发布（否则老帖会凭空广播一轮）', () => {
   const db = getDb();
   db.prepare('DELETE FROM media_posts').run();
   const outlet = createOutlet({ name: '零序号回归', prompt: '测试', layout: 'feed' });
-  const id = Number(db.prepare(`INSERT INTO media_posts
+  const legacy = Number(db.prepare(`INSERT INTO media_posts
     (outlet_id, title, content, image, image_prompt, image_status, published_seq)
     VALUES (?, '旧帖', '正文', '/zero.png', 'cover', 'pending', 0)`).run(outlet.id).lastInsertRowid);
+  const draft = Number(db.prepare(`INSERT INTO media_posts
+    (outlet_id, title, content, image, image_prompt, image_status, published_seq)
+    VALUES (?, '新草稿', '正文', '/new.png', 'cover', 'pending', NULL)`).run(outlet.id).lastInsertRowid);
 
   const events = [];
   const client = { write: value => events.push(value) };
   addClient(client);
   try {
-    assert.equal(publishMediaPostIfReady(id), true, '0 不能被当成「已发布」—— 否则这条永远发不出去');
-    assert.equal(publishMediaPostIfReady(id), false, '同一条只能发布一次');
-    const row = db.prepare('SELECT published_seq, image_status FROM media_posts WHERE id = ?').get(id);
+    assert.equal(publishMediaPostIfReady(legacy), false, '0 = 升级前已展示的旧帖，不能当待发布');
+    assert.equal(publishMediaPostIfReady(draft), true, 'NULL = 待发布，配图齐了就要发');
+    assert.equal(publishMediaPostIfReady(draft), false, '同一条只能发布一次');
+    const row = db.prepare('SELECT published_seq, image_status FROM media_posts WHERE id = ?').get(draft);
     assert.ok(row.published_seq > 0, '必须分配到正数序号');
     assert.equal(row.image_status, 'done');
     assert.equal(events.filter(e => e.startsWith('event: media_new_posts\n')).length, 1);
