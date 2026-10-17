@@ -71,6 +71,7 @@ docs/pr1-6-*.md
 docs/上游合并-*.md
 docs/remote-access.md
 docs/二创更新日志.md
+docs/BUG-*.md
 
 # 本地临时调试脚本（不进 git）
 agent-core/scripts/_q-*.mjs
