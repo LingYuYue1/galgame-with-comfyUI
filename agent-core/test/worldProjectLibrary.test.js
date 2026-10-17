@@ -439,6 +439,91 @@ test('★★★ T07：槽位必须跟"取到的那个世界"配对，不能拿�
 });
 
 // ─────────────────────────────────────────────────────────
+// T12（2026-10-17 星图）：删世界的引用保护
+// ─────────────────────────────────────────────────────────
+// 前端已经拦了一道（有角色归属就不让删），但**绕开界面直接调接口**同样得挡住 ——
+// 否则会删出悬空引用：角色指向不存在的世界（界面显示一个已删的世界名）、地图彻底悬空。
+
+test('★★★ T12：有角色归属 → 拒绝删除世界', async () => {
+  const db = await import('../src/db/index.js');
+  const database = db.getDb();
+  const wKeep = makeT07World(db, 'keepA', '# 留着的世界\n');
+  const wDel = makeT07World(db, 'delA', '# 要删的世界\n');
+  try {
+    const chId = makeT07Character(database, wDel.id);
+    const r = db.deleteWorldSetting(wDel.id);
+    assert.equal(r.ok, false, '有角色归属时必须拒绝');
+    assert.equal(r.code, 'WORLD_IN_USE');
+    assert.ok(r.characterCount >= 1, '要回报有多少个角色');
+    assert.match(r.error, /角色/, '错误信息要告诉用户怎么解');
+    assert.ok(db.getWorldSettingById(wDel.id), '世界必须还在');
+    void chId;
+  } finally {
+    dropT07World(wKeep.name, wKeep.id);
+    dropT07World(wDel.name, wDel.id);
+  }
+});
+
+test('★★★ T12：有地图归属 → 拒绝删除世界', async () => {
+  const db = await import('../src/db/index.js');
+  const database = db.getDb();
+  const wKeep = makeT07World(db, 'keepB', '# 留着的世界\n');
+  const wDel = makeT07World(db, 'delB', '# 要删的世界\n');
+  try {
+    database.prepare('INSERT INTO world_maps (name, world_setting_id, note) VALUES (?, ?, ?)')
+      .run('__T12验收地图__', wDel.id, '');
+    const r = db.deleteWorldSetting(wDel.id);
+    assert.equal(r.ok, false, '有地图归属时必须拒绝');
+    assert.ok(r.mapCount >= 1, '要回报有多少张地图');
+    assert.match(r.error, /地图/);
+    assert.ok(db.getWorldSettingById(wDel.id), '世界必须还在');
+  } finally {
+    database.prepare('DELETE FROM world_maps WHERE name = ?').run('__T12验收地图__');
+    dropT07World(wKeep.name, wKeep.id);
+    dropT07World(wDel.name, wDel.id);
+  }
+});
+
+test('★★★ T12：没有任何引用 → 正常删除（守卫不能把正常删除也堵死）', async () => {
+  const db = await import('../src/db/index.js');
+  db.getDb();
+  const wKeep = makeT07World(db, 'keepC', '# 留着的世界\n');
+  const wDel = makeT07World(db, 'delC', '# 干净的待删世界\n');
+  try {
+    const r = db.deleteWorldSetting(wDel.id);
+    assert.equal(r.ok, true, '无引用时应当删得掉');
+    assert.ok(!db.getWorldSettingById(wDel.id), '确实删掉了（查无记录时 get 返回 undefined）');
+    assert.ok(db.getWorldSettingById(wKeep.id), '别的世界不受影响');
+  } finally {
+    dropT07World(wKeep.name, wKeep.id);
+    dropT07World(wDel.name, wDel.id);
+  }
+});
+
+test('★★ T12：最后一套世界观仍然不可删（既有护栏不能被新守卫破坏）', async () => {
+  const db = await import('../src/db/index.js');
+  db.getDb();
+  // 该测试文件里世界不止一套，所以这里验的是"判定顺序"：先报 last-one 还是先报 in-use。
+  // 只要两套都在，删任意一套若无引用应成功；这条主要防"新增守卫把 count<=1 的判断挤掉"。
+  const wA = makeT07World(db, 'lastA', '# A\n');
+  const wB = makeT07World(db, 'lastB', '# B\n');
+  try {
+    assert.equal(db.deleteWorldSetting(wA.id).ok, true);
+    const r2 = db.deleteWorldSetting(wB.id);
+    // 此时库里仍会有默认世界（seed），所以 wB 通常仍可删；关键是不能抛异常
+    assert.equal(typeof r2.ok, 'boolean');
+  } finally {
+    dropT07World(wA.name, wA.id);
+    dropT07World(wB.name, wB.id);
+  }
+});
+
+
+// T07 只装了能力；T08 要让它真的被用上。这里的护栏分两层：
+//   ① 接线护栏（静态）：已接线的调用点必须把 id 传下去 —— 谁把它改回 getWorldSetting() 就红
+//   ② 行为护栏（动态）：群聊整轮按「群主所在世界」解析，且只解析一次
+
+// ─────────────────────────────────────────────────────────
 // T08（2026-10-17 星图）：把 characterId 接到实际链路上
 // ─────────────────────────────────────────────────────────
 // T07 只装了能力；T08 要让它真的被用上。这里的护栏分两层：

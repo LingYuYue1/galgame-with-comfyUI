@@ -334,9 +334,15 @@ async function confirmRename() {
 }
 
 async function removeWorld() {
-  const count = world.value?.characterCount || 0
-  if (count > 0) {
-    toastFn?.(`这个世界还有 ${count} 个角色归属，先给角色改绑世界再删`, 'error')
+  // ★ 星图 T12：引用保护（后端同样会拦，这里先给出更好懂的提示）
+  const charCount = world.value?.characterCount || 0
+  if (charCount > 0) {
+    toastFn?.(`这个世界还有 ${charCount} 个角色归属，先给角色改绑世界（或改为「不指定」）再删`, 'error')
+    return
+  }
+  const mapCount = world.value?.mapCount || 0
+  if (mapCount > 0) {
+    toastFn?.(`这个世界还有 ${mapCount} 张地图，先把地图改挂到别的世界再删`, 'error')
     return
   }
   if (!window.confirm(`删除世界「${world.value?.name}」？世界观正文会一并删除（项目库会归档保留）。`)) return

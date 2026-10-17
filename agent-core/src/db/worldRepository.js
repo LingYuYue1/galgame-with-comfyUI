@@ -508,6 +508,46 @@ export function deleteWorldSetting(id) {
   if (count <= 1) return { ok: false, error: '不可删除最后一套世界观' };
   const target = getWorldSettingById(id);
   if (!target) return { ok: false, error: '世界观不存在' };
+
+  // ── ★ 星图 T12：引用保护 ──────────────────────────────────────────
+  // 删世界会把引用留在原地：角色的 world_setting_id 指向一个不存在的世界 →
+  // getWorldSetting 会当"未绑定"回落激活世界（不崩，但界面会显示一个已删的世界名），
+  // 地图则是彻底悬空。前端虽然拦了一道，但**绕开界面直接调接口**就能删出脏数据，
+  // 所以真正的闸门必须在这里。
+  const boundChars = (() => {
+    try { return database.prepare(`SELECT COUNT(*) AS c FROM characters WHERE world_setting_id = ?`).get(id).c; }
+    catch { return 0; }
+  })();
+  if (boundChars > 0) {
+    return {
+      ok: false,
+      code: 'WORLD_IN_USE',
+      characterCount: boundChars,
+      error: `这个世界还有 ${boundChars} 个角色归属，先把角色改到别的世界（或改为「不指定」）再删`,
+    };
+  }
+  const boundMaps = (() => {
+    try { return database.prepare(`SELECT COUNT(*) AS c FROM world_maps WHERE world_setting_id = ?`).get(id).c; }
+    catch { return 0; }
+  })();
+  if (boundMaps > 0) {
+    return {
+      ok: false,
+      code: 'WORLD_IN_USE',
+      mapCount: boundMaps,
+      error: `这个世界还有 ${boundMaps} 张地图，先把地图改挂到别的世界再删`,
+    };
+  }
+  // 小镇的 town_maps / town_assets 也存了 world_setting_id，但小镇是**独立系统**，
+  // 星图界面里没有改绑入口 —— 所以只留痕不阻断（真要清理得去小镇侧操作）。
+  try {
+    const townRefs = database.prepare(`SELECT COUNT(*) AS c FROM town_maps WHERE world_setting_id = ?`).get(id).c
+      + database.prepare(`SELECT COUNT(*) AS c FROM town_assets WHERE world_setting_id = ?`).get(id).c;
+    if (townRefs > 0) {
+      console.warn(`[worldRepository] 删除世界 #${id}：小镇侧仍有 ${townRefs} 条引用（town_maps / town_assets），已按独立系统口径放行`);
+    }
+  } catch { /* 老库可能没有小镇表 */ }
+
   database.prepare(`DELETE FROM world_settings WHERE id = ?`).run(id);
   if (target.is_active) {
     const first = database.prepare(`SELECT id FROM world_settings LIMIT 1`).get();
