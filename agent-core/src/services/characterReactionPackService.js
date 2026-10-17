@@ -16,7 +16,6 @@ import { chatSync } from './lorebook/runtime.js';
 export const PACK_SCHEMA_VERSION = 1;
 export const PACK_TEMPLATE_VERSION = 'reaction-pack-v1';
 export const PACK_LINES_PER_EVENT = 3;
-export const PACK_MAX_TOKENS = 2500;
 export const PACK_EMOTIONS = Object.freeze(['neutral', 'pleased', 'shy', 'surprised']);
 /** 文本硬上限：与前端 characterReactionRules.js 的 MAX_VISIBLE_TEXT 保持一致 */
 export const MAX_VISIBLE_TEXT = 40;
@@ -327,7 +326,7 @@ export function deleteReactionPack(characterId, db = getDb()) {
 
 /**
  * 生成并保存一份短句包。
- * 单次请求、输出上限约 ${PACK_MAX_TOKENS} tokens；截断或不满足契约时整包不覆盖旧包。
+ * 单次请求不设置输出 token 上限；截断或不满足契约时整包不覆盖旧包。
  */
 export async function generateReactionPack({
   characterId,
@@ -344,7 +343,6 @@ export async function generateReactionPack({
   try {
     const raw = await callLlm(buildPackMessages({ character, eventTypes: wanted }), {
       temperature: 0.9,
-      max_tokens: PACK_MAX_TOKENS,
       response_format: { type: 'json_object' },
       label: '角色短句包',
       retries: 0,

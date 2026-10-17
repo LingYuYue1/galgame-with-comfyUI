@@ -159,7 +159,7 @@ export async function runPlanner({ messages, onDelta = null, timeoutMs = PLANNER
   };
 
   try {
-    for await (const chunk of chatStream(messages, { temperature: 0.6, max_tokens: 1024, label: '深度思考' })) {
+    for await (const chunk of chatStream(messages, { temperature: 0.6, label: '深度思考' })) {
       if (Date.now() > deadline) break;
       buffer += chunk;
       // 检测到 </plan> → 计划已完整，立即跳出解析返回，不等流正式关闭（省去尾部等待）

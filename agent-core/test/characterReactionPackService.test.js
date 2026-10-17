@@ -7,7 +7,6 @@ import { migrateCharacterReactionPacksSchema } from '../src/db/characterReaction
 import {
   PACK_EVENT_TYPES,
   PACK_LINES_PER_EVENT,
-  PACK_MAX_TOKENS,
   PACK_TEMPLATE_VERSION,
   buildPackMessages,
   buildPackOutputExample,
@@ -176,7 +175,7 @@ test('generation stores one pack per character and reads it back with overrides'
     callLlm: async (messages, options) => {
       calls += 1;
       assert.deepEqual(messages.map(m => m.role), ['system', 'system', 'system', 'user']);
-      assert.equal(options.max_tokens, PACK_MAX_TOKENS);
+      assert.equal(Object.hasOwn(options, 'max_tokens'), false);
       assert.equal(options.retries, 0);
       assert.deepEqual(options.response_format, { type: 'json_object' });
       return packJson();

@@ -425,7 +425,6 @@ async function runDiaryGeneration({ db, character, dateKey, name, task }) {
     const messages = buildDiaryMessages({ character, dateKey, scheduleText });
     const raw = await chatSync(messages, {
       temperature: 0.9,
-      max_tokens: 4096,
       response_format: { type: 'json_object' },
       label: '日记助手',
       lorebook:{personaTexts:[messages.at(-3).content],staticTexts:[messages.at(-4).content],characterName:character.display_name,scenario:scheduleText},

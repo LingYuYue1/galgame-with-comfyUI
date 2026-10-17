@@ -64,3 +64,5 @@ agent-core/test/*
 !agent-core/test/expressionStandingOutfitPreflight.test.js
 !agent-core/test/clothingLibrary.test.js
 !agent-core/test/emojiSets.test.js
+!agent-core/test/llmOutputTokens.test.js
+!agent-core/test/llmConfig.test.js

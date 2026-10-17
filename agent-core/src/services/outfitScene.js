@@ -105,8 +105,7 @@ export async function generateSceneOutfits(character, opts = {}) {
     scenes: targetScenes,
   });
   const raw = await chatSync(msgs, {
-    model: config.llm.model || 'deepseek-chat', temperature: 0.8, max_tokens: 3072,
-    response_format: { type: 'json_object' }, label: '场景服装生成',
+    model: config.llm.model || 'deepseek-chat', temperature: 0.8, response_format: { type: 'json_object' }, label: '场景服装生成',
   });
   return parseSceneOutfitDesign(raw, targetScenes);
 }

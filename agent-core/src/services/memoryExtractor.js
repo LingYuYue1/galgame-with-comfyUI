@@ -8,17 +8,14 @@ import { buildAnalysisUserContent, buildChatLogLines, buildSharedAnalysisSystemP
 
 const conversationQueues = new Map();
 const CURATE_EVERY_N_MESSAGES = 40; // 每 40 句整理一次长期记忆
-// 输出预算：v3 一条记忆实测约 250~350 token，旧的 3000 会在写到第 8 条时被 max_tokens 砍断，
-// 输出变成半截 JSON（Unterminated string）→ 解析失败 → 整理反复重试、checkpoint 不前进。
-const CURATION_MAX_TOKENS = 6000;
 /** prompt 里声明的条数必须与 parseMemoryActions 的截断保持一致：模型多写的部分会被静默丢掉 */
 export const CURATION_MAX_ACTIONS = 12;
 const CURATION_COMPACT_ACTIONS = 4; // 输出被截断后重发时压小的条数
-const CURATION_MAIBOT_ACTIONS = 5; // 不落库的 maibot 路径只取判断句，输出预算 1800
+const CURATION_MAIBOT_ACTIONS = 5; // 不落库的 maibot 路径只取判断句
 
 /**
  * 本轮 curation 条数上限：灵魂系统开启时由 ImpressionDepth 决定，否则用硬上限。
- * 无论灵魂给多少，都不超过 CURATION_MAX_ACTIONS（输出预算与 slice 都按它对齐）。
+ * 无论灵魂给多少，都不超过 CURATION_MAX_ACTIONS（prompt 与 slice 都按它对齐）。
  */
 function resolveCurationLimit(conversationId) {
   const match = /^char_(\d+)/.exec(String(conversationId || ''));
@@ -81,18 +78,16 @@ async function curateNow({ conversationId, throughRawMsgId, characterName = '', 
     let requestMessages = buildCurationMessages({ transcript, related, timeRange, maxActions });
     let result = await chatSync(requestMessages, {
       temperature: 0.2,
-      max_tokens: CURATION_MAX_TOKENS,
       label: '聊天记忆整理',
       returnMeta: true,
     });
-    // 被 max_tokens 砍断时原样重发只会再砍一次（半截 JSON 用 json 模式也修不好），
+    // 被服务端长度限制截断时原样重发只会再砍一次（半截 JSON 用 json 模式也修不好），
     // 换成条数更少的精简指令重发：共享前缀（system + <chat_log>）没动，缓存照样命中。
     if (planCurationRecovery({ finishReason: result.finishReason }) === 'compact') {
-      console.warn(`[memoryExtractor] 输出被 max_tokens(${CURATION_MAX_TOKENS}) 截断，改用精简指令重发: ${conversationId} raw ${startId}-${endId}`);
+      console.warn(`[memoryExtractor] 输出被服务端长度限制截断，改用精简指令重发: ${conversationId} raw ${startId}-${endId}`);
       requestMessages = buildCurationMessages({ transcript, related, timeRange, compact: true, maxActions });
       result = await chatSync(requestMessages, {
         temperature: 0.2,
-        max_tokens: CURATION_MAX_TOKENS,
         label: '聊天记忆整理(截断重发)',
         returnMeta: true,
       });
@@ -103,12 +98,11 @@ async function curateNow({ conversationId, throughRawMsgId, characterName = '', 
     } catch (parseError) {
       // 截断导致的半截 JSON 补发 json 模式也修不好，直接抛出，省掉一次全量未命中缓存的请求
       if (planCurationRecovery({ finishReason: result.finishReason, parseFailed: true }) !== 'json') {
-        throw new Error(`输出连续被 max_tokens(${CURATION_MAX_TOKENS}) 截断，无法解析（记录正文 ${transcript.length} 字符）：${parseError.message}`);
+        throw new Error(`输出连续被服务端长度限制截断，无法解析（记录正文 ${transcript.length} 字符）：${parseError.message}`);
       }
       console.warn(`[memoryExtractor] 输出非严格 JSON，改用 json 模式补发一次: ${parseError.message}`);
       const strict = await chatSync(requestMessages, {
         temperature: 0.2,
-        max_tokens: CURATION_MAX_TOKENS,
         response_format: { type: 'json_object' },
         label: '聊天记忆整理(json回退)',
       });
@@ -129,7 +123,7 @@ export function buildMemoryCurationPrompt({ transcript, related = [], timeRange 
   const existing = related.length
     ? related.map(item => `- ${item.memory_id} | ${item.memory_type} | ${item.judgment} | tags=${JSON.stringify(item.tags)}`).join('\n')
     : '（无相关旧记忆）';
-  // 条数上限：与 parseMemoryActions 的 slice 保持一致。输出预算有限，条数写多了会被 max_tokens 砍断，
+  // 条数上限：与 parseMemoryActions 的 slice 保持一致。服务端仍可能截断过长的输出，
   // 写超 slice 的部分又会被静默丢掉，所以直接在 prompt 里钉死上限。
   const actionBudget = compact
     ? `- 上一次输出超出长度上限被截断：这次最多输出 ${Math.min(CURATION_COMPACT_ACTIONS, maxActions)} 条，字段从简（reasoning 一句、episodicNote/semanticNote 各一句、entities 最多 2 个、triple 可省略）`
@@ -190,7 +184,7 @@ export function buildCurationMessages(options = {}) {
 
 /**
  * 记忆整理出问题后的补救动作（纯判断，便于单测）：
- * - compact：finish_reason=length，输出被 max_tokens 砍断，半截 JSON 用 json 模式补发也修不好，
+ * - compact：finish_reason=length，输出被服务端长度限制截断，半截 JSON 用 json 模式补发也修不好，
  *   只能让模型少写几条、字段从简，重发一次
  * - json：纯格式问题（裹了 markdown、多写了说明），json 模式能让模型只吐 JSON
  * 返回 null 表示不需要补救。
@@ -216,7 +210,6 @@ export async function curateAccumulatedMemory({ accumulatedText, characterName =
   // 该路径只消费 judgment，强制 v2 精简格式，避免为不落库的扩展字段浪费输出 token。
   const raw = await chatSync(buildCurationMessages({ transcript: accumulatedText, related: [], v3: false, maxActions: CURATION_MAIBOT_ACTIONS }), {
     temperature: 0.2,
-    max_tokens: 1800,
     response_format: { type: 'json_object' },
     label: '聊天记忆整理',
   });

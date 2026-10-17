@@ -638,8 +638,7 @@ async function generateWeeklyIssue(outlet, manual = false) {
   ];
 
   const raw = await chatSync(msgs, {
-    temperature: 0.9, max_tokens: 8000,
-    response_format: { type: 'json_object' }, label: `media:${outlet.name}`,
+    temperature: 0.9, response_format: { type: 'json_object' }, label: `media:${outlet.name}`,
   });
   const jsonStr = extractFirstJson(raw);
   if (!jsonStr) throw new Error('LLM 未返回 JSON');
@@ -795,8 +794,7 @@ async function generatePosterIssue(outlet, manual = false) {
   ];
 
   const raw = await chatSync(msgs, {
-    temperature: 0.95, max_tokens: 3000,
-    response_format: { type: 'json_object' }, label: `media:${outlet.name}`,
+    temperature: 0.95, response_format: { type: 'json_object' }, label: `media:${outlet.name}`,
   });
   const jsonStr = extractFirstJson(raw);
   if (!jsonStr) throw new Error('LLM 未返回 JSON');
@@ -1038,9 +1036,7 @@ async function generatePortalIssue(outlet, manual = false) {
   ];
 
   const raw = await chatSync(msgs, {
-    // 只产骨架 → max_tokens 压到海报同档，出刊速度是本设计的核心收益，别给大预算
-    temperature: 0.9, max_tokens: 2500,
-    response_format: { type: 'json_object' }, label: `media:${outlet.name}`,
+    temperature: 0.9, response_format: { type: 'json_object' }, label: `media:${outlet.name}`,
   });
   const jsonStr = extractFirstJson(raw);
   if (!jsonStr) throw new Error('LLM 未返回 JSON');
@@ -1176,8 +1172,7 @@ export async function generatePortalSection(postId, sectionKey) {
     { role: 'system', content: buildSectionBodyPrompt(section.name, section.lead) },
     { role: 'user', content: `本期的总标题是「${payload.title}」。现在请写「${section.name}」这一块的正文。` },
   ], {
-    temperature: 0.9, max_tokens: 4000,
-    response_format: { type: 'json_object' }, label: `media:${outlet?.name || '门户'}·板块`,
+    temperature: 0.9, response_format: { type: 'json_object' }, label: `media:${outlet?.name || '门户'}·板块`,
   });
 
   const jsonStr = extractFirstJson(raw);
@@ -1265,7 +1260,6 @@ export async function generateMediaBatch({ outletId = null, count = DEFAULT_BATC
 
     const raw = await chatSync(msgs, {
       temperature: 0.9,
-      max_tokens: 6000,
       response_format: { type: 'json_object' },
       label: `media:${outlet.name}`,
     });

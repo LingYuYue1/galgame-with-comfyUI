@@ -1811,7 +1811,6 @@ async function runEncounterDialogue(enc) {
 
   try {
     const content = await chatWithLorebook(messages, {
-      max_tokens: 1200,
       temperature: 0.9,
       response_format: { type: 'json_object' },
       label: '小镇相遇对话',
@@ -1883,7 +1882,6 @@ async function runEncounterSummary(enc) {
       },
       { role: 'user', content: `【地点】${enc.location.name}\n【对话】\n${transcript}` },
     ], {
-      max_tokens: 300,
       temperature: 0.5,
       response_format: { type: 'json_object' },
       label: '小镇相遇摘要',
@@ -2030,7 +2028,6 @@ function maybeStatusBubbles(now) {
         ].filter(Boolean).join('\n'),
       },
     ], {
-      max_tokens: 900,
       temperature: 0.95,
       response_format: { type: 'json_object' },
       label: '小镇状态气泡',

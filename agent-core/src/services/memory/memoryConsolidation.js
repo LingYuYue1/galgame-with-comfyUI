@@ -431,7 +431,7 @@ export function normalizeSuggestionText(text) {
   return String(text || '').replace(/[\s\p{P}\p{S}]/gu, '');
 }
 
-const LLM_OPTS = { temperature: 0.2, max_tokens: 1500, response_format: { type: 'json_object' }, label: '记忆整理' };
+const LLM_OPTS = { temperature: 0.2, response_format: { type: 'json_object' }, label: '记忆整理' };
 
 // ── T1：冲突消解 runner ──
 
@@ -687,9 +687,8 @@ ${pendingLines}
  *      updated_at，又让 index worker 用完全相同的文本重复付费嵌入；
  *   2. 无论模型是否补出字段都记账，否则这批候选每轮扫描都会被重补 + 重嵌入，永不前进。
  */
-const BACKFILL_BATCH_SIZE = 5;
 // T5 的旧记忆正文很长；10 条曾实测在 1500 tokens 处截断，导致整批 JSON 解析失败。
-const BACKFILL_LLM_OPTS = { ...LLM_OPTS, max_tokens: 3000 };
+const BACKFILL_BATCH_SIZE = 5;
 
 export async function runBackfillTask({ candidates, llmBudgetRemaining = 0, deps = {} } = {}) {
   const chatSync = deps.chatSync;
@@ -719,7 +718,7 @@ ${listing}
   llmCalls++;
   let items = [];
   try {
-    const raw = await chatSync([{ role: 'user', content: prompt }], BACKFILL_LLM_OPTS);
+    const raw = await chatSync([{ role: 'user', content: prompt }], LLM_OPTS);
     items = parseJsonObject(raw).items || [];
   } catch (error) {
     console.warn('[memory-consolidation] T5 LLM failed:', error.message);

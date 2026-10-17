@@ -381,7 +381,7 @@
         <!-- API 地址 -->
         <label class="fl llm-label" style="margin-top:14px">API 地址</label>
         <linshe-select v-model="llmBaseURLSelectVal" :options="llmBaseURLOptions" placeholder="请选择API地址" style="margin-bottom:6px" />
-        <linshe-input v-if="isCustomBaseURL" v-model="llmBaseURL" class="fi" placeholder="https://your-api-endpoint/v1" @input="markLlmDirty" />
+        <linshe-input v-if="isCustomBaseURL" v-model="llmBaseURL" class="fi" placeholder="https://your-api-endpoint/v1" @input="onLlmEndpointInput" />
 
         <!-- 模型 -->
         <label class="fl llm-label">模型（建议点击自动获取选择deepseek-flash）</label>
@@ -407,17 +407,25 @@
         </div>
         <p v-if="llmModelsError" class="model-fetch-error" role="alert">{{ llmModelsError }}</p>
 
-        <div v-if="isCustomBaseURL" class="toggle-row thinking-setting">
+        <label class="fl llm-label" for="llm-max-tokens">最大输出 token（MAX_tokens）</label>
+        <linshe-input
+          id="llm-max-tokens"
+          v-model.number="llmMaxTokens"
+          type="number"
+          min="1"
+          step="1"
+          :invalid="!llmMaxTokensValid"
+          aria-describedby="llm-max-tokens-hint"
+          @input="onLlmMaxTokensInput"
+        />
+        <p id="llm-max-tokens-hint" class="llm-token-hint" :class="{ 'is-invalid': !llmMaxTokensValid }" aria-live="polite">{{ llmMaxTokensHint }}</p>
+
+        <div class="toggle-row thinking-setting">
           <div>
             <div class="tl llm-label">思考模式</div>
             <div class="td">“关”默认禁用思考；“不传”会从请求体中省略 thinking 参数</div>
           </div>
-          <div :class="['thinking-options', `is-${llmThinkingMode}`]" role="radiogroup" aria-label="思考模式">
-            <label v-for="option in thinkingModeOptions" :key="option.value" class="thinking-option">
-              <input v-model="llmThinkingMode" type="radio" name="llm-thinking-mode" :value="option.value" @change="markLlmDirty" />
-              <span>{{ option.label }}</span>
-            </label>
-          </div>
+          <linshe-tabs v-model="llmThinkingMode" :options="thinkingModeOptions" size="sm" aria-label="思考模式" @update:model-value="markLlmDirty" />
         </div>
 
         <template v-if="isCustomBaseURL">
@@ -461,7 +469,7 @@
           <div class="toggle-row llm-custom-toggle">
             <div>
               <div class="tl">自定义请求体</div>
-              <div class="td">注入 agent 等额外 body 参数；同名字段会覆盖内置参数</div>
+              <div class="td">注入 agent 等额外 body 参数；输出额度以 MAX_tokens 为准，其余同名字段覆盖内置参数</div>
             </div>
             <linshe-switch v-model="llmExtraBodyEnabled" title="启用自定义请求体" aria-label="启用自定义请求体" @change="markLlmDirty" />
           </div>
@@ -513,7 +521,7 @@ type="range" min="1" max="10" step="1"
         </template>
 
         <div class="sa" style="margin-top:12px">
-          <linshe-button variant="primary" :disabled="!llmDirty || !llmHeadersValid || !llmExtraBodyValid" @click="saveLlmConfig">保存</linshe-button>
+          <linshe-button variant="primary" :disabled="!llmDirty || !llmHeadersValid || !llmExtraBodyValid || !llmMaxTokensValid" @click="saveLlmConfig">保存</linshe-button>
           <span v-if="llmSaved" class="smsg">已保存</span>
           <linshe-button class="llm-test-btn" variant="secondary" :disabled="llmTesting || !llmHeadersValid || !llmExtraBodyValid" @click="runLlmConnectionTest">
             {{ llmTesting ? '测试中…' : '测试连接' }}
@@ -1168,6 +1176,7 @@ base
 </template>
 
 <script setup>
+import { defaultMaxTokens, isValidMaxTokens } from '../../../agent-core/src/llm/modelCapabilities.js'
 import { ref, reactive, computed, onMounted, inject, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { getConfig, updateComfyConfig, updateLlmConfig, testLlmConnection, setLlmFreeEgg, fetchLlmModels, fetchLlmApiKey, updateFeatureFlag, imageProviderHealth, testStyle, testHires, updateProactiveFreq, updateEventFreq, updateMomentFreq, updateBackgroundConcurrency, updateDisturbMode, updateDisturbSettings, updateWeatherCity, getArtistFavorites, addArtistFavorite, deleteArtistFavorite, listCharacters, restoreWorkflow, getWorkflows, updateWorkflowMode, updateWorkflowScene, getLlmProfiles, addLlmProfile, deleteLlmProfile, activateLlmProfile, syncActiveLlmProfile } from '../api/index.js'
@@ -1494,6 +1503,7 @@ const llmApiKey = ref('')
 const llmApiKeyTouched = ref(false)
 function onLlmKeyInput() {
   llmApiKeyTouched.value = true
+  clearLlmModels()
   markLlmDirty()
 }
 const llmBaseURL = ref('https://api.deepseek.com')
@@ -1506,10 +1516,53 @@ const llmModelOptions = computed(() => llmModels.value.map(model => ({ value: mo
 const llmModelSelectVal = computed({
   get: () => llmModel.value,
   set: (val) => {
+    if (llmModel.value === val) return
     llmModel.value = val
+    fillLlmMaxTokens()
     markLlmDirty()
   },
 })
+const llmMaxTokens = ref(defaultMaxTokens(llmBaseURL.value, llmModel.value))
+const llmMaxTokensValid = computed(() => isValidMaxTokens(llmMaxTokens.value))
+const llmTokenSource = ref('default')
+const llmModelCapabilities = ref({})
+let llmModelsVersion = 0
+let llmTokenEditVersion = 0
+const llmMaxTokensHint = computed(() => {
+  if (!llmMaxTokensValid.value) return '请输入大于 0 的整数。'
+  const amount = Number(llmMaxTokens.value).toLocaleString()
+  if (llmTokenSource.value === 'model') return '已从模型能力自动填入 ' + amount + ' tokens，可手动调整。'
+  if (llmTokenSource.value === 'manual' || llmTokenSource.value === 'saved') return '当前额度 ' + amount + ' tokens，仍受服务商上限约束。'
+  return '默认额度 ' + amount + ' tokens；自动获取模型后优先使用接口上限，也可手动调整。'
+})
+function clearLlmModels() {
+  llmModelsVersion++
+  llmModelsLoading.value = false
+  llmModels.value = []
+  llmModelCapabilities.value = {}
+  llmModelsError.value = ''
+}
+function fillLlmMaxTokens() {
+  const capability = llmModelCapabilities.value[llmModel.value]
+  llmMaxTokens.value = isValidMaxTokens(capability?.maxTokens) ? capability.maxTokens : defaultMaxTokens(llmBaseURL.value, llmModel.value)
+  llmTokenSource.value = isValidMaxTokens(capability?.maxTokens) ? 'model' : 'default'
+}
+function restoreLlmMaxTokens(saved) {
+  clearLlmModels()
+  llmTokenEditVersion++
+  llmMaxTokens.value = isValidMaxTokens(saved.maxTokens) ? saved.maxTokens : defaultMaxTokens(llmBaseURL.value, llmModel.value)
+  llmTokenSource.value = isValidMaxTokens(saved.maxTokens) ? 'saved' : 'default'
+}
+function onLlmMaxTokensInput() {
+  llmTokenEditVersion++
+  llmTokenSource.value = 'manual'
+  markLlmDirty()
+}
+function onLlmEndpointInput() {
+  clearLlmModels()
+  fillLlmMaxTokens()
+  markLlmDirty()
+}
 const llmThinkingMode = ref('disabled')
 const thinkingModeOptions = [
   { value: 'enabled', label: '开' },
@@ -1532,6 +1585,7 @@ const llmBaseURLSelectVal = computed({
     } else {
       isCustomBaseURL.value = false
       llmBaseURL.value = val
+      llmThinkingMode.value = 'disabled'
       llmHeadersEnabled.value = false
       llmExtraBodyEnabled.value = false
       llmHeadersText.value = '{}'
@@ -1540,6 +1594,8 @@ const llmBaseURLSelectVal = computed({
       backgroundConcurrency.value = 3
       features.mergeMessages = false
     }
+    clearLlmModels()
+    fillLlmMaxTokens()
     markLlmDirty()
   }
 })
@@ -1617,6 +1673,8 @@ async function applyRelayConfig(station) {
     isCustomBaseURL.value = true
     llmBaseURL.value = station.url
     llmModel.value = 'deepseek-flash'
+    clearLlmModels()
+    fillLlmMaxTokens()
     llmThinkingMode.value = 'disabled'
     llmHeadersEnabled.value = false
     llmHeadersText.value = '{}'
@@ -1794,6 +1852,8 @@ async function loadAvailableModels() {
     return
   }
 
+  const requestVersion = ++llmModelsVersion
+  const editVersion = llmTokenEditVersion
   llmModelsLoading.value = true
   llmModelsError.value = ''
   llmModels.value = []
@@ -1805,13 +1865,20 @@ async function loadAvailableModels() {
       apiKey: llmApiKeyTouched.value ? (llmApiKey.value.trim() || undefined) : undefined,
       headers,
     })
+    if (requestVersion !== llmModelsVersion) return
     llmModels.value = result.models || []
+    llmModelCapabilities.value = result.capabilities || {}
+    if (editVersion === llmTokenEditVersion) {
+      fillLlmMaxTokens()
+      markLlmDirty()
+    }
     if (llmModels.value.length) llmModelSelect.value?.open()
   } catch (error) {
+    if (requestVersion !== llmModelsVersion) return
     llmModelsError.value = error.message || '获取模型失败'
     toastFn?.(llmModelsError.value, 'error')
   } finally {
-    llmModelsLoading.value = false
+    if (requestVersion === llmModelsVersion) llmModelsLoading.value = false
   }
 }
 
@@ -1852,6 +1919,7 @@ async function switchProfile(id) {
         llmBaseURL.value = result.llmConfig.baseURL || 'https://api.deepseek.com'
         llmModel.value = result.llmConfig.model || 'deepseek-chat'
         llmThinkingMode.value = result.llmConfig.thinkingMode || 'disabled'
+        restoreLlmMaxTokens(result.llmConfig)
         const hasCustom = (result.llmConfig.headers && Object.keys(result.llmConfig.headers).length > 0)
           || (result.llmConfig.extraBody && Object.keys(result.llmConfig.extraBody).length > 0)
         isCustomBaseURL.value = !presetURLs.includes(llmBaseURL.value) || hasCustom
@@ -1919,6 +1987,7 @@ async function removeProfile(id) {
       llmBaseURL.value = cfg.llm.baseURL || 'https://api.deepseek.com'
       llmModel.value = cfg.llm.model || 'deepseek-chat'
       llmThinkingMode.value = cfg.llm.thinkingMode || 'disabled'
+      restoreLlmMaxTokens(cfg.llm)
       const hasCustom = (cfg.llm.headers && Object.keys(cfg.llm.headers).length > 0)
         || (cfg.llm.extraBody && Object.keys(cfg.llm.extraBody).length > 0)
         || cfg.features?.mergeMessages
@@ -2007,6 +2076,7 @@ onMounted(async () => {
     llmBaseURL.value = data.llm.baseURL || 'https://api.deepseek.com'
     llmModel.value = data.llm.model || 'deepseek-chat'
     llmThinkingMode.value = data.llm.thinkingMode || 'disabled'
+    restoreLlmMaxTokens(data.llm)
     const hasCustom = (data.llm.headers && Object.keys(data.llm.headers).length > 0)
       || (data.llm.extraBody && Object.keys(data.llm.extraBody).length > 0)
       || data.features?.mergeMessages
@@ -2233,6 +2303,8 @@ function buildLlmPayload() {
   if (llmApiKeyTouched.value && llmApiKey.value.trim()) payload.apiKey = llmApiKey.value.trim()
   if (llmBaseURL.value) payload.baseURL = llmBaseURL.value
   if (llmModel.value) payload.model = llmModel.value
+  if (!llmMaxTokensValid.value) throw new Error('MAX_tokens 必须为正整数')
+  payload.maxTokens = llmMaxTokens.value
   payload.thinkingMode = llmThinkingMode.value
   payload.headers = isCustomBaseURL.value && llmHeadersEnabled.value
     ? JSON.parse(llmHeadersText.value)
@@ -2273,12 +2345,14 @@ async function saveLlmConfig() {
   try {
     const payload = buildLlmPayload()
     const result = await updateLlmConfig(payload)
+    if (!result.ok) throw new Error(result.error || '保存 LLM 设置失败')
     if (result.ok) {
       settingsStore.setHasApiKey(result.hasApiKey)
       llmPreview.value = { ...result }
       llmBaseURL.value = result.baseURL || llmBaseURL.value
       llmModel.value = result.model || llmModel.value
       llmThinkingMode.value = result.thinkingMode || 'disabled'
+      restoreLlmMaxTokens(result)
       llmHeadersEnabled.value = Boolean(result.headers && Object.keys(result.headers).length)
       llmExtraBodyEnabled.value = Boolean(result.extraBody && Object.keys(result.extraBody).length)
       llmHeadersText.value = result.headers && Object.keys(result.headers).length
@@ -2311,6 +2385,7 @@ async function saveLlmConfig() {
     }
   } catch (err) {
     console.error('[llm] save failed:', err)
+    toastFn?.(err.message || '保存 LLM 设置失败', 'error')
   }
 }
 
@@ -3367,54 +3442,9 @@ function resetTestPrompts() {
   white-space: nowrap;
 }
 .model-fetch-error { margin-top: -8px; margin-bottom: 14px; color: var(--danger); font-size: 12px; line-height: 1.5; }
-.thinking-setting { min-width: 0; }
-.thinking-options {
-  position: relative;
-  width: 144px;
-  flex: 0 0 144px;
-  display: inline-grid;
-  grid-template-columns: repeat(3, 1fr);
-  padding: 2px;
-  border: 1px solid var(--glass-border);
-  border-radius: 999px;
-  background: var(--glass-bg-strong);
-}
-.thinking-options::before {
-  content: '';
-  position: absolute;
-  z-index: 0;
-  top: 2px;
-  bottom: 2px;
-  left: 2px;
-  width: calc((100% - 4px) / 3);
-  border-radius: 999px;
-  background: var(--accent);
-  box-shadow: 0 1px 4px rgba(var(--accent-rgb), 0.2);
-  transform: translateX(100%);
-  transition: transform 0.2s ease;
-}
-.thinking-options.is-enabled::before { transform: translateX(0); }
-.thinking-options.is-disabled::before { transform: translateX(100%); }
-.thinking-options.is-omit::before { transform: translateX(200%); }
-.thinking-option { position: relative; z-index: 1; cursor: pointer; }
-.thinking-option input { position: absolute; width: 1px; height: 1px; opacity: 0; }
-.thinking-option span {
-  min-height: 30px;
-  padding: 0 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 600;
-  transition: color 0.18s ease;
-}
-.thinking-option:hover span { color: var(--text-bright); }
-.thinking-option input:checked + span {
-  color: #fff;
-}
-.thinking-option input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.thinking-setting { min-width: 0; flex-wrap: wrap; gap: 12px; }
+.llm-token-hint { margin: 6px 0 14px; color: var(--text-secondary); font-size: var(--fs-sm); line-height: 1.5; overflow-wrap: anywhere; }
+.llm-token-hint.is-invalid { color: var(--danger); }
 .thinking-setting,
 .llm-custom-toggle,
 .llm-option-row { border-bottom: none; }
@@ -3562,9 +3592,7 @@ function resetTestPrompts() {
 
 @media (prefers-reduced-motion: reduce) {
   .memory-settings-entry,
-  .memory-entry-arrow,
-  .thinking-option span,
-  .thinking-options::before { transition: none; }
+  .memory-entry-arrow { transition: none; }
   .memory-settings-entry:hover .memory-entry-arrow { transform: none; }
 }
 

@@ -33,7 +33,7 @@ export async function deriveStyles(basePrompt) {
       { role: 'system', content: STYLE_EXTRACTION_PROMPT },
       { role: 'user', content: String(basePrompt || '').slice(0, 4000) },
     ],
-    { temperature: 0.3, max_tokens: 500, label: 'maibot-derive-style' }
+    { temperature: 0.3, label: 'maibot-derive-style' }
   );
   const parsed = extractJson(result) || {};
   const styles = {

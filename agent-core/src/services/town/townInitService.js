@@ -338,7 +338,6 @@ export function startInit({ worldSettingId = null, npcCount = 8, mapCols, mapRow
         { role: 'user', content: '请执行：输出这个小镇的初始化蓝图 JSON。' },
       ];
       const content = await chatSync(bpMsgs, {
-        max_tokens: 6000,
         temperature: 0.85,
         response_format: { type: 'json_object' },
         label: '小镇蓝图',
@@ -581,7 +580,6 @@ export function generateAssetPrompts({ step = 'tiles', styleTags, keys = [] } = 
       ].filter(Boolean).join('\n\n')
     });
     const content = await chatSync(msgs, {
-      max_tokens: 6000,
       temperature: 0.75,
       response_format: { type: 'json_object' },
       label: '小镇素材提示词',
@@ -1206,7 +1204,6 @@ export function regenerateNpcRoster(count) {
       },
     ];
     const content = await chatSync(rosterMsgs, {
-      max_tokens: 6000,
       temperature: 0.9,
       response_format: { type: 'json_object' },
       label: '小镇居民名册',

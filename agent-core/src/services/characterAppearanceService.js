@@ -50,7 +50,7 @@ export async function ensureCharacterAppearanceSection(characterId, deps = {}) {
     { role: 'system', content: getSystemRules({ roleplay: false }) },
     { role: 'system', content: BUILD_APPEARANCE_SYSTEM_PROMPT },
     { role: 'user', content: `角色名：${name}\n\n角色卡：\n${card}` },
-  ], { temperature: 0.6, max_tokens: 512, label: '补全角色外观段' });
+  ], { temperature: 0.6, label: '补全角色外观段' });
 
   const appearance = normalizeAppearance(out);
   if (appearance.length < 20) throw new Error('LLM 没能从人格卡里推断出可用的外观描述');

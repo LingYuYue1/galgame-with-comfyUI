@@ -85,7 +85,7 @@ export async function describeUserMomentImages(images = [], deps = {}) {
         ...imageParts,
       ],
     },
-  ], { temperature: 0.2, max_tokens: 256, label: '用户朋友圈图片识别', lorebook:false });
+  ], { temperature: 0.2, label: '用户朋友圈图片识别', lorebook:false });
 
   return String(result || '').trim().replace(/^["']|["']$/g, '').slice(0, 300);
 }
@@ -229,7 +229,7 @@ export async function generateUserPostComment(character, post, historyComments, 
   msgs.push({ role: 'user', content: task });
 
   const chat = deps.chatSync || chatSync;
-  const result = await chat(msgs, { temperature: 0.7, max_tokens: 128, label: '用户朋友圈评论', lorebook:{personaTexts:[character.base_prompt],staticTexts:[commentRulesContext],characterName:displayName,history:[{role:'user',content:visibleContent},...historyComments.map(c=>({role:c.author_type==='character'?'assistant':'user',content:c.content}))],scenario:visibleContent} });
+  const result = await chat(msgs, { temperature: 0.7, label: '用户朋友圈评论', lorebook:{personaTexts:[character.base_prompt],staticTexts:[commentRulesContext],characterName:displayName,history:[{role:'user',content:visibleContent},...historyComments.map(c=>({role:c.author_type==='character'?'assistant':'user',content:c.content}))],scenario:visibleContent} });
   return String(result || '').trim().replace(/^["']|["']$/g, '').slice(0, 200);
 }
 

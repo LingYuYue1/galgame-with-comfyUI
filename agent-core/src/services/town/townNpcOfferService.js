@@ -176,7 +176,7 @@ async function requestOffers(kind, npc, options = {}) {
   const llm = options.llm?.chatSync || chatSync;
   const label = kind === 'service' ? '小镇服务项目生成' : '小镇打工项目生成';
   const messages = buildNpcOfferMessages(kind, npc);
-  const out = await llm(messages, { temperature: 0.9, max_tokens: 1600, label, lorebook:{personaTexts:[messages.at(-2).content],characterName:npc.display_name} });
+  const out = await llm(messages, { temperature: 0.9, label, lorebook:{personaTexts:[messages.at(-2).content],characterName:npc.display_name} });
   return parseNpcOfferPayload(out);
 }
 

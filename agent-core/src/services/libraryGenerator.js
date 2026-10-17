@@ -17,7 +17,7 @@ export async function describeLibraryImage(input) {
     { type: 'text', text: `请为${type === 'event-types' ? '奇遇事件库' : '朋友圈话题库'}还原图中场景，输出一段场景方向。${direction ? `\n额外要求：${direction}` : ''}` },
     { type: 'image_url', image_url: { url: image } },
   ] });
-  const result = await chatSync(msgs, { temperature: 0.3, max_tokens: 700, label: '事件库-图片场景识别', lorebook:false });
+  const result = await chatSync(msgs, { temperature: 0.3, label: '事件库-图片场景识别', lorebook:false });
   if (typeof result !== 'string' || !result.trim()) throw new Error('未识别到场景，请换张图片重试');
   return result.trim();
 }
@@ -142,7 +142,7 @@ export async function generateEventTypes(direction = '') {
 
   const raw = await chatSync(
     msgs,
-    { temperature: 0.7, max_tokens: 4096, response_format: { type: 'json_object' }, label: '事件库-事件类型生成' }
+    { temperature: 0.7, response_format: { type: 'json_object' }, label: '事件库-事件类型生成' }
   );
 
   const jsonStr = extractFirstJson(raw);
@@ -208,7 +208,7 @@ export async function generateTopics(direction = '') {
 
   const raw = await chatSync(
     msgs,
-    { temperature: 0.7, max_tokens: 2048, response_format: { type: 'json_object' }, label: '事件库-话题生成' }
+    { temperature: 0.7, response_format: { type: 'json_object' }, label: '事件库-话题生成' }
   );
 
   const jsonStr = extractFirstJson(raw);

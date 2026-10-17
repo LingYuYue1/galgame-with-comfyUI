@@ -58,7 +58,7 @@ export async function generateMediaOutletDraft({ brief, layout = 'portal' } = {}
   messages.push({ role: 'system', content: MEDIA_OUTLET_DESIGN_PROMPT });
   messages.push({ role: 'user', content: `设计一个${layout === 'portal' ? '数字报刊（portal）' : '社交平台（feed）'}栏目，按示例 JSON 返回草稿。\n我的想法：${brief.trim()}` });
   const raw = await chatSync(messages, {
-    temperature: 0.8, max_tokens: 4000, response_format: { type: 'json_object' }, label: 'media:栏目生成助手',
+    temperature: 0.8, response_format: { type: 'json_object' }, label: 'media:栏目生成助手',
   });
   let parsed;
   try { parsed = JSON.parse(raw); } catch { throw new Error('栏目草稿格式不正确，请重新生成'); }

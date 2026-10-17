@@ -251,7 +251,7 @@ function loadNpc(db, npcId) {
 async function requestStock(npc, plan, options = {}) {
   const llm = options.llm?.chatSync || chatSync;
   const messages = buildStockMessages(npc, plan);
-  const text = await llm(messages, { temperature: 0.95, max_tokens: 2000, label: '小镇货架生成', lorebook:{personaTexts:[messages.at(-2).content],characterName:npc.display_name} });
+  const text = await llm(messages, { temperature: 0.95, label: '小镇货架生成', lorebook:{personaTexts:[messages.at(-2).content],characterName:npc.display_name} });
   return parseStockPayload(text, plan);
 }
 

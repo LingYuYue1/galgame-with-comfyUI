@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { load as yamlLoad } from 'js-yaml';
 import { config, updateComfyConfig, getNovelaiApiKey, updateFeatureFlag, getLlmConfig, getLlmApiKey, updateLlmConfig, updateFreeEggEnabled, updateUserConfig, getUserConfig, updateProactiveFreq, updateEventFreq, updateMomentFreq, updateBackgroundConcurrency, updateDisturbMode, updateDisturbSettings, updateWorkflowMode, updateWorkflowScene, updateWorkflowCustomTemplate, getWorkflowConfig, getLlmProfiles, getActiveProfileId, addLlmProfile, deleteLlmProfile, activateLlmProfile, syncActiveLlmProfile, updateWeatherConfig, updateGlobalLora, updateHiresSettings, updateHiresLora, updateGroupSummaryInterval, updateGroupTemperature, updateGroupActivity, updateScheduleRefreshDays } from '../config.js';
 import { resetClient, chatSync, resetFreeEggFailureCount, testLlmConnection } from '../llm/llm-client.js';
+import { normalizeModelCapabilities } from '../llm/modelCapabilities.js';
 import { getDb, getSystemRules } from '../db/index.js';
 import { listWorldSettings, getActiveWorldSetting, getWorldSettingById, createWorldSetting, updateWorldSetting, deleteWorldSetting, activateWorldSetting } from '../db/index.js';
 import { DEFAULT_GLOBAL_RULES } from '../db/seedData.js';
@@ -306,8 +307,8 @@ router.put('/background-llm-concurrency', (req, res) => {
 
 // PUT /api/config/llm — 更新 LLM 配置
 router.put('/llm', (req, res) => {
-  const { apiKey, baseURL, model, thinkingMode, headers, extraBody } = req.body;
-  const result = updateLlmConfig({ apiKey, baseURL, model, thinkingMode, headers, extraBody });
+  const { apiKey, baseURL, model, thinkingMode, maxTokens, headers, extraBody } = req.body;
+  const result = updateLlmConfig({ apiKey, baseURL, model, thinkingMode, maxTokens, headers, extraBody });
   if (!result.ok) {
     return res.status(400).json(result);
   }
@@ -359,6 +360,8 @@ router.post('/llm/test', async (req, res) => {
       baseURL: req.body?.baseURL || config.llm.baseURL,
       apiKey: req.body?.apiKey || config.llm.apiKey,
       model: req.body?.model || config.llm.model,
+      maxTokens: req.body?.maxTokens ?? config.llm.maxTokens,
+      thinkingMode: req.body?.thinkingMode ?? config.llm.thinkingMode,
       headers: req.body?.headers || config.llm.headers,
       extraBody: req.body?.extraBody || config.llm.extraBody,
     });
@@ -424,7 +427,7 @@ router.post('/llm/models', async (req, res) => {
     if (!models.length) {
       return res.status(502).json({ error: '接口未返回可识别的模型列表' });
     }
-    res.json({ ok: true, models, endpoint: modelsURL.toString() });
+    res.json({ ok: true, models, capabilities: normalizeModelCapabilities(rows), endpoint: modelsURL.toString() });
   } catch (error) {
     const message = error?.name === 'TimeoutError' ? '请求超时' : error.message;
     res.status(502).json({ error: `获取模型失败：${message}` });
@@ -974,7 +977,7 @@ const systemPrompt = `你是一名资深的世界观设定师，擅长撰写「�
     msgs.push({ role: 'system', content: systemPrompt });
     msgs.push({ role: 'user', content: userPrompt });
 
-    const result = await chatSync(msgs, { model, temperature: 0.7, max_tokens: 4096, label: '世界观润色' });
+    const result = await chatSync(msgs, { model, temperature: 0.7, label: '世界观润色' });
 
     // 防御：剥离可能包裹输出的 Markdown 代码块
     let polished = (result || '').trim();

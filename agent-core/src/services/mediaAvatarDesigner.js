@@ -52,7 +52,7 @@ export async function designMediaAvatars(direction = '', count = AVATAR_PROMPT_B
   let validationError;
   for (let attempt = 0; attempt < 2; attempt++) {
     const raw = await chatSync([...messages, { role: 'user', content: task + (validationError ? `\n上次输出校验失败：${validationError.message}。请重新输出完整结果。` : '') }], {
-      temperature: 1, max_tokens: 6000, response_format: { type: 'json_object' }, label: 'media:默认头像设计',
+      temperature: 1, response_format: { type: 'json_object' }, label: 'media:默认头像设计',
     });
     try {
       let parsed;

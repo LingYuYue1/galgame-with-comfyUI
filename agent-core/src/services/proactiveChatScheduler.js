@@ -486,7 +486,7 @@ ${proactiveRules}
     });
     const result = await chatWithoutLorebook(
       lorebookTurn.messages,
-      { temperature: 0.7, max_tokens: 128, label: '主动聊天' }
+      { temperature: 0.7, label: '主动聊天' }
     );
 
     let greeting = (result || '').trim();
@@ -632,7 +632,7 @@ ${motiveName}
 
 直接输出英文画面描述，不要任何格式包装或额外文字` },
       ],
-      { temperature: 0.7, max_tokens: 1024, label: '主动聊天配图prompt' }
+      { temperature: 0.7, label: '主动聊天配图prompt' }
     );
 
     let prompt;

@@ -56,6 +56,7 @@ export async function prepareLorebook(messages, options = {}) {
         context.vectorIds = await recallLorebook(book, history.slice(-book.settings.vectorQueryMessages).map(m=>m.content).join('\n'));
       } catch (error) { context.vectorError = `向量召回不可用：${error.message}`; }
     }
+    // 这里只为回复预留上下文空间，不作为 API 的输出上限发送。
     const availableTokens = Math.max(0, (options.contextTokens || book.settings.contextTokens) - (options.maxOutputTokens || 4096) - messages.reduce((n,m)=>n+estimateTokens(text(m))+4,0));
     try { activation = await runLorebookTask('evaluate', [book.document, book.settings, { ...context, availableTokens }, previous]); }
     catch (error) { return failed(error); }
@@ -78,14 +79,14 @@ export async function prepareLorebook(messages, options = {}) {
 }
 
 export async function chatSync(messages, opts = {}) {
-  const prepared = await prepareLorebook(messages, opts.lorebook === false ? false : { maxOutputTokens:opts.max_tokens, ...(opts.lorebook || {}) });
+  const prepared = await prepareLorebook(messages, opts.lorebook === false ? false : (opts.lorebook || {}));
   const client = await import('../../llm/llm-client.js');
   const result = await client.chatSync(prepared.messages, opts);
   prepared.commit(); return result;
 }
 
 export async function* chatStream(messages, opts = {}) {
-  const prepared = await prepareLorebook(messages, opts.lorebook === false ? false : { maxOutputTokens:opts.max_tokens, ...(opts.lorebook || {}) });
+  const prepared = await prepareLorebook(messages, opts.lorebook === false ? false : (opts.lorebook || {}));
   const client = await import('../../llm/llm-client.js');
   yield* client.chatStream(prepared.messages, opts); prepared.commit();
 }

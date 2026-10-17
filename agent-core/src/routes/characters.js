@@ -56,7 +56,7 @@ router.post('/clothing-appearance-draft', async (req, res) => {
       persona: buildCharacterPersona({ ...character, base_prompt: basePrompt }, { variant: 'full', outfits: null }),
       scene, entries, brief: brief.trim(),
     });
-    const raw = await chatSync(messages, { model: config.llm.model || 'deepseek-chat', temperature: 0.6, max_tokens: 1800, label: '衣服库外观生成' });
+    const raw = await chatSync(messages, { model: config.llm.model || 'deepseek-chat', temperature: 0.6, label: '衣服库外观生成' });
     res.json({ appearance: parseClothingAppearance(raw, entries, scene), tags: entries.map(entry => entry.tag) });
   } catch (error) {
     res.status(502).json({ error: `生成服装提示词失败：${error.message}` });
@@ -758,7 +758,7 @@ async function runPersonaGeneration({
   msgs.push({ role: 'system', content: systemPrompt });
   msgs.push({ role: 'user', content: description.trim() });
 
-  const result = await chatSync(msgs, { model, temperature, max_tokens: 4096, label: '创造角色' });
+  const result = await chatSync(msgs, { model, temperature, label: '创造角色' });
 
   // 解析输出：第1行 display_name，第2行 name，第3行起 base_prompt
   const lines = result.split('\n');
@@ -1219,7 +1219,7 @@ ${buildCharacterPersona(char, { variant: 'full' })}
     const llmResult = await chatSync([
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userMsg },
-    ], { model, temperature: 0.6, max_tokens: 1024, label: '生成头像提示词' });
+    ], { model, temperature: 0.6, label: '生成头像提示词' });
 
     // 提取 prompt：纯文本优先，JSON 格式向后兼容
     let promptText;
@@ -1384,7 +1384,6 @@ router.post('/:id/generate-standing', async (req, res) => {
     const llmResult = await chatSync(buildStandingMessages(char, requirement, mode), {
       model,
       temperature: 0.7,
-      max_tokens: 1024,
       label: '生成立绘提示词',
     });
 
@@ -1541,7 +1540,6 @@ router.post('/:id/generate-standing-task', async (req, res) => {
       const llmResult = await chatSync(buildStandingMessages(char, requirement, mode), {
         model,
         temperature: 0.7,
-        max_tokens: 1024,
         label: '生成立绘提示词',
       });
 
@@ -1677,7 +1675,6 @@ async function generateSceneStandingPrompt(char, scene, requirement, mode, promp
     const llmResult = await chatSync(buildStandingMessages(char, requirement, mode, scene), {
       model,
       temperature: 0.7,
-      max_tokens: 1024,
       label: '生成角色形象',
     });
     promptText = llmResult.trim()
@@ -1829,7 +1826,7 @@ router.post('/refine-appearance-draft', async (req, res) => {
           { type: 'image_url', image_url: { url: image } },
         ],
       },
-    ], { model, temperature: 0.3, max_tokens: 1024, label: '修正外观' });
+    ], { model, temperature: 0.3, label: '修正外观' });
 
     // 剥掉代码围栏与引号包装，压成单段
     let appearance = llmResult.trim()
@@ -1949,7 +1946,7 @@ router.post('/expand-appearance-draft', async (req, res) => {
         role: 'user',
         content: `用户想要的外观要点：\n${brief}\n\n请按规定格式输出一段完整外观描述。`,
       },
-    ], { model, temperature: 0.75, max_tokens: 1024, label: '外观扩写' });
+    ], { model, temperature: 0.75, label: '外观扩写' });
 
     // 与图片模式同一套清洗：剥代码围栏与引号，压成单段
     const appearance = String(llmResult || '').trim()

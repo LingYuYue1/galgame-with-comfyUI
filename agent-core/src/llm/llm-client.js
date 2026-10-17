@@ -4,6 +4,7 @@ import { config, updateFreeEggEnabled, FREE_EGG_MODELS } from '../config.js';
 import { compressLlmImageInputs } from '../services/llmImageInput.js';
 import { acquireSlot, releaseSlot } from '../services/llmConcurrency.js';
 import { recordLlmCall } from '../services/llmTelemetry.js';
+import { defaultMaxTokens, isValidMaxTokens } from './modelCapabilities.js';
 
 const _limitEnabled = () => config.features.serializeBackgroundLLM;
 
@@ -25,11 +26,36 @@ function configuredThinking() {
   return { type: config.llm.thinkingMode === 'enabled' ? 'enabled' : 'disabled' };
 }
 
+// 统一使用设置页的输出额度，旧业务参数不再单独限制输出。
+// extraBody 可选择协议字段，但数值始终以 MAX_tokens 设置为准。
+function applyOutputTokenLimit(params, maxTokens = config.llm.maxTokens, baseURL = config.llm.baseURL) {
+  const field = Object.hasOwn(params, 'max_completion_tokens') ? 'max_completion_tokens' : 'max_tokens';
+  delete params.max_tokens;
+  delete params.max_completion_tokens;
+  delete params.max_output_tokens;
+  params[field] = isValidMaxTokens(maxTokens) ? maxTokens : defaultMaxTokens(baseURL, params.model);
+}
+
 // 模型输出日志上限：小镇相关日志（label 以「小镇」开头）完全输出，不截断
 function outputLogLimit(label) {
   const name = String(label || '');
   if (name.startsWith('小镇')) return Infinity;
   return name.startsWith('schedule-gen:') ? 300 : 2000;
+}
+
+// 思考内容仅进入日志，不混入业务正文；完整打印，便于检查服务商实际返回的内容。
+function logReasoning(label, reasoning) {
+  console.log(`[${providerLabel()} ← ${label} 思考链]`);
+  console.log(reasoning || '(服务商未返回思考内容)');
+}
+
+function logResponse(label, content, reasoning) {
+  logReasoning(label, reasoning);
+  console.log(`[${providerLabel()} ← ${label} 正文]`);
+  const outputText = content || '';
+  const outputLimit = outputLogLimit(label);
+  console.log(outputLimit === Infinity ? outputText : outputText.slice(0, outputLimit));
+  if (outputLimit !== Infinity && outputText.length > outputLimit) console.log(`... (${outputText.length} chars total, truncated)`);
 }
 
 // 复用单个 OpenAI 客户端实例，避免每次调用都创建新的 HTTP Agent
@@ -197,7 +223,7 @@ async function _chatSyncFreeEgg(messages, opts) {
  * @param {AbortSignal} opts.signal - 覆盖排队、退避、请求与免费模型切换；取消后不再重发
  * @param {number} opts.timeout - SDK 单次请求超时 ms（不含排队）；缺省沿用 SDK 默认
  * @param {number} opts.maxRetries - SDK 内部重试次数；与外层 retries 独立，缺省不变
- * @param {boolean} opts.returnMeta - true 时返回 { content, finishReason }（判断是否被 max_tokens 截断）；缺省仍只返回 content 字符串
+ * @param {boolean} opts.returnMeta - true 时返回 { content, finishReason }（判断是否被服务端长度限制截断）；缺省仍只返回 content 字符串
  * @param {boolean} opts.freeEggFailover - false 禁止免费模型轮换/回退自有端点，缺省保持旧行为
  * 单次请求用 { signal, timeout: 10000, retries: 0, maxRetries: 0, freeEggFailover: false }。
  */
@@ -273,7 +299,8 @@ async function syncRetryDelay(ms, signal) {
  * 用当前或表单中的 LLM 配置发一次最小对话请求，用于设置页的连接测试。
  * 不修改全局 config，也不走免费鸡蛋/并发队列，避免影响真实聊天请求。
  */
-export async function testLlmConnection({ baseURL, apiKey, model, headers = {}, extraBody = {} } = {}) {
+export async function testLlmConnection({ baseURL, apiKey, model, maxTokens = config.llm.maxTokens, thinkingMode = config.llm.thinkingMode, headers = {}, extraBody = {} } = {}) {
+  if (maxTokens !== undefined && !isValidMaxTokens(maxTokens)) throw Object.assign(new Error('MAX_tokens 必须为正整数'), { status: 400 });
   const effectiveBaseURL = String(baseURL || config.llm.baseURL || '').trim().replace(/\/+$/, '');
   if (!effectiveBaseURL) throw new Error('API 地址未配置');
   try {
@@ -303,9 +330,10 @@ export async function testLlmConnection({ baseURL, apiKey, model, headers = {}, 
   const params = {
     model: effectiveModel,
     messages: [{ role: 'user', content: 'ping' }],
-    max_tokens: 8,
   };
+  if (thinkingMode !== 'omit') params.thinking = { type: thinkingMode === 'enabled' ? 'enabled' : 'disabled' };
   Object.assign(params, effectiveExtraBody);
+  applyOutputTokenLimit(params, maxTokens, effectiveBaseURL);
 
   const startedAt = Date.now();
   const response = await client.chat.completions.create(params);
@@ -338,7 +366,7 @@ function compressLogMessages(messages) {
   });
 }
 
-async function _chatSyncInner(messages, { model = config.llm.model || 'deepseek-flash', max_tokens = 2048, temperature = 0.7, response_format, thinking, label = 'sync', retries = 2, retryDelay = 1000, signal, timeout, maxRetries } = {}) {
+async function _chatSyncInner(messages, { model = config.llm.model || 'deepseek-flash', temperature = 0.7, response_format, thinking, label = 'sync', retries = 2, retryDelay = 1000, signal, timeout, maxRetries } = {}) {
   throwIfSyncAborted(signal);
   if (config.features.mergeMessages) messages = mergeConsecutiveRoles(messages);
   const limited = _limitEnabled();
@@ -352,7 +380,6 @@ async function _chatSyncInner(messages, { model = config.llm.model || 'deepseek-
   const params = {
     model,
     messages,
-    max_tokens,
   };
   // temperature 为 null 时不发送（deepseek-reasoner 不支持此参数）
   if (temperature != null) {
@@ -372,6 +399,7 @@ async function _chatSyncInner(messages, { model = config.llm.model || 'deepseek-
   if (extraBody && Object.keys(extraBody).length > 0) {
     Object.assign(params, extraBody);
   }
+  applyOutputTokenLimit(params);
 
   // 日志打印时压缩 ANIMA3 模板内容，避免刷屏
   const logMsgs = compressLogMessages(messages);
@@ -400,14 +428,12 @@ async function _chatSyncInner(messages, { model = config.llm.model || 'deepseek-
       // 请求+响应一起输出，保证每次调用的日志是完整的原子块
       console.log(requestLog);
       console.log(`[${providerLabel()} ← ${label}]`);
-      const outputLimit = outputLogLimit(label);
-      const outputText = content || '';
-      console.log(outputLimit === Infinity ? outputText : outputText.slice(0, outputLimit));
+      logResponse(label, content, choice.message.reasoning_content);
       logUsage(label, res.usage);
       recordLlmCall(label, res.usage);
       console.log('═════════════════════════════════════════════\n');
 
-      // finish_reason 只在 opts.returnMeta 时回传：调用方用它判断输出是不是被 max_tokens 砍断
+      // finish_reason 只在 opts.returnMeta 时回传：调用方用它判断输出是否被服务端长度限制截断
       return { content, finishReason: choice.finish_reason ?? null, usage: res.usage ?? null, model: res.model ?? model };
     } catch (err) {
       throwIfSyncAborted(signal, err);
@@ -514,7 +540,6 @@ export async function* chatStream(messages, opts = {}) {
 
 async function* _chatStreamInner(messages, {
   model = config.llm.model || 'deepseek-flash',
-  max_tokens = 4096,
   temperature = 0.7,
   thinking,
   label = 'stream',
@@ -523,6 +548,7 @@ async function* _chatStreamInner(messages, {
   if (config.features.mergeMessages) messages = mergeConsecutiveRoles(messages);
   if (_limitEnabled()) await acquireSlot();
   let total = '';
+  let reasoning = '';
 
   try {
     console.log(`\n══════════ [${providerLabel()} → ${label}] ══════════`);
@@ -534,7 +560,6 @@ async function* _chatStreamInner(messages, {
     const params = {
       model,
       messages,
-      max_tokens,
       temperature,
       stream: true,
     };
@@ -555,6 +580,7 @@ async function* _chatStreamInner(messages, {
     if (extraBody && Object.keys(extraBody).length > 0) {
       Object.assign(params, extraBody);
     }
+    applyOutputTokenLimit(params);
 
     const stream = await getClient().chat.completions.create(params, { signal });
 
@@ -568,7 +594,9 @@ async function* _chatStreamInner(messages, {
         break;
       }
       if (chunk.usage) usage = chunk.usage;
-      const delta = chunk.choices?.[0]?.delta?.content;
+      const messageDelta = chunk.choices?.[0]?.delta;
+      if (typeof messageDelta?.reasoning_content === 'string') reasoning += messageDelta.reasoning_content;
+      const delta = messageDelta?.content;
       if (delta) {
         total += delta;
         yield delta;
@@ -576,14 +604,12 @@ async function* _chatStreamInner(messages, {
     }
 
     console.log(`[${providerLabel()} ← ${label} end]`);
-    const outputText = total || '(empty)';
-    const outputLimit = outputLogLimit(label);
-    console.log(outputLimit === Infinity ? outputText : outputText.slice(0, outputLimit));
-    if (outputLimit !== Infinity && outputText.length > outputLimit) console.log(`... (${outputText.length} chars total, truncated)`);
+    logResponse(label, total || '(empty)', reasoning);
     logUsage(label, usage);
     recordLlmCall(label, usage);
     console.log('═══════════════════════════════════════════════\n');
   } catch (err) {
+    if (reasoning) logReasoning(`${label}（流中断，已收到的部分）`, reasoning);
     // 客户端主动中断不是错误，静默返回
     if (signal?.aborted || err.name === 'AbortError') {
       console.log(`[${providerLabel()} ← ${label}] aborted by client`);

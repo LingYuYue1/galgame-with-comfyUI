@@ -190,7 +190,6 @@ async function processReplyQueue() {
     });
     const fullReply = await chatSync(lorebookTurn.messages, {
       temperature: 0.72,
-      max_tokens: 512,
       label: `delayed-reply:${entry.display_name}`,
     });
 

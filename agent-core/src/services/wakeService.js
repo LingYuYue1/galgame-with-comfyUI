@@ -74,7 +74,6 @@ export async function processWakeUp(characterId, mode, attempts = null) {
     });
     fullReply = await chatSync(lorebookTurn.messages, {
       temperature: 0.7,
-      max_tokens: 512,
       label: `wake-up:${char.display_name}:${mode}`,
     });
   } catch (err) {

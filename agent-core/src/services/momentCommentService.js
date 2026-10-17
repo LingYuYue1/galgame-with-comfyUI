@@ -267,7 +267,7 @@ ${commentHistory ? `\n\n评论区目前的对话：\n---\n${commentHistory}\n---
   msgs.push({ role: 'user', content: userMsg });
 
   const chat = opts.deps?.chatSync || chatSync;
-  const result = await chat(msgs, { temperature: 0.7, max_tokens: 128, label: '回评', lorebook:{personaTexts:[character.base_prompt],characterName:displayName,history:[{role:'user',content:visibleContent},...historyComments.map(c=>({role:c.author_type==='character'?'assistant':'user',content:formatCommentLine(c)}))],scenario:visibleContent} });
+  const result = await chat(msgs, { temperature: 0.7, label: '回评', lorebook:{personaTexts:[character.base_prompt],characterName:displayName,history:[{role:'user',content:visibleContent},...historyComments.map(c=>({role:c.author_type==='character'?'assistant':'user',content:formatCommentLine(c)}))],scenario:visibleContent} });
   return String(result || '').trim().replace(/^["']|["']$/g, '').slice(0, 200);
 }
 

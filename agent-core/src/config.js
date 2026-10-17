@@ -5,6 +5,7 @@ import fs from 'fs';
 // 设置读写走独立的 db/settings 模块（不经过 db/index.js，避免形成 config ↔ db 循环依赖）
 import { setSetting, getSetting } from './db/settings.js';
 import { notifyWeatherSourceChange } from './services/weatherSource.js';
+import { defaultMaxTokens, isValidMaxTokens } from './llm/modelCapabilities.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const envPath = resolve(__dirname, '..', '.env');
@@ -32,6 +33,7 @@ export const config = {
     _apiKey: process.env.LLM_API_KEY || process.env.DEEPSEEK_API_KEY,
     _baseURL: process.env.LLM_BASE_URL || process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com',
     _model: process.env.LLM_MODEL || 'deepseek-flash',
+    _maxTokens: isValidMaxTokens(Number(process.env.LLM_MAX_TOKENS)) ? Number(process.env.LLM_MAX_TOKENS) : null,
     _thinkingMode: ['enabled', 'disabled', 'omit'].includes(process.env.LLM_THINKING_MODE)
       ? process.env.LLM_THINKING_MODE
       : 'disabled',
@@ -43,6 +45,8 @@ export const config = {
     set baseURL(v) { this._baseURL = v; },
     get model() { return this.freeEgg ? FREE_EGG_MODEL : this._model; },
     set model(v) { this._model = v; },
+    get maxTokens() { return this.freeEgg ? defaultMaxTokens(this.baseURL, this.model) : (this._maxTokens ?? defaultMaxTokens(this.baseURL, this.model)); },
+    set maxTokens(v) { this._maxTokens = v; },
     get thinkingMode() { return this.freeEgg ? 'disabled' : this._thinkingMode; },
     set thinkingMode(v) { this._thinkingMode = v; },
     get headers() { return this.freeEgg ? {} : this._headers; },
@@ -711,6 +715,7 @@ export function getLlmConfig() {
     baseURL: config.llm.baseURL,
     model: config.llm.model,
     thinkingMode: config.llm.thinkingMode || 'disabled',
+    maxTokens: config.llm.maxTokens,
     headers: config.llm.headers || {},
     extraBody: config.llm.extraBody || {},
   };
@@ -728,7 +733,10 @@ export function updateFreeEggEnabled(enabled) {
   return { ok: true };
 }
 
-export function updateLlmConfig({ apiKey, baseURL, model, thinkingMode, headers, extraBody }) {
+export function updateLlmConfig({ apiKey, baseURL, model, thinkingMode, maxTokens, headers, extraBody }) {
+  if (maxTokens !== undefined && !isValidMaxTokens(maxTokens)) {
+    return { ok: false, error: 'MAX_tokens 必须为正整数' };
+  }
   if (apiKey !== undefined) {
     if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
       return { ok: false, error: 'API Key cannot be empty' };
@@ -750,6 +758,10 @@ export function updateLlmConfig({ apiKey, baseURL, model, thinkingMode, headers,
     }
     config.llm.thinkingMode = thinkingMode;
     persistEnv('LLM_THINKING_MODE', thinkingMode);
+  }
+  if (maxTokens !== undefined || baseURL !== undefined || model !== undefined) {
+    config.llm.maxTokens = maxTokens ?? defaultMaxTokens(config.llm.baseURL, config.llm.model);
+    persistEnv('LLM_MAX_TOKENS', String(config.llm.maxTokens));
   }
   if (headers !== undefined) {
     config.llm.headers = typeof headers === 'string' ? JSON.parse(headers) : headers;
@@ -934,6 +946,7 @@ export function addLlmProfile(name, overrides = {}) {
     baseURL: overrides.baseURL !== undefined ? overrides.baseURL : (config.llm.baseURL || 'https://api.deepseek.com'),
     model: overrides.model !== undefined ? overrides.model : (config.llm.model || 'deepseek-flash'),
     thinkingMode: overrides.thinkingMode !== undefined ? overrides.thinkingMode : (config.llm.thinkingMode || 'disabled'),
+    maxTokens: isValidMaxTokens(overrides.maxTokens) ? overrides.maxTokens : (overrides.baseURL !== undefined || overrides.model !== undefined ? defaultMaxTokens(overrides.baseURL ?? config.llm.baseURL, overrides.model ?? config.llm.model) : config.llm.maxTokens),
     headers: overrides.headers !== undefined ? overrides.headers : (config.llm.headers || {}),
     extraBody: overrides.extraBody !== undefined ? overrides.extraBody : (config.llm.extraBody || {}),
     serializeBackgroundLLM: overrides.serializeBackgroundLLM !== undefined ? overrides.serializeBackgroundLLM : (config.features.serializeBackgroundLLM || false),
@@ -982,6 +995,8 @@ function _applyProfileToConfig(profile) {
     ? profile.thinkingMode
     : 'disabled';
   persistEnv('LLM_THINKING_MODE', config.llm.thinkingMode);
+  config.llm.maxTokens = isValidMaxTokens(profile.maxTokens) ? profile.maxTokens : defaultMaxTokens(config.llm.baseURL, config.llm.model);
+  persistEnv('LLM_MAX_TOKENS', String(config.llm.maxTokens));
   config.llm.headers = profile.headers || {};
   persistEnv('LLM_HEADERS', JSON.stringify(config.llm.headers));
   config.llm.extraBody = profile.extraBody || {};
@@ -1023,6 +1038,7 @@ export function syncActiveLlmProfile() {
     baseURL: config.llm.baseURL || '',
     model: config.llm.model || '',
     thinkingMode: config.llm.thinkingMode || 'disabled',
+    maxTokens: config.llm.maxTokens,
     headers: config.llm.headers || {},
     extraBody: config.llm.extraBody || {},
     serializeBackgroundLLM: config.features.serializeBackgroundLLM || false,

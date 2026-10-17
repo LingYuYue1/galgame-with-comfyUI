@@ -82,7 +82,6 @@ export async function refineTownDraftWithLLM({
     ],
     {
       temperature: 0.75,
-      max_tokens: 1600,
       response_format: { type: 'json_object' },
       label: '小镇 AI 布局优化',
       timeout: 30000,

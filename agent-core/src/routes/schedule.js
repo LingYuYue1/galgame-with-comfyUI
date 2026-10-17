@@ -553,7 +553,6 @@ router.post('/:characterId/peek', async (req, res) => {
       try {
         const rawResult = await chatSync(llmMsgs, {
           temperature: 0.7,
-          max_tokens: 1024,
           label: '瞄一眼人像prompt生成',
         });
 

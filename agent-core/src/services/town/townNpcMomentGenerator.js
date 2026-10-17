@@ -184,8 +184,7 @@ ${weatherHint}`;
 
   let text = '', imagePrompt = '';
   try {
-    const result = await chatSync(msgs, { temperature: 0.8, max_tokens: 2048,
-      response_format: { type: 'json_object' }, label: '镇民朋友圈', lorebook:{personaTexts:[personaMsg],characterName:npc.display_name,characterDescription:personaMsg} });
+    const result = await chatSync(msgs, { temperature: 0.8, response_format: { type: 'json_object' }, label: '镇民朋友圈', lorebook:{personaTexts:[personaMsg],characterName:npc.display_name,characterDescription:personaMsg} });
     const parsed = parseMomentResponse(result);
     text = parsed.text;
     imagePrompt = parsed.imagePrompt || '';

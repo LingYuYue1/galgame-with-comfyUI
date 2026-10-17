@@ -80,7 +80,6 @@ async function judgeAppointmentNeeded(userText, replyText, characterName) {
 
   const raw = await chatSync(msgs, {
     temperature: 0,
-    max_tokens: 100,
     response_format: { type: 'json_object' },
     label: '约定检测判断',
   });
@@ -164,7 +163,6 @@ ${formatExample}
 
   const raw = await chatSync(msgs, {
     temperature: 0.4,
-    max_tokens: 600,
     response_format: { type: 'json_object' },
     label: `约定改日程:${character.display_name}`,
   });

@@ -347,7 +347,6 @@ ${l.reply_content}`;
 
   const userLen = (userContent || '').length;
   const textRange = userLen < 30 ? '100~300字' : userLen <= 50 ? '200~400字' : '300~500字';
-  const maxTokens = 4096;
 
   const taskMsg = `你收到了一封来自 ${userName} 的来信。请以"${charName}"的身份和口吻回复这封信，并用JSON格式返回以下内容：${imageGuideBlock}
 {
@@ -376,7 +375,7 @@ ${userContent}
     }
   }
   try {
-    const raw = await chatSync(msgs, { temperature: 0.7, max_tokens: maxTokens, response_format: { type: 'json_object' }, label: '信箱回信助手', lorebook:{personaTexts:[basePromptWithRing]} });
+    const raw = await chatSync(msgs, { temperature: 0.7, response_format: { type: 'json_object' }, label: '信箱回信助手', lorebook:{personaTexts:[basePromptWithRing]} });
     return parseReplyJSON(raw, userContent);
   } catch (err) {
     console.error('[mailboxScheduler] LLM reply error:', err.message);
@@ -462,7 +461,7 @@ async function condenseAndSave(db, letterId, text) {
     { role: 'system', content: '你是一个文字浓缩助手。把输入的文字浓缩为一句话，不超过50字。只返回浓缩后的文字，不要输出任何解释。' },
     { role: 'user', content: `请浓缩以下文字：\n${text}` },
   ];
-  const condensed = await chatSync(msgs, { temperature: 0.3, max_tokens: 100, label: '信箱浓缩助手', lorebook:false });
+  const condensed = await chatSync(msgs, { temperature: 0.3, label: '信箱浓缩助手', lorebook:false });
   const result = (condensed || '').trim().slice(0, 50);
   if (result) {
     db.prepare('UPDATE mailbox_letters SET content_short = ? WHERE id = ?').run(result, letterId);

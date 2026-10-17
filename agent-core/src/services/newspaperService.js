@@ -368,7 +368,6 @@ export async function generateDailyNewspaper({ replace = false, backgroundImages
   try {
     raw = await chatSync(msgs, {
       temperature: 0.8,
-      max_tokens: 4096,
       response_format: { type: 'json_object' },
       label: '报纸编辑部',
     });

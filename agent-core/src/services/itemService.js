@@ -292,7 +292,6 @@ async function generateItemFlavor(effect) {
 
   const raw = await chatSync(msgs, {
     temperature: 0.7,
-    max_tokens: 800,
     response_format: { type: 'json_object' },
     label: '道具生成',
   });
