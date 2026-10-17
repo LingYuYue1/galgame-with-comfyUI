@@ -18,6 +18,7 @@ import {
   refinePlaceFromImage, refinePlaceFromText,
   LEVEL_LABEL, POI_TYPES,
 } from '../services/worldMapService.js';
+import { getActiveWorldSetting, getWorldSettingById } from '../db/worldRepository.js';
 
 const router = Router();
 
@@ -40,7 +41,19 @@ router.get('/maps', (req, res) => {
 
 router.post('/maps', (req, res) => {
   try {
-    const { name, worldSettingId = null, note = '' } = req.body || {};
+    // 星图（2026-10-17 T02）：建图必须归属一个世界——
+    // 未显式传（null/undefined）→ 回落「激活世界」；连激活世界都没有 → 400。
+    // 该回落让现有前端「不传 / 传 null」的老调用继续可用（兼容矩阵见施工文档 §3.4）。
+    const { name, note = '' } = req.body || {};
+    let worldSettingId = req.body?.worldSettingId ?? null;
+    if (worldSettingId == null) {
+      const active = getActiveWorldSetting();
+      if (!active) return res.status(400).json({ error: '还没有任何世界，请先在星图中新建一个世界再建图' });
+      worldSettingId = active.id;
+    }
+    if (!getWorldSettingById(worldSettingId)) {
+      return res.status(400).json({ error: '指定的世界不存在' });
+    }
     res.json({ ok: true, map: createMap({ name, worldSettingId, note }) });
   } catch (err) { fail(res, err); }
 });

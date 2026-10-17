@@ -294,6 +294,10 @@ function initSchema(db) {
       content TEXT NOT NULL DEFAULT '',
       is_active INTEGER DEFAULT 0,
       sort_order INTEGER DEFAULT 0,
+      -- 星图（2026-10-17 T06）：新库直接建全列；老库由 008_world_columns 迁移补列
+      tagline TEXT NOT NULL DEFAULT '',
+      visual_tone TEXT NOT NULL DEFAULT '',
+      is_enabled INTEGER NOT NULL DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -318,6 +322,8 @@ function initSchema(db) {
       standing_url TEXT,
       emotion_baseline TEXT NOT NULL DEFAULT '{"valence":0.5,"arousal":0.5,"dominance":0.5}',
       moments_disabled INTEGER DEFAULT 0,
+      -- 星图（2026-10-17 T06）：角色「所在/归属世界」（可空 = 未归属，读取回落激活世界）
+      world_setting_id INTEGER,
       short_prompt TEXT,
       artist_override TEXT,
       handwriting_font TEXT DEFAULT '',
@@ -2783,6 +2789,7 @@ export {
   getActiveGlobalRules,
   getWorldSetting,
   getWorldSettingRaw,
+  getWorldSettingSample,
   getActiveWorldSlots,
   getSystemRulesWithWorld,
   getGlobalRule,

@@ -13,7 +13,7 @@
  * 纯函数（normalizeNewspaperDraft / build*Block / buildComplaintTopic 等）导出供测试。
  */
 
-import { getDb, getSystemRules, getWorldSetting, getGlobalRule } from '../db/index.js';
+import { getDb, getSystemRules, getWorldSettingSample, getGlobalRule } from '../db/index.js';
 import { chatSync } from '../llm/llm-client.js';
 import { generateImageRaw } from './imageSkill.js';
 import { recordCompletedImageTask } from './imageTaskRecorder.js';
@@ -352,7 +352,7 @@ export async function generateDailyNewspaper({ replace = false, backgroundImages
     return null;
   }
   const withWorldState = Math.random() < WORLD_STATE_PROBABILITY;
-  const worldSetting = getWorldSetting();
+  const worldSetting = getWorldSettingSample();
   // 世界影响不再由 LLM 自由发挥：直接从宝箱奖励池（服装类 + 变身类）随机抽一样，
   // 全镇居民今天都受到这个效果影响；抽中的主题原文进素材包供编辑部演绎
   const worldLoot = withWorldState ? pickWorldLoot(Boolean(worldSetting)) : null;

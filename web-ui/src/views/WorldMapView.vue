@@ -363,6 +363,14 @@
           </linshe-button>
         </div>
         <div class="we-field">
+          <label>归属世界<span class="we-opt">（这张地图挂在哪个世界下）</span></label>
+          <linshe-select
+            v-model="buildWorldId"
+            size="sm"
+            :options="worldList.map(w => ({ label: w.name + (w.is_active ? ' · 激活' : ''), value: w.id }))"
+          />
+        </div>
+        <div class="we-field">
           <label>起点<span class="we-opt">（可选：复制一张已有地图作为模板）</span></label>
           <linshe-select
             v-model="templateId"
@@ -508,6 +516,9 @@ const refineTarget = reactive({ id: null, name: '' })
 const sceneGenBusy = ref(false)
 const brief = ref('')
 const worldName = ref('')
+// 星图（2026-10-17 T02）：建图归属世界 —— 世界列表 + 选中项（默认激活世界）
+const worldList = ref([])
+const buildWorldId = ref(null)
 const pickerOpen = ref(false)
 const settingsOpen = ref(false)
 
@@ -740,6 +751,9 @@ async function loadWorldName() {
       : (r?.list || r?.world_settings || r?.items || [])
     const active = list.find(w => w.is_active) || null
     worldName.value = active?.name || ''
+    // 星图（T02）：建图默认归属激活世界；没有激活项时取第一个世界
+    worldList.value = list
+    buildWorldId.value = active?.id ?? list[0]?.id ?? null
     worldState.value = active ? 'ok' : 'none'
   } catch {
     worldName.value = ''
@@ -982,7 +996,7 @@ async function onStartFromScratch() {
     const created = await api.createWorldMap({
       name: worldName.value || '我的地图',
       note: brief.value.trim(),
-      worldSettingId: null,
+      worldSettingId: buildWorldId.value || null,
     })
     const r = await api.generateWorldMapSkeleton(created.map.id, { brief: brief.value.trim() })
     map.value = r.map
@@ -1000,7 +1014,7 @@ async function onCreate() {
     // 选了模板 → 复制它的整棵树（比从零生成快，也比在代码里再维护一份模板数据可靠）
     const r = templateId.value
       ? await api.duplicateWorldMap(Number(templateId.value), newMapName.value.trim())
-      : await api.createWorldMap({ name: newMapName.value.trim() })
+      : await api.createWorldMap({ name: newMapName.value.trim(), worldSettingId: buildWorldId.value || null })
     newMapName.value = ''
     templateId.value = ''
     pickerOpen.value = false

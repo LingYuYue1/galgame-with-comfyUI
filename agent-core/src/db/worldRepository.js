@@ -116,6 +116,58 @@ export function getWorldSettingRaw() {
   return (world?.rule_content && world.is_active) ? world.rule_content : null;
 }
 
+/**
+ * 媒体抽卡（星图设计定稿 §9.3-1，用户拍板「每个地方都应该有媒体」）：
+ * 从「启用中」的世界随机抽 min~max 个，各自按**自己的项目库槽位**裁剪后，
+ * 分别包一层 <world_setting name="世界名">。
+ *
+ * 边界：
+ *   · 0 个启用世界（或全为空文本）→ 回退 getWorldSetting()（激活世界）
+ *   · 防打扰 hideWorld 命中 → null（与 getWorldSetting 同口径）
+ *   · 每个世界单独 try/catch：裁剪失败回落不裁（不因一个世界坏掉拖垮整批）
+ *
+ * ⚠ 使用纪律：同一次业务流程**只调用一次**，结果存局部变量复用 ——
+ *   否则会出现「作者取自 A 世界抽样、内容按 B 世界抽样」的错位。
+ */
+export function getWorldSettingSample(min = 1, max = 3) {
+  // 防打扰：与 getWorldSetting 完全同口径
+  if (config.features.disturbMode && config.disturb.hideWorld) {
+    const now = new Date();
+    if (isInDisturbTimeRange(now, config.disturb.startTime, config.disturb.endTime)) {
+      if (!config.disturb.skipWeekends || (now.getDay() !== 0 && now.getDay() !== 6)) {
+        return null;
+      }
+    }
+  }
+
+  const database = handle();
+  const pool = database.prepare(
+    `SELECT * FROM world_settings WHERE is_enabled = 1 AND TRIM(content) <> ''`
+  ).all();
+  if (!pool.length) return getWorldSetting(); // 池空 → 激活世界兜底
+
+  const lo = Math.max(1, Math.min(min, max));
+  const hi = Math.max(lo, max);
+  const n = Math.max(1, Math.min(pool.length, lo + Math.floor(Math.random() * (hi - lo + 1))));
+
+  // Fisher-Yates 洗牌后取前 n 个
+  const arr = pool.slice();
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+
+  return arr.slice(0, n).map((w) => {
+    const raw = `<world_setting name="${w.name}">\n${w.content}\n</world_setting>`;
+    try {
+      // ★ 按该世界**自己**的项目库槽位裁剪（不能用 safeActiveSlots —— 那是激活世界的）
+      return adaptWorldText(raw, 'strip', readProject(slugForWorld(w.name, w.id)));
+    } catch {
+      return raw;
+    }
+  }).join('\n\n');
+}
+
 /** 读激活世界观的槽位；任何异常都回落中性值（不阻断注入） */
 function safeActiveSlots() {
   try {
@@ -285,7 +337,15 @@ export function getSystemRules({ roleplay = true } = {}) {
 
 export function listWorldSettings() {
   const database = handle();
-  return database.prepare(`SELECT * FROM world_settings ORDER BY sort_order, id`).all();
+  // 星图（2026-10-17 T01）：补两个聚合字段供卡片墙显示；原有字段全部保留（w.*），旧弹窗零影响。
+  // characterCount 只数「已归属」的（world_setting_id = 本世界）；NULL 归属是「未归属」，不进任何世界计数。
+  return database.prepare(`
+    SELECT w.*,
+           (SELECT COUNT(*) FROM world_maps m WHERE m.world_setting_id = w.id) AS mapCount,
+           (SELECT COUNT(*) FROM characters c WHERE c.world_setting_id = w.id) AS characterCount
+      FROM world_settings w
+     ORDER BY w.sort_order, w.id
+  `).all();
 }
 
 export function getActiveWorldSetting() {

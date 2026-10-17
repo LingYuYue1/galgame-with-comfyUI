@@ -23,7 +23,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { getDb, getSystemRules, getWorldSetting, getGlobalRule } from '../db/index.js';
+import { getDb, getSystemRules, getWorldSettingSample, getGlobalRule } from '../db/index.js';
 // 媒体删除墓碑要落库（补种逻辑据此跳过"用户删过的"媒体）
 import { getSetting, setSetting } from '../db/settings.js';
 import { chatSync } from '../llm/llm-client.js';
@@ -1181,7 +1181,7 @@ async function generateForumBatch(outlet, count, withCharacters) {
   const authorCount = !withCharacters ? 0 : Math.min(3, Math.max(1, Math.floor(n / 3)));
   const authors = pickActiveCharacters(authorCount);
 
-  const worldSetting = getWorldSetting();
+  const worldSetting = getWorldSettingSample();
   const msgs = [
     { role: 'system', content: [getSystemRules({ roleplay: false }), worldSetting].filter(Boolean).join('\n\n') },
     { role: 'system', content: outlet.prompt },
@@ -1952,7 +1952,7 @@ async function generatePhotoBatch(outlet, count, withCharacters) {
   });
 
   const msgs = [
-    { role: 'system', content: [getSystemRules({ roleplay: false }), getWorldSetting()].filter(Boolean).join('\n\n') },
+    { role: 'system', content: [getSystemRules({ roleplay: false }), getWorldSettingSample()].filter(Boolean).join('\n\n') },
     { role: 'system', content: outlet.prompt },
     { role: 'system', content: buildPhotoFormatPrompt(outlet, boards, plan) },
     {
@@ -2037,7 +2037,7 @@ async function generateGalleryBatch(outlet, count, withCharacters) {
   });
 
   const msgs = [
-    { role: 'system', content: [getSystemRules({ roleplay: false }), getWorldSetting()].filter(Boolean).join('\n\n') },
+    { role: 'system', content: [getSystemRules({ roleplay: false }), getWorldSettingSample()].filter(Boolean).join('\n\n') },
     { role: 'system', content: outlet.prompt },
     { role: 'system', content: buildGalleryFormatPrompt(outlet, boards, plan) },
     {
@@ -2165,7 +2165,7 @@ ${buildAliasRuleBlock()}${imageRules ? `\n\n生图规则（image_prompt 必须�
  */
 async function generateWeeklyIssue(outlet, manual = false) {
   const db = getDb();
-  const worldSetting = getWorldSetting();
+  const worldSetting = getWorldSettingSample();
 
   // 上一期的卷号（本期 = 上期 + 1；首次出刊从 Vol.1 起）
   const prev = db.prepare(`
@@ -2322,7 +2322,7 @@ function buildPosterFormatPrompt() {
 /** 生成一张海报（落库为 1 条 media_post；主图走 image，小图存在 payload 里） */
 async function generatePosterIssue(outlet, manual = false) {
   const db = getDb();
-  const worldSetting = getWorldSetting();
+  const worldSetting = getWorldSettingSample();
 
   // 上一期的编号
   const prev = db.prepare(`
@@ -2549,7 +2549,7 @@ function isPortalPayload(payload) {
  */
 async function generatePortalIssue(outlet, manual = false) {
   const db = getDb();
-  const worldSetting = getWorldSetting();
+  const worldSetting = getWorldSettingSample();
 
   const prev = db.prepare(`
     SELECT payload_json FROM media_posts
@@ -2697,7 +2697,7 @@ export async function generatePortalSection(postId, sectionKey) {
   if (section.body) return { ok: true, cached: true, section };
 
   const outlet = db.prepare('SELECT * FROM media_outlets WHERE id = ?').get(row.outlet_id);
-  const worldSetting = getWorldSetting();
+  const worldSetting = getWorldSettingSample();
 
   const raw = await chatSync([
     { role: 'system', content: [getSystemRules({ roleplay: false }), worldSetting].filter(Boolean).join('\n\n') },
@@ -2958,7 +2958,7 @@ export async function generateMediaBatch({ outletId = null, count = DEFAULT_BATC
     const authorCount = !withCharacters ? 0 : Math.min(3, Math.max(1, Math.floor(n / 2)));
     const authors = pickActiveCharacters(authorCount);
 
-    const worldSetting = getWorldSetting();
+    const worldSetting = getWorldSettingSample();
     const msgs = [
       { role: 'system', content: [getSystemRules({ roleplay: false }), worldSetting].filter(Boolean).join('\n\n') },
       { role: 'system', content: outlet.prompt },
