@@ -5,6 +5,7 @@ import android.annotation.SuppressLint
 import android.app.ActivityManager
 import android.content.ContentValues
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import org.json.JSONObject
 import android.graphics.BitmapFactory
@@ -18,6 +19,7 @@ import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Base64
 import android.view.View
+import android.view.WindowManager
 import android.webkit.ValueCallback
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
@@ -41,6 +43,9 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import java.io.File
 import java.util.concurrent.Executors
 
@@ -181,11 +186,13 @@ class MainActivity : AppCompatActivity() {
         webView.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
                 gravitySensor.stop()
+                updateGalgameSystemBars(url)
                 super.onPageStarted(view, url, favicon)
             }
 
             override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
                 if (!canUseStandingGravity()) gravitySensor.stop()
+                updateGalgameSystemBars(url)
                 super.doUpdateVisitedHistory(view, url, isReload)
             }
 
@@ -323,6 +330,53 @@ class MainActivity : AppCompatActivity() {
         inForeground = true
         gravityForeground = true
         notifyGravityLifecycle()
+        updateGalgameSystemBars()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        updateGalgameSystemBars()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) updateGalgameSystemBars()
+    }
+
+    /** Only the configured server's landscape Galgame uses the full display. */
+    private fun updateGalgameSystemBars(url: String? = if (::webView.isInitialized) webView.url else null) {
+        if (!::webView.isInitialized) return
+        val current = Uri.parse(url ?: "")
+        val configured = Uri.parse(prefs.getString(KEY_URL, "") ?: "")
+        val route = Uri.parse(current.fragment.orEmpty())
+        fun port(uri: Uri) = if (uri.port != -1) uri.port else if (uri.scheme == "https") 443 else 80
+        val immersive = webView.visibility == View.VISIBLE &&
+            resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
+            current.scheme in listOf("http", "https") && current.scheme == configured.scheme &&
+            current.host != null && current.host.equals(configured.host, ignoreCase = true) &&
+            port(current) == port(configured) &&
+            current.path.orEmpty().trimEnd('/') == configured.path.orEmpty().trimEnd('/') &&
+            route.path.orEmpty().matches(Regex("/chat/[^/]+")) && route.getQueryParameter("mode") == "galgame"
+        // Cutout permission expands the window, but DecorView otherwise still
+        // insets its content, exposing a blank strip beside the WebView.
+        WindowCompat.setDecorFitsSystemWindows(window, !immersive)
+        // Hiding system bars alone leaves a black strip beside the camera cutout.
+        // Let the stage fill it; the page keeps controls inside CSS safe-area insets.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val cutoutMode = if (immersive) {
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            } else {
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
+            }
+            if (window.attributes.layoutInDisplayCutoutMode != cutoutMode) {
+                window.attributes = window.attributes.apply { layoutInDisplayCutoutMode = cutoutMode }
+                window.decorView.requestApplyInsets()
+            }
+        }
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        if (immersive) controller.hide(WindowInsetsCompat.Type.systemBars())
+        else controller.show(WindowInsetsCompat.Type.systemBars())
     }
 
     override fun onPause() {
@@ -634,6 +688,7 @@ class MainActivity : AppCompatActivity() {
         setupPanel.visibility = View.GONE
         webView.visibility = View.VISIBLE
         notifyGravityLifecycle()
+        updateGalgameSystemBars()
     }
 
     private fun showSetup(error: String?) {
@@ -648,6 +703,7 @@ class MainActivity : AppCompatActivity() {
         hintText.text = error ?: getString(R.string.setup_hint)
         webView.visibility = View.GONE
         setupPanel.visibility = View.VISIBLE
+        updateGalgameSystemBars()
         if (::gravitySensor.isInitialized) gravitySensor.stop()
         notifyGravityLifecycle()
     }

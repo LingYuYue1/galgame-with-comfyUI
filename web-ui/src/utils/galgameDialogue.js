@@ -43,7 +43,11 @@ export function repaginateDialogue(text, layout, previous, reset = false) {
   if (reset) return { pages, pageIndex: 0, revealed: 0 }
   let offset = previous.pages.slice(0, previous.pageIndex).reduce((sum, page) => sum + dialogueCharacters(page).length, 0) + previous.revealed
   let pageIndex = 0
-  while (pageIndex < pages.length - 1 && offset > dialogueCharacters(pages[pageIndex]).length) {
+  // At the start of an unread page, the exact boundary belongs to that next page.
+  // A completed page still stays completed until the player explicitly advances.
+  const atUnreadPageStart = previous.pageIndex > 0 && previous.revealed === 0
+  while (pageIndex < pages.length - 1 && (offset > dialogueCharacters(pages[pageIndex]).length ||
+    (atUnreadPageStart && offset === dialogueCharacters(pages[pageIndex]).length))) {
     offset -= dialogueCharacters(pages[pageIndex]).length
     pageIndex++
   }
