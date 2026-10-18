@@ -56,6 +56,7 @@ export const SETTING_TO_CONFIG = {
   llm_vertex_service_account: { obj: 'llm', key: 'vertexServiceAccount', type: 'string' },
   image_provider:         { obj: 'comfyui',   key: 'imageProvider',    type: 'string'  },
   novelai_api_format:     { obj: 'comfyui', key: 'novelaiApiFormat', type: 'string' },
+  novelai_proxy_url: { obj: 'comfyui', key: 'novelaiProxyUrl', type: 'string' },
   novelai_url:            { obj: 'comfyui',   key: 'novelaiUrl',       type: 'string'  },
   novelai_model:          { obj: 'comfyui',   key: 'novelaiModel',     type: 'string'  },
   novelai_artist:          { obj: 'comfyui',   key: 'novelaiArtist',   type: 'string'  },

@@ -42,6 +42,7 @@ const imports = {
   dotenv: stub('export default { config() {} };'), fs: fsUrl,
   './db/settings.js': settingsUrl,
   './services/weatherSource.js': stub('export const notifyWeatherSourceChange = () => {};'),
+  './services/novelaiClient.js': new URL('../src/services/novelaiClient.js', import.meta.url).href,
   './llm/modelCapabilities.js': new URL('../src/llm/modelCapabilities.js', import.meta.url).href,
   './llm/vertex-client.js': new URL('../src/llm/vertex-client.js', import.meta.url).href,
 };
@@ -50,6 +51,24 @@ const source = "const fixtureEnv = {};\n" + readFileSync(configUrl, 'utf8')
   .replace('fileURLToPath(import.meta.url)', JSON.stringify(fileURLToPath(configUrl)))
   .replace(/from '([^']+)'/g, (match, specifier) => imports[specifier] ? `from ${JSON.stringify(imports[specifier])}` : match);
 const runtime = await import(stub(source));
+
+test('NovelAI native protocol, proxy and normalized key persist and reload', async () => {
+  runtime.updateComfyConfig({ novelaiApiFormat: 'native', novelaiProxyUrl: ' http://127.0.0.1:7890 ', novelaiUrl: 'https://relay.example/ai/generate-image/', novelaiApiKey: ' Bearer test-novelai-key ' });
+  assert.equal(settings.values.get('novelai_api_format'), 'native');
+  assert.equal(settings.values.get('novelai_proxy_url'), 'http://127.0.0.1:7890');
+  assert.equal(runtime.getNovelaiApiKey(), 'test-novelai-key');
+  const settingsSource = readFileSync(new URL('../src/db/settings.js', import.meta.url), 'utf8')
+    .replace("'../config.js'", JSON.stringify(stub(source)));
+  const { loadSystemSettings } = await import(stub(settingsSource));
+  runtime.config.comfyui.novelaiApiFormat = 'relay';
+  runtime.config.comfyui.novelaiProxyUrl = '';
+  loadSystemSettings({ prepare: () => ({ all: () => [...settings.values].map(([setting_key, setting_value]) => ({ setting_key, setting_value })) }) });
+  assert.equal(runtime.config.comfyui.novelaiApiFormat, 'native');
+  assert.equal(runtime.config.comfyui.novelaiProxyUrl, 'http://127.0.0.1:7890');
+  runtime.updateComfyConfig({ novelaiProxyUrl: '', clearNovelaiApiKey: true });
+  assert.equal(settings.values.get('novelai_proxy_url'), '');
+  assert.equal(runtime.getNovelaiApiKey(), '');
+});
 
 test('LLM save route forwards Vertex fields, returns only public config and rejects invalid JSON', () => {
   const routes = readFileSync(new URL('../src/routes/config.js', import.meta.url), 'utf8');

@@ -8,6 +8,7 @@ import { startEditTask, listEditTasks, applyEditTask, discardEditTask, rerunEdit
 import { charArtistOverride } from '../services/characterImageOpts.js';
 import { buildImageCrossRefInfo, buildUserImageCrossRefInfo } from '../services/characterPersona.js';
 import { config, getNovelaiApiKey } from '../config.js';
+import { checkNovelaiConnection } from '../services/novelaiClient.js';
 import { getState, updateServiceConfig, startFullCompression, cancelCompression } from '../services/imageCompressor.js';
 import { getAllImageDirs, IMAGE_CATEGORIES, LEGACY_CATEGORY, saveBase64Image, getImageDir } from '../services/imagePaths.js';
 import { collectCharacterImageUrls } from '../services/characterImages.js';
@@ -981,41 +982,15 @@ router.post('/delete-batch', (req, res) => {
   res.json({ success: true, deleted, failed: failedItems.length, failedItems: failedItems.slice(0, 20) });
 });
 
-async function checkImageProviderConnection({ provider, url, apiKey, model, apiFormat } = {}) {
+async function checkImageProviderConnection({ provider, url, apiKey, model, apiFormat, proxyUrl } = {}) {
   const activeProvider = provider === 'novelai' ? 'novelai' : 'comfyui';
   if (activeProvider === 'novelai') {
-    const activeFormat = apiFormat === 'official' || apiFormat === 'relay'
-      ? apiFormat
-      : (config.comfyui.novelaiApiFormat === 'official' ? 'official' : 'relay');
-    const baseUrl = activeFormat === 'official'
-      ? 'https://image.novelai.net'
-      : String(url ?? config.comfyui.novelaiUrl ?? '').trim().replace(/\/+$/, '');
-    if (!baseUrl) return { connected: false, provider: activeProvider, url: '', error: '请先填写 NovelAI 中转站接口地址' };
-    const token = String(apiKey || getNovelaiApiKey() || '').trim();
-    if (!token) return { connected: false, provider: activeProvider, url: baseUrl, error: '请先填写 NovelAI API Key' };
-    try {
-      const modelsPath = activeFormat === 'official' ? '/oa/v1/models' : '/v1/models';
-      const response = await fetch(`${baseUrl}${modelsPath}`, {
-        headers: { Authorization: `Bearer ${token}` },
-        signal: AbortSignal.timeout(10000),
-      });
-      if (!response.ok) return { connected: false, provider: activeProvider, url: baseUrl, error: `服务返回 HTTP ${response.status}` };
-      const payload = await response.json();
-      const models = Array.isArray(payload.data) ? payload.data.map(item => item?.id).filter(Boolean) : [];
-      const selectedModel = model || config.comfyui.novelaiModel;
-      return {
-        connected: activeFormat === 'official' || models.length > 0,
-        provider: activeProvider,
-        url: baseUrl,
-        apiFormat: activeFormat,
-        modelCount: models.length,
-        models,
-        modelAvailable: models.length > 0 ? (!selectedModel || models.includes(selectedModel)) : undefined,
-        error: activeFormat === 'relay' && models.length === 0 ? '连接成功，但服务没有返回可用模型' : undefined,
-      };
-    } catch (error) {
-      return { connected: false, provider: activeProvider, url: baseUrl, error: error.name === 'TimeoutError' ? '连接超时' : '无法连接到 NovelAI 服务' };
-    }
+    return { provider: activeProvider, ...await checkNovelaiConnection({
+      apiFormat: apiFormat ?? config.comfyui.novelaiApiFormat,
+      url: url ?? config.comfyui.novelaiUrl,
+      apiKey: apiKey ?? getNovelaiApiKey(), model: model ?? config.comfyui.novelaiModel,
+      proxyUrl: proxyUrl ?? config.comfyui.novelaiProxyUrl,
+    }) };
   }
 
   const baseUrl = String(url || config.comfyui.url || '').replace(/\/+$/, '');

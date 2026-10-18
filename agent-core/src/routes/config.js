@@ -1,3 +1,4 @@
+import { validateNovelaiUrl } from '../services/novelaiClient.js';
 import { Router } from 'express';
 import fs from 'fs';
 import path from 'path';
@@ -82,6 +83,7 @@ router.get('/', (req, res) => {
       novelaiApiFormat: config.comfyui.novelaiApiFormat || 'relay',
       url: config.comfyui.url,
       novelaiUrl: config.comfyui.novelaiUrl,
+      novelaiProxyUrl: config.comfyui.novelaiProxyUrl,
       novelaiModel: config.comfyui.novelaiModel,
       novelaiArtist: config.comfyui.novelaiArtist ?? '',
       novelaiWidth: config.comfyui.novelaiWidth,
@@ -171,21 +173,18 @@ router.put('/group-summary-interval', (req, res) => {
 
 // PUT /api/config/comfy — 更新 ComfyUI 参数
 router.put('/comfy', (req, res) => {
-  const { artist, width, height, url, momentsArtist, momentsWidth, momentsHeight, eventArtist, eventWidth, eventHeight, tlsVerify, qualityPrompt, negativePrompt, imageProvider, novelaiApiFormat, novelaiUrl, novelaiModel, novelaiArtist, novelaiWidth, novelaiHeight, novelaiSteps, novelaiSampler, novelaiNoiseSchedule, novelaiGuidance, novelaiQualityPrompt, novelaiNegativePrompt, novelaiApiKey, clearNovelaiApiKey } = req.body;
-  if (novelaiApiFormat !== 'official' && novelaiUrl !== undefined && String(novelaiUrl).trim()) {
-    try {
-      const parsed = new URL(String(novelaiUrl));
-      if (!['https:', 'http:'].includes(parsed.protocol)) throw new Error('invalid protocol');
-    } catch {
-      return res.status(400).json({ error: 'NovelAI 地址必须是有效的 HTTP 或 HTTPS URL' });
-    }
-  }
-  updateComfyConfig({ artist, width, height, url, momentsArtist, momentsWidth, momentsHeight, eventArtist, eventWidth, eventHeight, tlsVerify, qualityPrompt, negativePrompt, imageProvider, novelaiApiFormat, novelaiUrl, novelaiModel, novelaiArtist, novelaiWidth, novelaiHeight, novelaiSteps, novelaiSampler, novelaiNoiseSchedule, novelaiGuidance, novelaiQualityPrompt, novelaiNegativePrompt, novelaiApiKey, clearNovelaiApiKey });
+  const { artist, width, height, url, momentsArtist, momentsWidth, momentsHeight, eventArtist, eventWidth, eventHeight, tlsVerify, qualityPrompt, negativePrompt, imageProvider, novelaiApiFormat, novelaiUrl, novelaiProxyUrl, novelaiModel, novelaiArtist, novelaiWidth, novelaiHeight, novelaiSteps, novelaiSampler, novelaiNoiseSchedule, novelaiGuidance, novelaiQualityPrompt, novelaiNegativePrompt, novelaiApiKey, clearNovelaiApiKey } = req.body;
+  try {
+    if (novelaiApiFormat !== undefined && !['official', 'native', 'relay'].includes(novelaiApiFormat)) throw new Error('NovelAI 接口协议无效');
+    if (novelaiUrl !== undefined && String(novelaiUrl).trim()) validateNovelaiUrl(novelaiUrl);
+    if (novelaiProxyUrl !== undefined && String(novelaiProxyUrl).trim()) validateNovelaiUrl(novelaiProxyUrl, '代理地址');
+  } catch (error) { return res.status(400).json({ error: error.message }); }
+  updateComfyConfig({ artist, width, height, url, momentsArtist, momentsWidth, momentsHeight, eventArtist, eventWidth, eventHeight, tlsVerify, qualityPrompt, negativePrompt, imageProvider, novelaiApiFormat, novelaiUrl, novelaiProxyUrl, novelaiModel, novelaiArtist, novelaiWidth, novelaiHeight, novelaiSteps, novelaiSampler, novelaiNoiseSchedule, novelaiGuidance, novelaiQualityPrompt, novelaiNegativePrompt, novelaiApiKey, clearNovelaiApiKey });
   // URL 或 TLS 设置变更后立即重启 ComfyUI 客户端连接（使新地址/证书策略立即生效）
   if (url !== undefined || tlsVerify !== undefined) {
     restartComfyClient();
   }
-  res.json({ ok: true, imageProvider: config.comfyui.imageProvider, novelaiApiFormat: config.comfyui.novelaiApiFormat, url: config.comfyui.url, novelaiUrl: config.comfyui.novelaiUrl, novelaiModel: config.comfyui.novelaiModel, novelaiArtist: config.comfyui.novelaiArtist, novelaiWidth: config.comfyui.novelaiWidth, novelaiHeight: config.comfyui.novelaiHeight, novelaiSteps: config.comfyui.novelaiSteps, novelaiSampler: config.comfyui.novelaiSampler, novelaiNoiseSchedule: config.comfyui.novelaiNoiseSchedule, novelaiGuidance: config.comfyui.novelaiGuidance, novelaiQualityPrompt: config.comfyui.novelaiQualityPrompt, novelaiNegativePrompt: config.comfyui.novelaiNegativePrompt, novelaiApiKeySet: Boolean(getNovelaiApiKey()) });
+  res.json({ ok: true, imageProvider: config.comfyui.imageProvider, novelaiApiFormat: config.comfyui.novelaiApiFormat, url: config.comfyui.url, novelaiUrl: config.comfyui.novelaiUrl, novelaiProxyUrl: config.comfyui.novelaiProxyUrl, novelaiModel: config.comfyui.novelaiModel, novelaiArtist: config.comfyui.novelaiArtist, novelaiWidth: config.comfyui.novelaiWidth, novelaiHeight: config.comfyui.novelaiHeight, novelaiSteps: config.comfyui.novelaiSteps, novelaiSampler: config.comfyui.novelaiSampler, novelaiNoiseSchedule: config.comfyui.novelaiNoiseSchedule, novelaiGuidance: config.comfyui.novelaiGuidance, novelaiQualityPrompt: config.comfyui.novelaiQualityPrompt, novelaiNegativePrompt: config.comfyui.novelaiNegativePrompt, novelaiApiKeySet: Boolean(getNovelaiApiKey()) });
 });
 
 // PUT /api/config/global-lora — 更新全局 LoRA

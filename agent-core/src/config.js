@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import { normalizeNovelaiFormat, normalizeNovelaiKey } from './services/novelaiClient.js';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
@@ -69,8 +70,9 @@ defaultTimeoutMs: parseInt(process.env.VECTOR_DEFAULT_TIMEOUT_MS, 10) || 120000,
   comfyui: {
     imageProvider: 'comfyui',
     url: (process.env.COMFYUI_URL || 'http://localhost:8188').replace(/\/+$/, ''),
-    novelaiApiFormat: process.env.NOVELAI_API_FORMAT === 'official' ? 'official' : 'relay',
+    novelaiApiFormat: normalizeNovelaiFormat(process.env.NOVELAI_API_FORMAT),
     novelaiUrl: (process.env.NOVELAI_URL || '').replace(/\/+$/, ''),
+    novelaiProxyUrl: process.env.NOVELAI_PROXY_URL || '',
     novelaiModel: process.env.NOVELAI_MODEL || 'nai-diffusion-4-5-full',
     novelaiArtist: process.env.NOVELAI_ARTIST || '@ebora',
     novelaiWidth: parseInt(process.env.NOVELAI_WIDTH, 10) || 1216,
@@ -361,16 +363,20 @@ export function getNovelaiApiKey() {
   catch { return process.env.NOVELAI_API_KEY || ''; }
 }
 
-export function updateComfyConfig({ artist, width, height, url, momentsArtist, momentsWidth, momentsHeight, eventArtist, eventWidth, eventHeight, tlsVerify, qualityPrompt, negativePrompt, imageProvider, novelaiApiFormat, novelaiUrl, novelaiModel, novelaiArtist, novelaiWidth, novelaiHeight, novelaiSteps, novelaiSampler, novelaiNoiseSchedule, novelaiGuidance, novelaiQualityPrompt, novelaiNegativePrompt, novelaiApiKey, clearNovelaiApiKey }) {
+export function updateComfyConfig({ artist, width, height, url, momentsArtist, momentsWidth, momentsHeight, eventArtist, eventWidth, eventHeight, tlsVerify, qualityPrompt, negativePrompt, imageProvider, novelaiApiFormat, novelaiUrl, novelaiProxyUrl, novelaiModel, novelaiArtist, novelaiWidth, novelaiHeight, novelaiSteps, novelaiSampler, novelaiNoiseSchedule, novelaiGuidance, novelaiQualityPrompt, novelaiNegativePrompt, novelaiApiKey, clearNovelaiApiKey }) {
   if (imageProvider !== undefined) {
     const provider = imageProvider === 'novelai' ? 'novelai' : 'comfyui';
     config.comfyui.imageProvider = provider;
     persistSettingSync('image_provider', provider);
   }
   if (novelaiApiFormat !== undefined) {
-    const value = novelaiApiFormat === 'official' ? 'official' : 'relay';
+    const value = normalizeNovelaiFormat(novelaiApiFormat);
     config.comfyui.novelaiApiFormat = value;
     persistSettingSync('novelai_api_format', value);
+  }
+  if (novelaiProxyUrl !== undefined) {
+    config.comfyui.novelaiProxyUrl = String(novelaiProxyUrl).trim();
+    persistSettingSync('novelai_proxy_url', config.comfyui.novelaiProxyUrl);
   }
   if (novelaiUrl !== undefined) {
     const value = String(novelaiUrl).trim().replace(/\/+$/, '');
@@ -435,7 +441,7 @@ export function updateComfyConfig({ artist, width, height, url, momentsArtist, m
     persistSettingSync('novelai_negative_prompt', value);
   }
   if (novelaiApiKey !== undefined) {
-    persistSettingSync('novelai_api_key', String(novelaiApiKey).trim());
+    persistSettingSync('novelai_api_key', normalizeNovelaiKey(novelaiApiKey));
   } else if (clearNovelaiApiKey === true) {
     persistSettingSync('novelai_api_key', '');
   }
