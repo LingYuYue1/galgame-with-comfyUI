@@ -18,6 +18,7 @@ import { BUILTIN_RULE_KEYS } from '../builtinRules.js';
 import { getMemorySettings, saveMemorySettings, normalizeMemorySettings } from '../services/memory/memoryConfig.js';
 import { getPreferredMemoryEmbeddingProfile, testEmbeddingProvider, testRerankerProvider } from '../services/memory/memoryProviders.js';
 import { reindexAllMemories } from '../services/memory/memoryRepository.js';
+import { imageUrlExists } from '../services/imagePaths.js';
 import { generateImage } from '../services/imageSkill.js';
 import sharp from 'sharp';
 
@@ -904,6 +905,46 @@ router.put('/world-settings/:id', (req, res) => {
     cover_image: typeof cover_image === 'string' ? cover_image.trim() : undefined,
   });
   res.json({ ok: true, item });
+});
+
+// GET /api/recent-images — 全站近期生成的图（供世界封面挑选）
+//
+// 为什么不是复用 `/characters/:id/recent-images`：那个接口按**角色**聚合，需要角色 id；
+// 而世界封面是世界级的，跟任何角色都没有关系。这里直接读 `image_tasks`（全站图的登记表），
+// 按完成时间倒序、URL 去重、并过滤掉磁盘上已经不存在的（重生成会替换删除旧文件）。
+//
+// 不带世界过滤：用户要的是"近期生成的"，跨角色跨世界的图都可能被拿来当封面。
+router.get('/recent-images', (req, res) => {
+  try {
+    const limit = Math.max(1, Math.min(120, Number(req.query.limit) || 40));
+    const db = getDb();
+    // 多取一些行 —— 一行可能有多张图，且会有重复 URL 与已删文件
+    const rows = db.prepare(`
+      SELECT output_paths FROM image_tasks
+      WHERE status = 'done' AND output_paths IS NOT NULL
+      ORDER BY COALESCE(finished_at, created_at) DESC
+      LIMIT ?
+    `).all(limit * 3);
+
+    const seen = new Set();
+    const images = [];
+    for (const row of rows) {
+      let arr = [];
+      try { arr = JSON.parse(row.output_paths) || []; } catch { continue; }
+      if (!Array.isArray(arr)) continue;
+      for (const u of arr) {
+        if (typeof u !== 'string' || !u.trim() || seen.has(u)) continue;
+        seen.add(u);
+        if (!imageUrlExists(u)) continue;
+        images.push(u);
+        if (images.length >= limit) break;
+      }
+      if (images.length >= limit) break;
+    }
+    res.json({ images });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // POST /api/world-settings/:id/cover — 上传星图卡片封面（base64 → 落盘 → 存短路径）

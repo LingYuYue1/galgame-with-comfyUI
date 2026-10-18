@@ -235,16 +235,21 @@ export function createTrip({ characterId, toWorldId, transport = 'train', scene 
   if (Number(ch.archived) === 1) return { ok: false, code: 'ARCHIVED', error: '归档角色不能出行' };
 
   const target = (() => {
-    try { return db.prepare('SELECT id, name FROM world_settings WHERE id = ?').get(tw); }
+    try { return db.prepare('SELECT id, name, is_core FROM world_settings WHERE id = ?').get(tw); }
     catch { return null; }
   })();
   if (!target) return { ok: false, code: 'NO_WORLD', error: '目的地世界不存在' };
+  // ★ 2026-10-18 世界分层：主世界是骨架，不是"能走进去的地方"，不能当旅程目的地
+  if (Number(target.is_core) === 1) {
+    return { ok: false, code: 'CORE_WORLD', error: `「${target.name}」是主世界（骨架层），不是可以去的地方` };
+  }
 
-  // ③ 「已经在那儿」判定：绑定世界优先；未绑定则看激活世界（= 此刻实际吃的那套设定）
-  const effective = ch.world_setting_id != null
-    ? Number(ch.world_setting_id)
-    : (() => { try { return Number(db.prepare('SELECT id FROM world_settings WHERE is_active = 1 LIMIT 1').get()?.id) || null; } catch { return null; } })();
-  if (effective === tw) {
+  // ③ 「已经在那儿」判定：只看**归属世界**。
+  //    未归属角色吃主世界骨架，她本来就没有"出身地"，去任何副世界都是一次真实移动 → 不拦。
+  //    ★ 2026-10-18 实锤 bug：原先未归属时回退 `is_active = 1`，而分层把该列全清成 0，
+  //      于是 effective 永远为 null、判定永不触发 —— 角色可以从二维市"出发去二维市"。
+  const effective = ch.world_setting_id != null ? Number(ch.world_setting_id) : null;
+  if (effective != null && effective === tw) {
     return { ok: false, code: 'ALREADY_THERE', error: `她已经在这个世界了（${target.name}）` };
   }
 

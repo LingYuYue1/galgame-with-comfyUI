@@ -2797,6 +2797,7 @@ export {
   getWorldSetting,
   getWorldSettingRaw,
   getWorldSettingSample,
+  sampleWorldSettings,
   getCharacterWorldSettingId,
   getActiveWorldSlots,
   getWorldSlotsFor,

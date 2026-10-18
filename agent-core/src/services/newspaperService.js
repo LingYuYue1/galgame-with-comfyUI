@@ -13,7 +13,7 @@
  * 纯函数（normalizeNewspaperDraft / build*Block / buildComplaintTopic 等）导出供测试。
  */
 
-import { getDb, getSystemRules, getWorldSettingSample, getGlobalRule } from '../db/index.js';
+import { getDb, getSystemRules, getWorldSettingSample, sampleWorldSettings, getGlobalRule } from '../db/index.js';
 import { chatSync } from '../llm/llm-client.js';
 import { generateImageRaw } from './imageSkill.js';
 import { recordCompletedImageTask } from './imageTaskRecorder.js';
@@ -284,19 +284,44 @@ function maybeRefillTodayImages(row) {
 
 // ── 生成 ──
 
-/** 抽当天特稿主角（同步查询；导出供回归测试——此函数曾被误写成 async 导致调用处拿到 Promise） */
-export function pickFeaturedCharacter(db) {
+/**
+ * 抽当天特稿主角（同步查询；导出供回归测试——此函数曾被误写成 async 导致调用处拿到 Promise）
+ *
+ * @param {object} db
+ * @param {{worldIds?: number[]}} [opts]
+ *   ★ 2026-10-18：报纸的背景世界与主角是两次独立抽取，此前不配对 ——
+ *     会出现「二维市刊头 + 仙舟主角」。传了 `worldIds` 就只从这些世界的居民
+ *     + 未归属角色里抽（未归属吃主世界骨架，放哪个世界都不算串味）。
+ */
+export function pickFeaturedCharacter(db, { worldIds = null } = {}) {
   // 需要同时具备聊天（事件注入）与朋友圈（吐槽帖）两条链路，两边都禁用的角色不抽；
   // 归档角色同样排除（不参与任何主动行为）。
   // 注意必须是同步函数：曾误写成 async 而调用处没 await，featured 变成 Promise，
   // id/display_name 全变 undefined，报纸主角链接与提示词一起失效。
+  const cols = 'id, display_name, avatar_path, short_prompt, base_prompt, loras';
+  const ids = Array.isArray(worldIds)
+    ? worldIds.map(Number).filter((v) => Number.isSafeInteger(v) && v > 0)
+    : [];
+
+  if (!ids.length) {
+    return db.prepare(`
+      SELECT ${cols}
+      FROM characters
+      WHERE events_disabled = 0 AND (moments_disabled IS NULL OR moments_disabled = 0)
+        AND COALESCE(archived, 0) = 0
+      ORDER BY RANDOM() LIMIT 1
+    `).get() || null;
+  }
+
+  const holes = ids.map(() => '?').join(',');
   return db.prepare(`
-    SELECT id, display_name, avatar_path, short_prompt, base_prompt, loras
+    SELECT ${cols}
     FROM characters
     WHERE events_disabled = 0 AND (moments_disabled IS NULL OR moments_disabled = 0)
       AND COALESCE(archived, 0) = 0
+      AND (world_setting_id IN (${holes}) OR world_setting_id IS NULL)
     ORDER BY RANDOM() LIMIT 1
-  `).get() || null;
+  `).get(...ids) || null;
 }
 
 // 变身日概率（世界状态日内，变身 vs 服装 = 40% vs 60%）
@@ -345,14 +370,16 @@ export async function generateDailyNewspaper({ replace = false, backgroundImages
     return getTodayNewspaper();
   }
 
-  const featured = pickFeaturedCharacter(db);
+  // ★ 2026-10-18：先抽世界，再按世界的居民抽主角 —— 刊头与主角必须是同一批地盘上的人
+  const sampled = sampleWorldSettings();
+  const featured = pickFeaturedCharacter(db, { worldIds: sampled.ids });
   if (!featured?.id) {
     // pickFeaturedCharacter 正常时必带 id；没有说明数据异常，宁可这期不出也不能落一份没有主角链接的报纸
     console.error('[newspaper] Picked character has no valid id, abort this round:', featured);
     return null;
   }
   const withWorldState = Math.random() < WORLD_STATE_PROBABILITY;
-  const worldSetting = getWorldSettingSample();
+  const worldSetting = sampled.text;
   // 世界影响不再由 LLM 自由发挥：直接从宝箱奖励池（服装类 + 变身类）随机抽一样，
   // 全镇居民今天都受到这个效果影响；抽中的主题原文进素材包供编辑部演绎
   const worldLoot = withWorldState ? pickWorldLoot(Boolean(worldSetting)) : null;

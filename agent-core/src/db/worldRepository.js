@@ -182,10 +182,17 @@ function isInDisturbTimeRange(now, startTime, endTime) {
  * 没有这句，模型会把两个 <world_setting> 当成互相矛盾的两份设定，然后随机挑一段遵守。
  * 它的职责只有一条：**冲突时以具体世界为准，框架只兜底**。
  */
+/**
+ * 主世界（框架）与具体世界同时存在时的衔接语。
+ *
+ * ★ 2026-10-18 用户确认：「主世界是骨架，就像小说的开头，其他世界是内容。
+ *   两者在一块是开头+内容的结构，直接加在一起不会有什么问题。」
+ *   所以这里不再写"冲突时以 current 为准"那种仲裁口吻 —— 那反而在暗示两者会打架。
+ *   只留一句结构标注，让模型知道这是"开头"与"正文"的关系，不是两个并列的世界。
+ */
 const FRAMEWORK_MERGE_HINT = [
-  '<world_setting role="framework"> 是所有世界共用的基础规则（世界群通则）；',
-  '<world_setting role="current"> 是本次场景所在的具体世界。',
-  '两者冲突时以 current 为准；framework 只补 current 没提到的部分，不要拿 framework 去否定 current 的具体设定。',
+  '以上是这个世界的通行框架，以下是本次所在世界的具体设定；',
+  '按「开头」与「正文」的关系连着读，不要当成两套互相并列的世界。',
 ].join('');
 
 export function getWorldSetting(characterId = null) {
@@ -323,33 +330,62 @@ export function getWorldSettingRaw(characterId = null) {
 
 /**
  * 媒体抽卡（星图设计定稿 §9.3-1，用户拍板「每个地方都应该有媒体」）：
- * 从「启用中」的世界随机抽 min~max 个，各自按**自己的项目库槽位**裁剪后，
- * 分别包一层 <world_setting name="世界名">。
+ * 从「启用中」的**副世界**随机抽 min~max 个，各自按**自己的项目库槽位**裁剪后，
+ * 分别包一层 `<world_setting name="世界名">`。连抽中的世界 id 一起返回。
+ *
+ * 为什么需要 id：媒体/报纸是「抽一个世界当背景 + 另外抽几个角色当作者」的两条独立线，
+ * 不配对就会出现「二维市背景 + 仙舟作者」。要按世界筛作者池，就必须知道这轮抽中了谁。
  *
  * 边界：
- *   · 0 个启用世界（或全为空文本）→ 回退 getWorldSetting()（激活世界）
- *   · 防打扰 hideWorld 命中 → null（与 getWorldSetting 同口径）
+ *   · 0 个可用副世界 → 老库回退激活世界；分层后返回 `{ text: null, ids: [] }`
+ *   · 防打扰 hideWorld 命中 → `{ text: null, ids: [] }`（与 getWorldSetting 同口径）
  *   · 每个世界单独 try/catch：裁剪失败回落不裁（不因一个世界坏掉拖垮整批）
  *
- * ⚠ 使用纪律：同一次业务流程**只调用一次**，结果存局部变量复用 ——
+ * ⚠ 使用纪律：同一次业务流程**只调一次**，结果存局部变量复用 ——
  *   否则会出现「作者取自 A 世界抽样、内容按 B 世界抽样」的错位。
+ *
+ * @returns {{text: string|null, ids: number[]}}
  */
+export function sampleWorldSettings(min = 1, max = 3) {
+  const sampled = sampleWorldSettingsImpl(min, max);
+  return sampled;
+}
+
+/** `getWorldSettingSample` 的老契约：只要文本。 */
 export function getWorldSettingSample(min = 1, max = 3) {
+  return sampleWorldSettingsImpl(min, max).text;
+}
+
+function sampleWorldSettingsImpl(min = 1, max = 3) {
   // 防打扰：与 getWorldSetting 完全同口径
   if (config.features.disturbMode && config.disturb.hideWorld) {
     const now = new Date();
     if (isInDisturbTimeRange(now, config.disturb.startTime, config.disturb.endTime)) {
       if (!config.disturb.skipWeekends || (now.getDay() !== 0 && now.getDay() !== 6)) {
-        return null;
+        return { text: null, ids: [] };
       }
     }
   }
 
   const database = handle();
+  // ★ 2026-10-18 世界分层：抽卡池**必须排除主世界**。
+  //   主世界是骨架（"世界群通则"），不是可以报道的具体地点 —— 分层前它不在池子里
+  //   （那时它是"激活世界"，通常是具体世界），分层后它 is_enabled=1 且正文非空，
+  //   不排除就会让媒体拿骨架当星球写新闻。
   const pool = database.prepare(
-    `SELECT * FROM world_settings WHERE is_enabled = 1 AND TRIM(content) <> ''`
+    `SELECT * FROM world_settings WHERE is_enabled = 1 AND is_core = 0 AND TRIM(content) <> ''`
   ).all();
-  if (!pool.length) return getWorldSetting(); // 池空 → 激活世界兜底
+  if (!pool.length) {
+    // 池空兜底：
+    //   · 老库（还没跑 011、没有主世界）→ 维持原行为，用激活世界
+    //   · 分层后（有主世界）→ 返回 null：宁可没有世界背景，也不拿骨架顶替
+    const core = getCoreWorldSetting();
+    if (!core) {
+      const w = getWorldSetting();
+      return { text: w, ids: [] };
+    }
+    return { text: null, ids: [] };
+  }
 
   const lo = Math.max(1, Math.min(min, max));
   const hi = Math.max(lo, max);
@@ -362,7 +398,8 @@ export function getWorldSettingSample(min = 1, max = 3) {
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
 
-  return arr.slice(0, n).map((w) => {
+  const picked = arr.slice(0, n);
+  const text = picked.map((w) => {
     const raw = `<world_setting name="${w.name}">\n${w.content}\n</world_setting>`;
     try {
       // ★ 按该世界**自己**的项目库槽位裁剪（不能用 safeActiveSlots —— 那是激活世界的）
@@ -371,6 +408,7 @@ export function getWorldSettingSample(min = 1, max = 3) {
       return raw;
     }
   }).join('\n\n');
+  return { text, ids: picked.map((w) => Number(w.id)) };
 }
 
 /** 读某个世界的槽位；任何异常都回落中性值（不阻断注入）。传 null = 无世界。 */
@@ -666,6 +704,26 @@ export function getActiveWorldSetting() {
 export function getWorldSettingById(id) {
   const database = handle();
   return database.prepare(`SELECT * FROM world_settings WHERE id = ?`).get(id);
+}
+
+/**
+ * 取「第一个副世界」（`is_core = 0`，按显示顺序）。
+ *
+ * 用途：需要"某个具体世界"时的默认值 —— 主世界是骨架，不能当地图归属、
+ * 不能当旅程目的地，也不能当媒体抽卡池（见 getWorldSettingSample）。
+ * 一个副世界都没有时返回 null，调用方负责提示用户先建一个世界。
+ */
+export function getDefaultSubWorld() {
+  try {
+    return handle().prepare(`
+      SELECT * FROM world_settings
+      WHERE is_core = 0
+      ORDER BY sort_order, id
+      LIMIT 1
+    `).get() || null;
+  } catch {
+    return null;
+  }
 }
 
 export function createWorldSetting({ name, content, tagline = '' }) {

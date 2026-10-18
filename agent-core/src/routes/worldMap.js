@@ -18,7 +18,7 @@ import {
   refinePlaceFromImage, refinePlaceFromText,
   LEVEL_LABEL, POI_TYPES,
 } from '../services/worldMapService.js';
-import { getActiveWorldSetting, getWorldSettingById } from '../db/worldRepository.js';
+import { getActiveWorldSetting, getWorldSettingById, getDefaultSubWorld } from '../db/worldRepository.js';
 
 const router = Router();
 
@@ -42,14 +42,22 @@ router.get('/maps', (req, res) => {
 router.post('/maps', (req, res) => {
   try {
     // 星图（2026-10-17 T02）：建图必须归属一个世界——
-    // 未显式传（null/undefined）→ 回落「激活世界」；连激活世界都没有 → 400。
+    // 未显式传（null/undefined）→ 回落默认世界；连默认世界都没有 → 400。
     // 该回落让现有前端「不传 / 传 null」的老调用继续可用（兼容矩阵见施工文档 §3.4）。
+    //
+    // ★ 2026-10-18 世界分层：默认值**不能**是 `getActiveWorldSetting()` —— 它现在指向主世界（骨架），
+    //   而主世界不是可用脚走进的地方（它没有地图、没有居民、没有旅程）。
+    //   于是「不传世界就建图」会把地图挂到骨架头上。改为回退到**第一个副世界**。
     const { name, note = '' } = req.body || {};
     let worldSettingId = req.body?.worldSettingId ?? null;
     if (worldSettingId == null) {
-      const active = getActiveWorldSetting();
-      if (!active) return res.status(400).json({ error: '还没有任何世界，请先在星图中新建一个世界再建图' });
-      worldSettingId = active.id;
+      const fallback = getDefaultSubWorld();
+      if (!fallback) {
+        return res.status(400).json({
+          error: '还没有具体世界可以挂这张图。请先在星图中新建一个世界（主世界只是骨架，不能挂地图）',
+        });
+      }
+      worldSettingId = fallback.id;
     }
     if (!getWorldSettingById(worldSettingId)) {
       return res.status(400).json({ error: '指定的世界不存在' });

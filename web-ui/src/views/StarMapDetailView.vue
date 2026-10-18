@@ -15,7 +15,7 @@
           @click="makeActive"
         >设为主世界</linshe-button>
         <linshe-switch
-          v-if="world"
+          v-if="world && !world.is_core"
           :model-value="!!world.is_enabled"
           size="sm"
           title="世界开关：休眠后不参与媒体抽卡与后台任务"
@@ -27,16 +27,21 @@
       </div>
     </header>
 
+    <!-- 只有一个页签时不渲染页签组：单个选项既没有"切换"的意义，
+         还会被组件拉满整行、看起来像一条高亮横条。 -->
     <linshe-tabs
+      v-if="tabOptions.length > 1"
       v-model="tab"
       class="smd-tabs"
-      :options="[
-        { label: '世界观', value: 'world' },
-        { label: '地图', value: 'map' },
-        { label: '角色', value: 'char' },
-        { label: '旅程', value: 'trip' },
-      ]"
+      :options="tabOptions"
     />
+
+    <!-- 主世界是骨架：没有地图、没有居民、没有旅程。它不是"一个地方"，是一段通则。
+         所以这里只留世界观编辑器，其余页签整组不渲染。 -->
+    <p v-if="world?.is_core" class="smd-core-note">
+      这是主世界。它是<strong>所有世界共用的通则</strong>，会常驻叠加在每个角色的提示词最前面；
+      具体的地理、居民、旅程都在下面那些副世界里。
+    </p>
 
     <section v-if="tab === 'world'" class="smd-body">
       <div class="smd-paper">
@@ -92,32 +97,86 @@
           <linshe-button variant="ghost" size="sm" class="smd-map-open" @click="router.push('/worldmap')">打开地图页</linshe-button>
         </div>
 
-        <p v-if="!m.places.length" class="smd-hint smd-map-empty">
+        <p v-if="!m.tree.length" class="smd-hint smd-map-empty">
           这张图还是空的。去地图页用「从世界观生成」一键铺出大地区与子地区。
         </p>
 
-        <div v-else class="smd-places">
-          <div
-            v-for="p in m.places"
-            :key="p.id"
-            class="smd-place"
-            :class="p.level === 1 ? 'is-l1' : 'is-l2'"
-            :title="p.summary || p.name"
-          >
-            <span class="smd-place-name">{{ p.name }}</span>
-            <div v-if="(m.byPlace[p.id] || []).length" class="smd-place-people">
-              <span
-                v-for="r in (m.byPlace[p.id] || []).slice(0, 4)"
-                :key="r.id"
-                class="smd-place-ava"
-                :title="r.name + (r.location ? ' · ' + r.location : '')"
-                :style="r.avatar_path ? { backgroundImage: `url(${r.avatar_path})` } : null"
-              >{{ r.avatar_path ? '' : (r.name || '?').slice(0, 1) }}</span>
-              <span v-if="(m.byPlace[p.id] || []).length > 4" class="smd-place-ava is-more">
-                +{{ (m.byPlace[p.id] || []).length - 4 }}
+        <!-- ★ 2026-10-18：可以一路展开到场景与生活地点。
+             只是想"看看这世界有什么"的话，不必跳去地图页。纯只读，不给编辑入口。 -->
+        <div v-else class="smd-tree">
+          <div v-for="l1 in m.tree" :key="l1.id" class="smd-branch is-l1">
+            <button
+              type="button"
+              class="smd-node"
+              :class="{ 'is-leaf': !canExpand(l1), 'is-open': isOpen(l1.id) }"
+              :title="l1.summary || l1.name"
+              @click="canExpand(l1) && togglePlace(l1.id)"
+            >
+              <span class="smd-caret">{{ canExpand(l1) ? (isOpen(l1.id) ? '▾' : '▸') : '' }}</span>
+              <span class="smd-node-name">{{ l1.name }}</span>
+              <span v-if="(l1.children || []).length" class="smd-node-badge">{{ l1.children.length }} 区</span>
+              <span v-if="(m.byPlace[l1.id] || []).length" class="smd-node-people">
+                <span
+                  v-for="r in (m.byPlace[l1.id] || []).slice(0, 4)"
+                  :key="r.id"
+                  class="smd-place-ava"
+                  :title="r.name + (r.location ? ' · ' + r.location : '')"
+                  :style="r.avatar_path ? { backgroundImage: `url(${r.avatar_path})` } : null"
+                >{{ r.avatar_path ? '' : (r.name || '?').slice(0, 1) }}</span>
+                <span v-if="(m.byPlace[l1.id] || []).length > 4" class="smd-place-ava is-more">
+                  +{{ (m.byPlace[l1.id] || []).length - 4 }}
+                </span>
               </span>
+            </button>
+
+            <div v-if="isOpen(l1.id)" class="smd-kids">
+              <div v-for="l2 in l1.children" :key="l2.id" class="smd-branch is-l2">
+                <button
+                  type="button"
+                  class="smd-node"
+                  :class="{ 'is-leaf': !canExpand(l2), 'is-open': isOpen(l2.id) }"
+                  :title="l2.summary || l2.name"
+                  @click="canExpand(l2) && togglePlace(l2.id)"
+                >
+                  <span class="smd-caret">{{ canExpand(l2) ? (isOpen(l2.id) ? '▾' : '▸') : '' }}</span>
+                  <span class="smd-node-name">{{ l2.name }}</span>
+                  <span v-if="(l2.children || []).length" class="smd-node-badge">{{ l2.children.length }} 处</span>
+                  <span v-else-if="(l2.pois || []).length" class="smd-node-badge is-poi">{{ l2.pois.length }} 生活点</span>
+                  <span v-if="(m.byPlace[l2.id] || []).length" class="smd-node-people">
+                    <span
+                      v-for="r in (m.byPlace[l2.id] || []).slice(0, 4)"
+                      :key="r.id"
+                      class="smd-place-ava"
+                      :title="r.name + (r.location ? ' · ' + r.location : '')"
+                      :style="r.avatar_path ? { backgroundImage: `url(${r.avatar_path})` } : null"
+                    >{{ r.avatar_path ? '' : (r.name || '?').slice(0, 1) }}</span>
+                    <span v-if="(m.byPlace[l2.id] || []).length > 4" class="smd-place-ava is-more">
+                      +{{ (m.byPlace[l2.id] || []).length - 4 }}
+                    </span>
+                  </span>
+                </button>
+
+                <div v-if="isOpen(l2.id)" class="smd-leaf-list">
+                  <div v-for="l3 in l2.children" :key="l3.id" class="smd-leaf">
+                    <span class="smd-leaf-name">{{ l3.name }}</span>
+                    <span
+                      v-for="r in (m.byPlace[l3.id] || [])"
+                      :key="r.id"
+                      class="smd-place-ava"
+                      :title="r.name + (r.location ? ' · ' + r.location : '')"
+                      :style="r.avatar_path ? { backgroundImage: `url(${r.avatar_path})` } : null"
+                    >{{ r.avatar_path ? '' : (r.name || '?').slice(0, 1) }}</span>
+                    <span v-for="(poi, pi) in (l3.pois || [])" :key="pi" class="smd-poi" :title="poi.blurb || ''">{{ poi.name }}</span>
+                  </div>
+                  <div v-if="!(l2.children || []).length" class="smd-leaf">
+                    <span v-for="(poi, pi) in (l2.pois || [])" :key="pi" class="smd-poi" :title="poi.blurb || ''">{{ poi.name }}</span>
+                  </div>
+                  <p v-if="!(l2.children || []).length && !(l2.pois || []).length" class="smd-leaf-empty">
+                    这个子地区还没展开。去地图页点「展开」可以让 AI 补出场景与生活地点。
+                  </p>
+                </div>
+              </div>
             </div>
-            <span v-else class="smd-place-empty">·</span>
           </div>
         </div>
 
@@ -275,6 +334,10 @@
         <div class="smd-cover-actions">
           <linshe-button variant="primary" size="sm" :loading="coverBusy" @click="generateCover">AI 生成封面</linshe-button>
           <linshe-button variant="secondary" size="sm" :disabled="coverBusy" @click="pickCover">选择图片</linshe-button>
+          <!-- ★ 2026-10-18：和角色头像同一个机制 —— 从「近期生成」里挑一张，不用上传 -->
+          <linshe-button variant="secondary" size="sm" :disabled="coverBusy" @click="toggleRecent">
+            {{ recentOpen ? '收起近期图' : '近期生成' }}
+          </linshe-button>
           <linshe-button
             v-if="world?.cover_image"
             variant="ghost"
@@ -282,6 +345,24 @@
             :disabled="coverBusy"
             @click="clearCover"
           >清除封面</linshe-button>
+        </div>
+
+        <div v-if="recentOpen" class="smd-recent">
+          <p v-if="recentLoading" class="smd-hint">正在翻最近的图…</p>
+          <p v-else-if="!recentImages.length" class="smd-hint">还没有生成过图片。先去聊几句，或者用上面的「AI 生成封面」。</p>
+          <div v-else class="smd-recent-grid">
+            <button
+              v-for="(u, i) in recentImages"
+              :key="i"
+              type="button"
+              class="smd-recent-item"
+              :class="{ 'is-picked': u === world?.cover_image }"
+              :style="{ backgroundImage: `url(${u})` }"
+              :title="u === world?.cover_image ? '当前封面' : '用这张当封面'"
+              :disabled="coverBusy"
+              @click="applyRecentCover(u)"
+            ></button>
+          </div>
         </div>
       </div>
     </linshe-modal>
@@ -385,6 +466,23 @@ const saving = ref(false)
 const polishing = ref(false)
 const activating = ref(false)
 const tab = ref('world')
+/**
+ * 页签清单按世界类型分流（2026-10-18）。
+ *
+ * 主世界是**骨架**，不是"一个地方"：它没有地图、没有居民、没有旅程。
+ * 这四个页签在副世界上是对的，在骨架上是语义错误（打开会看到"0 角色 · 0 地图"，
+ * 还能给它建图、往里塞人）。
+ */
+const tabOptions = computed(() =>
+  world.value?.is_core
+    ? [{ label: '世界观', value: 'world' }]
+    : [
+        { label: '世界观', value: 'world' },
+        { label: '地图', value: 'map' },
+        { label: '角色', value: 'char' },
+        { label: '旅程', value: 'trip' },
+      ]
+)
 const maps = ref([])
 /** 地图页签的可视数据：每张图 + 地点（L1/L2）+ 此刻站在那儿的人 */
 const mapCards = ref([])
@@ -404,6 +502,10 @@ const renameValue = ref('')
 const coverOpen = ref(false)
 const coverBusy = ref(false)
 const coverInput = ref(null)
+/** 「近期生成」选择区：懒加载，展开过一次就复用（同一次弹窗会话内不必反复请求） */
+const recentOpen = ref(false)
+const recentLoading = ref(false)
+const recentImages = ref([])
 
 // ★ 星图 T15：旅程
 const worlds = ref([])            // 全部世界（目的地候选 + 世界名反查）
@@ -543,6 +645,9 @@ async function load() {
     tagline.value = world.value.tagline || ''
     visualTone.value = world.value.visual_tone || ''
     dirty.value = false
+    // 主世界只有「世界观」一个页签 —— 若当前停在别的页签（例如刚从副世界切过来），
+    // 不归位就会渲染出一片空白右栏。
+    if (world.value.is_core && tab.value !== 'world') tab.value = 'world'
   } catch (err) {
     toastFn?.('读取失败：' + (err?.message || ''), 'error')
   }
@@ -572,11 +677,15 @@ async function loadMapCards() {
   const out = []
   for (const m of maps.value) {
     let places = []
+    let tree = []
     let byPlace = {}
     let residents = []
     try {
       const d = await api.getWorldMap(m.id)
-      places = (d?.map?.places || []).filter(p => p.level <= 2)
+      // ★ 2026-10-18：不再只取 L1/L2 —— 星图里要能一路展开到场景与生活地点，
+      //   所以保留全量扁平表（算数量用）与后端已装好的嵌套树（渲染用，前端不必自己分组）。
+      places = d?.map?.places || []
+      tree = d?.map?.tree || []
     } catch { /* 单张图读失败不影响其它图 */ }
     try {
       const r = await api.getWorldMapResidents(m.id)
@@ -586,13 +695,32 @@ async function loadMapCards() {
     out.push({
       ...m,
       places,
+      tree,
       byPlace,
       // 有角色但日程地点没落到任何地点上（写的是「家里」这种图外地名，或今天还没排日程）
       unplaced: residents.filter(x => !x.place_id),
     })
   }
   mapCards.value = out
+  // 大地区默认摊开（与改版前看到的一致：L1 + 它的 L2），再往下的层级等用户自己点。
+  if (!expandedPlaces.value.size) {
+    const s = new Set()
+    for (const m of out) for (const n of m.tree) if ((n.children || []).length) s.add(n.id)
+    expandedPlaces.value = s
+  }
 }
+
+/** 展开状态（place id 集合）。只活在本次会话里，不落盘 —— 纯浏览偏好，不值得存库。 */
+const expandedPlaces = ref(new Set())
+function isOpen(id) { return expandedPlaces.value.has(id) }
+function togglePlace(id) {
+  const s = new Set(expandedPlaces.value)
+  if (s.has(id)) s.delete(id)
+  else s.add(id)
+  expandedPlaces.value = s
+}
+/** 这一层下面还有东西可展开吗：有子地区，或者有生活地点 */
+function canExpand(n) { return (n.children || []).length > 0 || (n.pois || []).length > 0 }
 
 function openCreateMap() {
   newMapName.value = ''
@@ -767,6 +895,44 @@ const coverStage = ref('')     // 生成中的阶段提示，压在预览图上
 function pickCover() {
   if (coverBusy.value) return
   coverInput.value?.click()
+}
+
+/**
+ * 展开「近期生成」。
+ *
+ * 与角色头像选择器同一套数据源（`image_tasks`），但**不按角色过滤** ——
+ * 封面是世界的，跟某一个角色无关；跨角色、跨世界的图都可能被拿来当封面。
+ */
+async function toggleRecent() {
+  if (coverBusy.value) return
+  recentOpen.value = !recentOpen.value
+  if (!recentOpen.value || recentImages.value.length) return
+  recentLoading.value = true
+  try {
+    const r = await api.getRecentGeneratedImages(40)
+    recentImages.value = r?.images || []
+  } catch (err) {
+    toastFn?.('读取近期图片失败：' + (err?.message || ''), 'error')
+  } finally {
+    recentLoading.value = false
+  }
+}
+
+/** 选一张近期图当封面。存的是服务器上已有的 URL，不走 base64 上传。 */
+async function applyRecentCover(url) {
+  if (coverBusy.value || !url) return
+  coverBusy.value = true
+  try {
+    await api.updateWorldSetting(worldId.value, { cover_image: url })
+    if (world.value) world.value.cover_image = url
+    emit('changed')
+    toastFn?.('封面已换成这张', 'success')
+    recentOpen.value = false
+  } catch (err) {
+    toastFn?.('设置失败：' + (err?.message || ''), 'error')
+  } finally {
+    coverBusy.value = false
+  }
 }
 
 /** AI 按世界观画封面（后端固定 1216×832） */
@@ -1012,41 +1178,99 @@ watch(worldId, (id, prev) => {
 .smd-map-open { margin-left: auto; }
 .smd-map-empty { padding: 2px 0; }
 
-.smd-places {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(136px, 1fr));
-  gap: 8px;
-}
-.smd-place {
+.smd-tree { display: flex; flex-direction: column; gap: 6px; }
+
+/* 节点=一行。大地区/子地区/场景共用这套骨架，只靠底色与缩进区分层级 —— */
+/* 用三套不同的方框色反而更乱（实测旧版大小地区混在网格里分不清谁属于谁）。 */
+.smd-node {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
   min-width: 0;
-  min-height: 38px;
-  padding: 6px 10px;
-  border-radius: 10px;
+  min-height: 34px;
+  padding: 5px 10px;
+  border-radius: 9px;
   background: var(--bg-sunken);
   border: 1px solid var(--border);
-}
-/* 大地区：占满一行当"分区标题"，否则和子地区混在同一个网格里，看不出谁属于谁 */
-.smd-place.is-l1 {
-  grid-column: 1 / -1;
-  min-height: 32px;
-  background: var(--bg-tertiary);
-  border-color: var(--border-strong);
-}
-.smd-place.is-l1 .smd-place-name { font-size: 13px; font-weight: 500; color: var(--text-bright); }
-/* 子地区用虚线弱化一档 */
-.smd-place.is-l2 { background: transparent; border-style: dashed; }
-.smd-place-name {
-  font-size: 12.5px;
   color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-standard),
+    background var(--dur-fast) var(--ease-standard);
+}
+.smd-node.is-leaf { cursor: default; }
+.smd-node:not(.is-leaf):hover { border-color: var(--accent); }
+.smd-node:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.smd-caret {
+  flex: none;
+  width: 11px;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--text-secondary);
+  text-align: center;
+}
+.smd-node-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 12.5px;
 }
-.smd-place-people { margin-left: auto; display: flex; align-items: center; flex: none; }
+.smd-node-badge {
+  flex: none;
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+.smd-node-badge.is-poi { background: transparent; border: 1px solid var(--border); }
+.smd-node-people { margin-left: auto; display: flex; align-items: center; flex: none; }
+
+/* 大地区：整行一条，底色提一档当"分区标题" */
+.smd-branch.is-l1 > .smd-node {
+  background: var(--bg-tertiary);
+  border-color: var(--border-strong);
+  min-height: 36px;
+}
+.smd-branch.is-l1 > .smd-node .smd-node-name { font-size: 13px; font-weight: 500; color: var(--text-bright); }
+/* 子地区：透明 + 虚线，弱一档 */
+.smd-branch.is-l2 > .smd-node { background: transparent; border-style: dashed; }
+
+/* 缩进 = 层级。左侧那条虚线是"这属于上面那一项"的视觉线索 */
+.smd-kids {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 5px 0 2px 16px;
+  padding-left: 8px;
+  border-left: 1px dashed var(--border);
+}
+
+/* 场景与生活地点：压成文字行，不再做成方块（三层方块叠起来视觉噪音太大） */
+.smd-leaf-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 6px 0 2px 16px;
+  padding-left: 8px;
+  border-left: 1px dashed var(--border);
+}
+.smd-leaf { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.smd-leaf-name { font-size: 12px; color: var(--text-primary); }
+.smd-poi {
+  font-size: 10.5px;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+.smd-leaf-empty { margin: 2px 0; font-size: 11px; color: var(--text-secondary); }
 .smd-place-ava {
   width: 22px; height: 22px;
   border-radius: 50%;
@@ -1063,7 +1287,6 @@ watch(worldId, (id, prev) => {
 }
 .smd-place-ava + .smd-place-ava { margin-left: -6px; }
 .smd-place-ava.is-more { background: var(--bg-hover); color: var(--text-secondary); }
-.smd-place-empty { margin-left: auto; color: var(--text-secondary); opacity: .45; font-size: 11px; }
 
 .smd-map-unplaced { margin: 10px 0 0; font-size: 11.5px; color: var(--text-secondary); line-height: 1.7; }
 .smd-map-unplaced-label { margin-right: 4px; }
@@ -1100,6 +1323,18 @@ watch(worldId, (id, prev) => {
   border: 1px solid var(--border);
 }
 .smd-hint { font-size: 12.5px; color: var(--text-secondary); padding: 8px 2px; }
+/* 主世界（骨架）的说明条：告诉使用者"这里不是地方，是通则"，顺便解释为什么只有一个页签 */
+.smd-core-note {
+  margin: 2px 2px 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-left: 3px solid color-mix(in srgb, var(--accent) 70%, var(--border));
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
 .smd-hint-foot { padding-top: 2px; }
 /* ★ 星图 T10：角色页签的「放进这个世界」一行 + 行内「移出」按钮 */
 .smd-row-act { flex: none; margin-left: 8px; }
@@ -1213,6 +1448,37 @@ watch(worldId, (id, prev) => {
 }
 .smd-cover-file { display: none; }
 .smd-cover-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+/* 「近期生成」缩略图墙：和角色头像选择器同一视觉语言（正方形、轻描边、选中描强调色） */
+.smd-recent {
+  border-top: 1px dashed var(--border);
+  padding-top: 10px;
+}
+.smd-recent-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
+  gap: 8px;
+  max-height: 236px;
+  overflow-y: auto;
+  padding: 2px;
+}
+.smd-recent-item {
+  aspect-ratio: 1 / 1;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--bg-sunken) center/cover no-repeat;
+  cursor: pointer;
+  padding: 0;
+  transition: transform var(--dur-fast) var(--ease-standard),
+    border-color var(--dur-fast) var(--ease-standard);
+}
+.smd-recent-item:hover { transform: translateY(-1px); border-color: var(--accent); }
+.smd-recent-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.smd-recent-item.is-picked {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.smd-recent-item:disabled { opacity: .55; cursor: default; }
 
 /* 提示词回显：让用户看得见 AI 到底要画什么（也方便自己改写后重试） */
 .smd-cover-prompt {

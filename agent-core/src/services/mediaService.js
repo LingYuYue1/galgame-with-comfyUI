@@ -23,7 +23,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { getDb, getSystemRules, getWorldSettingSample, getGlobalRule } from '../db/index.js';
+import { getDb, getSystemRules, getWorldSettingSample, sampleWorldSettings, getGlobalRule } from '../db/index.js';
 // 媒体删除墓碑要落库（补种逻辑据此跳过"用户删过的"媒体）
 import { getSetting, setSetting } from '../db/settings.js';
 import { chatSync } from '../llm/llm-client.js';
@@ -812,17 +812,43 @@ function claimPostForImage(postId) {
 /**
  * 抽参与本次生成的活跃角色（排除归档：归档 = 不参与任何主动行为）。
  * 返回带人格与头像的行，供提示词与落库使用。
+ *
+ * @param {number} count
+ * @param {{worldIds?: number[]}} [opts]
+ *   `worldIds` —— 本轮媒体抽中的世界。给了就**只从这些世界的居民 + 未归属角色里抽**。
+ *
+ *   ★ 2026-10-18（用户第 5 问）：此前这里是无条件 `ORDER BY RANDOM()` 全库随机，
+ *     和 `getWorldSettingSample()` 是完全独立的两条抽签线 —— 于是会出现
+ *     「媒体背景是二维市，作者却是仙舟的景元」。抽世界不配角色，等于角色被忽略。
+ *     现在按世界收窄池子：归属该世界的 + 未归属的（未归属吃主世界骨架，放哪个世界都不算串味）。
+ *     不传 `worldIds`（老调用点）时行为与从前逐字节一致。
  */
-export function pickActiveCharacters(count = 2) {
+export function pickActiveCharacters(count = 2, { worldIds = null } = {}) {
   const n = Math.max(0, Math.min(3, count));
   if (!n) return [];
+  const cols = `id, display_name, avatar_path, short_prompt, base_prompt, loras, custom_workflow, artist_override,
+           forum_alias, forum_persona`;
+  const ids = Array.isArray(worldIds)
+    ? worldIds.map(Number).filter((v) => Number.isSafeInteger(v) && v > 0)
+    : [];
+
+  if (!ids.length) {
+    return getDb().prepare(`
+      SELECT ${cols}
+      FROM characters
+      WHERE COALESCE(archived, 0) = 0
+      ORDER BY RANDOM() LIMIT ?
+    `).all(n);
+  }
+
+  const holes = ids.map(() => '?').join(',');
   return getDb().prepare(`
-    SELECT id, display_name, avatar_path, short_prompt, base_prompt, loras, custom_workflow, artist_override,
-           forum_alias, forum_persona
+    SELECT ${cols}
     FROM characters
     WHERE COALESCE(archived, 0) = 0
+      AND (world_setting_id IN (${holes}) OR world_setting_id IS NULL)
     ORDER BY RANDOM() LIMIT ?
-  `).all(n);
+  `).all(...ids, n);
 }
 
 /**
@@ -1197,9 +1223,10 @@ async function generateForumBatch(outlet, count, withCharacters) {
   const n = Math.max(1, Math.min(MAX_BATCH_SIZE, count));
   const boards = listBoards(outlet.id);
   const authorCount = !withCharacters ? 0 : Math.min(3, Math.max(1, Math.floor(n / 3)));
-  const authors = pickActiveCharacters(authorCount);
-
-  const worldSetting = getWorldSettingSample();
+  // ★ 2026-10-18：先抽世界，再按世界的居民抽作者 —— 两条线必须配对
+  const sampled = sampleWorldSettings();
+  const worldSetting = sampled.text;
+  const authors = pickActiveCharacters(authorCount, { worldIds: sampled.ids });
   const msgs = [
     { role: 'system', content: [getSystemRules({ roleplay: false }), worldSetting].filter(Boolean).join('\n\n') },
     { role: 'system', content: outlet.prompt },
@@ -1948,7 +1975,9 @@ async function generatePhotoBatch(outlet, count, withCharacters) {
   const planIdx = buildPhotoCategoryPlan(n, allowSelfie);
 
   const mapScenes = listMapScenePrompts();
-  const castPool = allowSelfie ? pickActiveCharacters(8) : [];
+  // ★ 2026-10-18：先抽世界，再按**这些世界**的居民抽出镜角色（自拍出镜也是"媒体覆盖的地盘"）
+  const sampled = sampleWorldSettings();
+  const castPool = allowSelfie ? pickActiveCharacters(8, { worldIds: sampled.ids }) : [];
   const selfieCast = pickUnique(castPool, planIdx.filter(x => x === 'selfie').length);
 
   const frames = pickUnique(CITYSCAPE_FRAMES, planIdx.filter(x => x === 'cityscape').length);
@@ -1970,7 +1999,7 @@ async function generatePhotoBatch(outlet, count, withCharacters) {
   });
 
   const msgs = [
-    { role: 'system', content: [getSystemRules({ roleplay: false }), getWorldSettingSample()].filter(Boolean).join('\n\n') },
+    { role: 'system', content: [getSystemRules({ roleplay: false }), sampled.text].filter(Boolean).join('\n\n') },
     { role: 'system', content: outlet.prompt },
     { role: 'system', content: buildPhotoFormatPrompt(outlet, boards, plan) },
     {
@@ -2006,7 +2035,9 @@ async function generateGalleryBatch(outlet, count, withCharacters) {
   const boards = listBoards(outlet.id);
 
   // 能出镜的角色池（排除归档）—— 图库里角色是"被画的对象"
-  const castPool = withCharacters ? pickActiveCharacters(8) : [];
+  // ★ 2026-10-18：先抽世界，再按这些世界的居民抽出镜角色
+  const sampled = sampleWorldSettings();
+  const castPool = withCharacters ? pickActiveCharacters(8, { worldIds: sampled.ids }) : [];
   // 规则34 不许出现角色名：出口层按**全库名字**清洗作品名/备注/署名
   const forbiddenNames = listCharacterDisplayNames();
   const poses = pickRandomPoses(n);
@@ -2055,7 +2086,7 @@ async function generateGalleryBatch(outlet, count, withCharacters) {
   });
 
   const msgs = [
-    { role: 'system', content: [getSystemRules({ roleplay: false }), getWorldSettingSample()].filter(Boolean).join('\n\n') },
+    { role: 'system', content: [getSystemRules({ roleplay: false }), sampled.text].filter(Boolean).join('\n\n') },
     { role: 'system', content: outlet.prompt },
     { role: 'system', content: buildGalleryFormatPrompt(outlet, boards, plan) },
     {
@@ -2980,9 +3011,10 @@ export async function generateMediaBatch({ outletId = null, count = DEFAULT_BATC
     const boards = listBoards(outlet.id);
     // 角色数量受帖数限制：最多 3 个、且不超过总帖数的一半（否则整版都是角色帖，不像真实社区）
     const authorCount = !withCharacters ? 0 : Math.min(3, Math.max(1, Math.floor(n / 2)));
-    const authors = pickActiveCharacters(authorCount);
-
-    const worldSetting = getWorldSettingSample();
+    // ★ 2026-10-18：先抽世界，再按世界的居民抽作者
+    const sampled = sampleWorldSettings();
+    const worldSetting = sampled.text;
+    const authors = pickActiveCharacters(authorCount, { worldIds: sampled.ids });
     const msgs = [
       { role: 'system', content: [getSystemRules({ roleplay: false }), worldSetting].filter(Boolean).join('\n\n') },
       { role: 'system', content: outlet.prompt },

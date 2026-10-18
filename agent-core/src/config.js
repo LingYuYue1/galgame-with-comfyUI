@@ -142,6 +142,16 @@ defaultTimeoutMs: parseInt(process.env.VECTOR_DEFAULT_TIMEOUT_MS, 10) || 120000,
     imageGenMode: process.env.FEATURE_FORCE_IMAGE_GEN === 'true' ? 'force' : 'smart', // 'off' | 'smart' | 'force'
     realtimeAffinityDisplay: process.env.FEATURE_REALTIME_AFFINITY_DISPLAY === 'true', // 默认关：好感度实时显示
     proactiveChat: process.env.FEATURE_PROACTIVE_CHAT !== 'false', // 默认开：主动发起对话
+    /**
+     * 角色自主旅游（2026-10-18）。
+     *
+     * 开启后，角色在**到点自动刷日程**时会以极低概率自己发起一段跨世界旅程
+     * （真的走 T15 的旅程链路：有路程时长、在途语境、到达重排日程）。
+     *
+     * ★ 默认**关**（红线 4：长驻功能默认关）—— 它会改变角色所在的世界的归属，
+     *   属于"用户想看时才开"的行为。概率见 `config.trip.autoTravelChance`。
+     */
+    autoTravel: process.env.FEATURE_AUTO_TRAVEL === 'true',
     proactiveChatFreq: parseFloat(process.env.PROACTIVE_CHAT_FREQ) || 0.5, // 主动聊天频率 0~1
     events: process.env.FEATURE_EVENTS !== 'false', // 默认开：奇遇系统
     eventFreq: parseFloat(process.env.EVENT_FREQ) || 1, // 奇遇触发频率 0~1，0=关闭自动触发
@@ -345,6 +355,17 @@ defaultTimeoutMs: parseInt(process.env.VECTOR_DEFAULT_TIMEOUT_MS, 10) || 120000,
   // durationHours = 全局统一时长；将来要按路线/世界区分时，再升级成矩阵
   trip: {
     durationHours: Number(process.env.TRIP_DURATION_HOURS) || 6,
+    /**
+     * 角色自主旅游的**每次掷骰概率**（0~1）。
+     *
+     * 掷骰频率 ≈ 每角色每天一次（`replyQueueScheduler` 到点刷日程时），
+     * 所以 0.06 ≈ 平均 16 天出门一次；十个角色 ≈ 两天见到一次有人在路上。
+     * 上限压到 0.25：再往上就是"所有人都在旅游"，那正是用户明确不要的。
+     */
+    autoTravelChance: (() => {
+      const v = parseFloat(process.env.AUTO_TRAVEL_CHANCE);
+      return Number.isFinite(v) ? Math.max(0, Math.min(0.25, v)) : 0.06;
+    })(),
   },
   // 世界块在 system 里的位置（星图 T13）。
   //   · 'tail' （默认）：排在**稳定块最后**（活人感规则之后）—— 世界一改只冲掉尾部，

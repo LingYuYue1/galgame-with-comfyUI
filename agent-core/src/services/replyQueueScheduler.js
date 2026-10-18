@@ -16,6 +16,7 @@ import { config } from '../config.js';
 import { getCurrentActivity, syncSleepingState } from './scheduleManager.js';
 import { getTimeLight } from './timeLight.js';
 import { generateSchedule, assignNextRefreshTime, snapshotTodaySchedule } from './scheduleGenerator.js';
+import { maybeAutoTravel } from './autoTravel.js';
 import { splitText } from '../utils/sentenceSplitter.js';
 import {
   loadEmotionState, getCompositeEmotion,
@@ -126,6 +127,11 @@ async function maybeRefreshOneSchedule() {
 
   console.log(`[replyQueue] Refreshing schedule for ${candidate.display_name}...`);
   try {
+    // ★ 2026-10-18 角色自主旅游：在**生成日程之前**掷骰。
+    //   顺序很关键 —— 先发起旅程，紧接着的 generateSchedule 才能读到"在途"状态，
+    //   由 buildTripDayBlock 把当天日程排成"在路上"。反过来（先生成再发起）就要回头改日程。
+    //   这一步内部有四道闸（开关/已在途/全局上限/无归属），不成立就安静跳过。
+    maybeAutoTravel(candidate);
     await generateSchedule(candidate);
     snapshotTodaySchedule(candidate.id);
     syncSleepingState(candidate.id);

@@ -944,6 +944,14 @@ export async function uploadWorldCover(id, base64) {
 }
 
 /**
+ * 全站近期生成的图（供世界封面挑选）。
+ * 数据源与角色头像选择器同源（`image_tasks`），但**不按角色过滤** —— 封面是世界级的。
+ */
+export async function getRecentGeneratedImages(limit = 40) {
+  return request(`/config/recent-images?limit=${Number(limit) || 40}`)
+}
+
+/**
  * 星图封面：让 AI 按世界观画一张（固定 1216×832）。
  * 走 SSE —— 本地出图要几十秒，干等会让人以为卡死。
  * @param {number} id

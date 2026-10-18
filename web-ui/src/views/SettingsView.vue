@@ -667,6 +667,21 @@ type="range" min="0" max="1" step="0.1"
           </div>
         </div>
 
+        <!-- ★ 2026-10-18：角色自主旅游。
+             默认关 —— 它会真的改变角色所在的世界（走 T15 的旅程链路），
+             属于"用户想看时才开"的行为。 -->
+        <div class="toggle-row">
+          <div>
+            <div class="tl">角色自主旅游</div>
+            <div class="td">
+              开启后，角色在<strong>自动刷新日程</strong>时有很小的概率自己出发去另一个世界：
+              真的走一段旅程（有路程时长，路上聊天的语境是「在赶路」，到达后日程自动重排）。
+              手动刷新日程不会触发。概率很低，不会出现所有人都在旅游。
+            </div>
+          </div>
+          <linshe-switch v-model="features.autoTravel" @change="saveFeature('autoTravel', features.autoTravel)" />
+        </div>
+
         <div class="toggle-row freq-row">
           <div>
             <div class="tl">朋友圈发帖频率</div>
@@ -1373,7 +1388,7 @@ const novelaiApiKeySaved = ref(false)
 const novelaiApiKeyCleared = ref(false)
 const connDirty = ref(false)
 const connSaved = ref(false)
-const features = reactive({ emotion: false, memory: false, replyGuesses: false, realtimeAffinityDisplay: false, serializeBackgroundLLM: false, backgroundLLMMaxConcurrency: 3, mergeMessages: false, weather: true, momentsAdult: false })
+const features = reactive({ emotion: false, memory: false, replyGuesses: false, realtimeAffinityDisplay: false, serializeBackgroundLLM: false, backgroundLLMMaxConcurrency: 3, mergeMessages: false, weather: true, momentsAdult: false, autoTravel: false })
 const freqSlider = ref(0.5)
 const eventFreqSlider = ref(1)
 // 仅换算显示，保留原有 0~1 参数；公式对应两个 scheduler 的现有间隔。

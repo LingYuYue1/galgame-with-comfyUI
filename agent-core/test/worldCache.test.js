@@ -98,7 +98,9 @@ test('★★★ T13：角色改绑世界后立刻换语境；发起/取消旅程
   db.__resetWorldCacheForTest();
   const w1 = db.createWorldSetting({ name: '改绑一', content: '# 一\n改绑世界一号\n' });
   const w2 = db.createWorldSetting({ name: '改绑二', content: '# 二\n改绑世界二号\n' });
-  db.activateWorldSetting(w1.id);
+  // ★ 2026-10-18 世界分层：这里**不能**把 w1 设为主世界 —— 主世界是骨架，
+  //   不是可去的地方（createTrip 会以 CORE_WORLD 拒绝）。本用例只需要 w1 是"一个副世界"。
+  //   原先的 activateWorldSetting 调用是分层前的语义（"默认具体世界"），已无必要。
   const cid = makeChar('缓存角色3');
   database.prepare('UPDATE characters SET world_setting_id = ? WHERE id = ?').run(w1.id, cid);
 
