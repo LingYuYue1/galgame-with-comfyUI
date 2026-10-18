@@ -1147,7 +1147,8 @@ v-for="m in workflowModeOptions" :key="m.value"
           <p class="wf-mode-hint">从 workflow 目录中选择工作流，所有生图场景统一使用</p>
           <linshe-select
 v-model="wfCustomDraft" :options="customWorkflowOptions"
-            :disabled="customWorkflowLoading" placeholder="请选择自定义工作流" />
+            :disabled="customWorkflowLoading" placeholder="请选择自定义工作流"
+/>
           <p v-if="!customWorkflowLoading && customWorkflowOptions.length === 0" class="wf-mode-custom-empty">
             未找到可选工作流，请把 .json 文件放入 workflow 目录
           </p>
@@ -1387,6 +1388,7 @@ const eventFreqLabel = computed(() => eventFreqSlider.value <= 0
 // 时间档从慢到快排列，最右侧额外提供沿用原有频率的「默认」档。
 const MOMENT_FREQ_STEPS = [
   { value: 0,    label: '关闭',    hint: '关闭自动发帖（仍可手动发）。' },
+  { value: 1 / 18, label: '36 小时', hint: '每个角色以 36 小时为中心，随机间隔 28.8~43.2 小时。' },
   { value: 1 / 12, label: '24 小时', hint: '每个角色以 24 小时为中心，随机间隔 19.2~28.8 小时。' },
   { value: 1 / 8, label: '16 小时', hint: '每个角色以 16 小时为中心，随机间隔 12.8~19.2 小时。' },
   { value: 1 / 6, label: '12 小时', hint: '每个角色以 12 小时为中心，随机间隔 9.6~14.4 小时。' },
@@ -1729,8 +1731,8 @@ function toggleLlmAdvanced() { llmAdvancedOpen.value = !llmAdvancedOpen.value }
 const showRelayModal = ref(false)
 const showNovelaiRelayModal = ref(false)
 const relayStations = [
-  { name: '词元跳动', keysUrl: 'https://tokendance.space/keys', url: 'https://tokendance.space/gateway/v1', desc: '仍然提供v4flash预览版，所以没有涨价' },
-  { name: '基元律动', keysUrl: 'https://tokenrhythm.studio/i/rf_tr_sFVpaGViDHbVQrjGtHKXT2in', url: 'https://tokenrhythm.studio/v1', desc: '注册即送68元，邀请还送68元，同样还有flash预览版，但是不够稳定' },
+  { name: '词元跳动', keysUrl: 'https://tokendance.space/keys', url: 'https://tokendance.space/gateway/v1', desc: '仍然提供v4-flash-preview，超低价格，文风优秀' },
+  { name: '基元律动', keysUrl: 'https://tokenrhythm.studio/i/rf_tr_8BNBDW?share_id=3a6de008-4004-4711-8060-791aa9f4fd1a', url: 'https://tokenrhythm.studio/v1', desc: '有18元注册奖励，deepseek最新多模态模型全天谷价' },
 ]
 
 const relayConfigBusy = ref(false)

@@ -365,7 +365,7 @@ export function listPostsNeedingImage(limit = 8, postIds = null) {
   // ⚠ 必须排除门户：门户由 fillPortalImages 负责逐块补图，而门户帖的 image_prompt 存的是
   //   「第一块的头图提示词」，被这里捞到会**额外多生一张重复的主图**（正是两层设计要避免的浪费）。
   return getDb().prepare(`
-    SELECT p.id, p.image_prompt, p.character_id FROM media_posts p
+    SELECT p.id, p.image_prompt, p.character_id, p.title, p.content FROM media_posts p
     LEFT JOIN media_outlets o ON o.id = p.outlet_id
     WHERE (p.image_status = 'pending' OR (p.published_seq IS NULL AND p.image_status = 'failed'))
       AND p.image_prompt IS NOT NULL AND p.image_prompt != ''
@@ -1108,7 +1108,7 @@ async function fillPortalImagesNow(limit, postIds = null, priority = 'low') {
       if (section.image || !section.image_prompt) continue;
       attempted++;
       try {
-        const result = await generateMediaImage(section.image_prompt, null, priority);
+        const result = await generateMediaImage(section.image_prompt, null, priority, [section.name, section.lead].filter(Boolean).join('\n'));
         if (!result) continue;
         // 重新读一次 payload：生成期间可能有别的写入（如用户点了某块生成正文）
         const fresh = safeParse(db.prepare('SELECT payload_json FROM media_posts WHERE id = ?').get(row.id)?.payload_json, null);
@@ -1315,11 +1315,11 @@ export async function generateMediaBatch({ outletId = null, count = DEFAULT_BATC
 // 配图（草稿后台补齐后发布）
 // ══════════════════════════════════════════
 
-async function generateMediaImage(prompt, character = null, priority = 'low') {
+async function generateMediaImage(prompt, character = null, priority = 'low', ragQuery = '') {
   const charArtist = charArtistOverrideWithFallback(character);
   const loras = parseCharacterLoras(character?.loras);
   const result = await generateImageRaw(prompt, {
-    ragQuery: prompt,
+    ragQuery,
     artist: charArtist !== null ? charArtist : config.comfyui.momentsArtist,
     width: config.comfyui.momentsWidth,
     height: config.comfyui.momentsHeight,
@@ -1373,7 +1373,7 @@ async function fillPendingImagesNow(limit, postIds = null, priority = 'low') {
       const character = p.character_id
         ? db.prepare('SELECT loras, artist_override, custom_workflow FROM characters WHERE id = ?').get(p.character_id)
         : null;
-      const result = await generateMediaImage(p.image_prompt, character, priority);
+      const result = await generateMediaImage(p.image_prompt, character, priority, [p.title, p.content].filter(Boolean).join('\n'));
       if (!result) {
         updatePostImage(p.id, { status: 'failed', error: 'ComfyUI 未返回图片' });
         continue;
@@ -1447,7 +1447,7 @@ async function fillPosterPanelImages(limit = 3, postIds = null, priority = 'low'
       if (panel.image || !panel.image_prompt) continue;
       attempted++;
       try {
-        const result = await generateMediaImage(panel.image_prompt, null, priority);
+        const result = await generateMediaImage(panel.image_prompt, null, priority, panel.label || '');
         if (!result) continue;
         panel.image = result.url;
         // Persist each panel before notifying clients so a reload sees the completed image.

@@ -7,6 +7,12 @@ const calls = [];
 const responses = [];
 let releaseBackground;
 globalThis.__mediaPriorityGenerate = async (prompt, opts) => {
+  const expectedQuery = prompt.endsWith('-panel') ? '细节'
+    : prompt.includes('-section') ? `栏目${prompt.match(/-section(\d+)/)[1]}\n导语`
+    : null;
+  if (expectedQuery) assert.equal(opts.ragQuery, expectedQuery);
+  else assert.match(opts.ragQuery, /优先级测试|栏目0\n导语/);
+  assert.notEqual(opts.ragQuery, prompt, 'RAG 应收到中文内容，而非英文生图 prompt');
   calls.push({ prompt, priority: opts.priority });
   if (prompt.endsWith('-held')) await new Promise(resolve => { releaseBackground = resolve; });
   // No image files or real GPU requests are needed to verify dispatch.

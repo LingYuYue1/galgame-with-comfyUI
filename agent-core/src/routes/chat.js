@@ -1528,7 +1528,8 @@ ${coreRules}
         .run(conversationId, tags.prompt, tags.prompt);
       const genTaskId = taskResult.lastInsertRowid;
       send('generate_start', { taskId: genTaskId, prompt: tags.prompt });
-      imageGenPromise = triggerImageGeneration(conversationId, tags.prompt, lastInsertRowid, genTaskId, send, allRefIds);
+      const ragQuery = `${chatUserName}: ${extractRealContent(message)}\n${character?.display_name || '角色'}: ${stripTags(fullContent)}`;
+      imageGenPromise = triggerImageGeneration(conversationId, tags.prompt, lastInsertRowid, genTaskId, send, allRefIds, ragQuery);
     } else if (hasNeedImageTag) {
       // 路径 B: 模型追加了 <needImage>，需要二次请求获取 prompt
       // 提前创建 task + 发送 generate_start，前端立即显示遮罩层
@@ -1806,7 +1807,7 @@ async function judgeImageNeed(conversationId) {
   }
 }
 
-async function triggerImageGeneration(conversationId, prompt, assistantMsgId, taskId, send, crossRefCharIds = []) {
+async function triggerImageGeneration(conversationId, prompt, assistantMsgId, taskId, send, crossRefCharIds = [], ragQuery = '') {
   const db = getDb();
 
   // 查找角色 lora 设置
@@ -1856,6 +1857,7 @@ async function triggerImageGeneration(conversationId, prompt, assistantMsgId, ta
   try {
     const result = await generateImage(prompt, {
       scene: 'chat',
+      ragQuery,
       ragTimeoutMs: RAG_TIMEOUT_FAST_MS,
       onProgress: (p) => {
         if (p.stage === 'retrying') {
@@ -2126,7 +2128,7 @@ ${contextBlock.content}`;
     }` },
   ];
 
-  return { msgs, crossRefCharIdsForImage, personalityPrompt };
+  return { msgs, crossRefCharIdsForImage, personalityPrompt, lastTurnDialogue };
 }
 
 /** 请求生图描述 LLM，返回原始输出（planner 并行预生成也走这里） */
@@ -2146,7 +2148,7 @@ async function handleNeedImageFlow(conversationId, character, send, preExistingT
   console.log('[chat] needImage detected, requesting prompt from model (compact)...');
   const emojiMap = getCharacterEmojiMap(character.id, db);
 
-  const { msgs, crossRefCharIdsForImage, personalityPrompt } = buildImagePromptMessages(conversationId, character, planSceneHint);
+  const { msgs, crossRefCharIdsForImage, personalityPrompt, lastTurnDialogue } = buildImagePromptMessages(conversationId, character, planSceneHint);
 
   // 3. 静默请求模型生成 prompt（不流式，避免前端气泡混乱）
   //    presetContentPromise：planner 阶段已与回复流并行预生成的结果，直接取用，省去回复完成后的串行等待
@@ -2284,7 +2286,8 @@ async function handleNeedImageFlow(conversationId, character, send, preExistingT
       genTaskId = taskResult.lastInsertRowid;
       send('generate_start', { taskId: genTaskId, prompt: tags.prompt });
     }
-    await triggerImageGeneration(conversationId, tags.prompt, assistantMsgId, genTaskId, send, crossRefCharIdsForImage);
+    // 使用请求生图助手时捕获的最后一轮对话，避免下方生图时读到已拼入的英文 prompt。
+    await triggerImageGeneration(conversationId, tags.prompt, assistantMsgId, genTaskId, send, crossRefCharIdsForImage, lastTurnDialogue);
   } else {
     console.log('[chat] needImage follow-up: no prompt tags found, falling back');
     send('generate_error', { taskId: preExistingTaskId, error: '模型未返回图像描述' });
@@ -2472,6 +2475,7 @@ async function handleDreamTalkReply(res, characterId, conversationId, userMsgId,
 
       const result = await generateImage(finalPrompt, {
         scene: 'chat',
+        ragQuery: `${config.user.nickname || '用户'}: ${userMessage}\n${character.display_name || '角色'}: ${talk}`,
         ragTimeoutMs: RAG_TIMEOUT_FAST_MS,
         onProgress: (p) => {
           if (p.stage === 'retrying') {

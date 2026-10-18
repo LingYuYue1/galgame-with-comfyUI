@@ -56,6 +56,7 @@ agent-core/test/*
 !agent-core/test/dialogueTranscript.test.js
 !agent-core/test/characterBackgrounds.test.js
 !agent-core/test/chatModePrompt.test.js
+!agent-core/test/chatImageRagQuery.test.js
 !agent-core/test/momentTiming.test.js
 !agent-core/test/mediaFavorites.test.js
 !agent-core/test/mediaOutputFormat.test.js
@@ -71,3 +72,4 @@ agent-core/test/*
 !agent-core/test/vertexClient.test.js
 !agent-core/test/promptPresets.test.js
 !agent-core/test/townMapCapabilities.test.js
+!agent-core/test/imageCacheRevalidation.test.js

@@ -268,7 +268,7 @@ function updateSession(db, sessionId, patch) {
     .run(...values, Date.now(), sessionId);
 }
 
-async function generateServiceImage(prompt, { npc, kind, sessionId, options }) {
+async function generateServiceImage(prompt, { npc, kind, sessionId, options, ragQuery }) {
   const generate = options.image?.generateImageRaw || generateImageRaw;
   // onProgress 收到的是 { stage, phase, progress: 0~1, step, max, ... } 对象，
   // 必须换算成 0~100 的整数再广播；直接把对象当数字用会让前端算出 NaN%。
@@ -278,7 +278,7 @@ async function generateServiceImage(prompt, { npc, kind, sessionId, options }) {
     broadcast(TOWN_NPC_SERVICE_PROGRESS_EVENT, { sessionId, npcId: npc.id, kind, progress: percent });
   };
   const result = await generate(prompt, {
-    ragQuery: prompt,
+    ragQuery,
     artist: config.comfyui.eventArtist,
     width: config.comfyui.eventWidth,
     height: config.comfyui.eventHeight,
@@ -355,7 +355,7 @@ async function runPipeline(context, { npc, offer, kind, session, prior, options 
       payload = parseServicePayload(text);
     }
 
-    const genResult = await generateServiceImage(payload.prompt, { npc, kind, sessionId, options });
+    const genResult = await generateServiceImage(payload.prompt, { npc, kind, sessionId, options, ragQuery: payload.tale });
     if (!genResult?.success || !Array.isArray(genResult.images) || !genResult.images.length) {
       throw townError('SERVICE_IMAGE_FAILED');
     }
