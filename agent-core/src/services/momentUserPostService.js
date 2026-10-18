@@ -1,3 +1,4 @@
+import { chatWithPreset } from './presets/narrative.js';
 /**
  * 用户自己发朋友圈 + 角色来评论区互动
  *
@@ -228,7 +229,7 @@ export async function generateUserPostComment(character, post, historyComments, 
   if (memories.length) msgs.push({ role: 'system', content: formatMomentMemories(memories, displayName) });
   msgs.push({ role: 'user', content: task });
 
-  const chat = deps.chatSync || chatSync;
+  const chat = deps.chatSync || chatWithPreset;
   const result = await chat(msgs, { temperature: 0.7, label: '用户朋友圈评论', lorebook:{personaTexts:[character.base_prompt],staticTexts:[commentRulesContext],characterName:displayName,history:[{role:'user',content:visibleContent},...historyComments.map(c=>({role:c.author_type==='character'?'assistant':'user',content:c.content}))],scenario:visibleContent} });
   return String(result || '').trim().replace(/^["']|["']$/g, '').slice(0, 200);
 }

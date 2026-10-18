@@ -57,7 +57,7 @@ export async function prepareLorebook(messages, options = {}) {
       } catch (error) { context.vectorError = `向量召回不可用：${error.message}`; }
     }
     // 这里只为回复预留上下文空间，不作为 API 的输出上限发送。
-    const availableTokens = Math.max(0, (options.contextTokens || book.settings.contextTokens) - (options.maxOutputTokens || 4096) - messages.reduce((n,m)=>n+estimateTokens(text(m))+4,0));
+    const availableTokens = Math.max(0, (options.contextTokens || book.settings.contextTokens) - (options.maxOutputTokens || 4096) - (Math.max(0, Number(options.reservedTokens) || 0)) - messages.reduce((n,m)=>n+estimateTokens(text(m))+4,0));
     try { activation = await runLorebookTask('evaluate', [book.document, book.settings, { ...context, availableTokens }, previous]); }
     catch (error) { return failed(error); }
     if (context.vectorError) activation.warnings.push(context.vectorError);

@@ -10,6 +10,13 @@ const configModule = stub(`
   export function updateFreeEggEnabled(enabled) { config.llm.freeEgg = enabled; }
 `);
 const { config } = await import(configModule);
+const presetModule = stub(`
+  import { createPresetRuntime } from ${JSON.stringify(new URL('../src/services/presets/runtime.js', import.meta.url).href)};
+  export const state = { active:null, renders:0 };
+  const runtime = createPresetRuntime({ getActivePreset:async()=>state.active, getContext:async()=>({random:()=>{state.renders++; return 0;}}) });
+  export const preparePreset = runtime.prepare;
+`);
+const { state: presetState, preparePreset } = await import(presetModule);
 const sourceUrl = new URL('../src/llm/llm-client.js', import.meta.url);
 const imports = {
   openai: import.meta.resolve('openai'),
@@ -155,6 +162,28 @@ test('all LLM request paths use the configured output allowance', async t => {
     assert.equal(await client.chatSync(messages, { retries: 1, retryDelay: 1, maxRetries: 0 }), reply);
     assert.equal(requests.length - start, 2);
     requests.slice(start).forEach(params => assertAllowance(params));
+  });
+
+  await t.test('only explicitly assembled presets reach sync/stream HTTP bodies; raw calls never inject even while active', async () => {
+    presetState.active = {id:1,name:'fixture',revision:1,document:{prompts:[{identifier:'x',role:'assistant',content:'preset {{random::A::B}}'}]}};
+    presetState.renders = 0;
+    config.features.mergeMessages = true;
+    const original = [...messages];
+    const start = requests.length;
+    failRequests = 1;
+    try {
+      await client.chatSync((await preparePreset(original)).messages, {retries:1,retryDelay:1,maxRetries:0});
+      for await (const chunk of client.chatStream((await preparePreset([...messages])).messages)) assert.ok(chunk);
+      assert.equal(requests.length-start,3);
+      for (const params of requests.slice(start)) assert.deepEqual(params.messages,[messages[0],{role:'system',content:'preset A'},messages[1]]);
+      assert.equal(presetState.renders,2,'retry does not reroll; stream is a new request');
+      assert.deepEqual(original,messages,'callers retain unmodified arrays');
+      await client.chatSync([...messages]);
+      assert.deepEqual(requests.at(-1).messages,messages);
+      for await (const chunk of client.chatStream([...messages])) assert.ok(chunk);
+      assert.deepEqual(requests.at(-1).messages,messages);
+      assert.equal(presetState.renders,2,'raw requests never compile the active preset');
+    } finally { presetState.active=null; config.features.mergeMessages=false; }
   });
 
   await t.test('free model and fallback requests use their effective configuration', async () => {

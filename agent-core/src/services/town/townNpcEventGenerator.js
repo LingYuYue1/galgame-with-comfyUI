@@ -8,7 +8,7 @@
  */
 
 import { getDb, getSystemRules, getSystemRulesWithWorld, getWorldSetting, getGlobalRule } from '../../db/index.js';
-import { chatSync as defaultChatSync } from '../lorebook/runtime.js';
+import { chatWithPreset } from '../presets/narrative.js';
 import { generateImageRaw as defaultGenerateImageRaw } from '../imageSkill.js';
 import { recordCompletedImageTask } from '../imageTaskRecorder.js';
 import { saveBase64Image } from '../imagePaths.js';
@@ -163,7 +163,7 @@ export async function generateTownNpcEvent(npc, options = {}) {
   if (options.manual !== true) throw new Error('NPC_EVENT_REQUIRES_PLAYER_ACTION');
   const db = getDb();
   const now = new Date();
-  const chatSync = options.llm?.chatSync || defaultChatSync;
+  const chatSync = options.llm?.chatSync || chatWithPreset;
   const generateImageRaw = options.image?.generateImageRaw || defaultGenerateImageRaw;
 
   // 1. 并发保护：每位镇民同时最多一个活跃奇遇（唯一索引兜底）
@@ -418,7 +418,7 @@ ${timeTag}${locationLine}
 export async function generateTownNpcNextBranch(npc, event, choice, deps = {}) {
   const db = getDb();
   const now = new Date();
-  const chatSync = deps.llm?.chatSync || defaultChatSync;
+  const chatSync = deps.llm?.chatSync || chatWithPreset;
   const generateImageRaw = deps.image?.generateImageRaw || defaultGenerateImageRaw;
   const branchTimeExtensionMinutes = 5;
   const branchTimeExtensionWindowMs = 15 * 60 * 1000;
@@ -678,7 +678,7 @@ function archiveNpcEvent(npc, event, outcome, conclusionData) {
  */
 export async function concludeTownNpcEvent(npc, event, outcome, deps = {}) {
   const db = getDb();
-  const chatSync = deps.llm?.chatSync || defaultChatSync;
+  const chatSync = deps.llm?.chatSync || chatWithPreset;
   console.log(`[townNpcEventGen] Concluding event "${event.title}" for ${npc.display_name} (engaged=${event.engaged}, outcome=${outcome})`);
 
   const worldSetting = getWorldSetting();

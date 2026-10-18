@@ -21,7 +21,7 @@
  */
 import { getDb, getSystemRules, getWorldSetting, getGlobalRule } from '../db/index.js';
 import { chatStream } from '../llm/llm-client.js';
-import { prepareLorebook } from './lorebook/runtime.js';
+import { prepareNarrativePrompt } from './presets/narrative.js';
 import { config } from '../config.js';
 import { countCompletedGroupRounds } from './groupRoundCounter.js';
 import { generateImage, getLastWorkflowMode } from './imageSkill.js';
@@ -958,7 +958,7 @@ async function _runGroupRound(groupId, { trigger = 'user', userMessage = '', emi
   const loreHistory = db.prepare('SELECT id,role,content FROM (SELECT id,role,content FROM raw_messages WHERE conversation_id=? ORDER BY id DESC LIMIT 1000) ORDER BY id').all(conversationId);
   const groupPersonaIndex = originalMsgs.findIndex(m=>m.role==='system' && m.content.startsWith('<group_info>'));
   const groupPersona = originalMsgs[groupPersonaIndex]?.content || '';
-  const lorebookTurn = await prepareLorebook(originalMsgs, { scope:conversationId, turnKey:`${trigger}:${loreHistory.at(-1)?.id || 0}`, step:db.prepare('SELECT COUNT(*) AS n FROM raw_messages WHERE conversation_id=?').get(conversationId).n, history:loreHistory, transcriptSegments:buildTranscript(db,conversationId).segments, characterNames:group.members.flatMap(m=>[m.name,m.display_name]).filter(Boolean), characterDescription:groupPersona, personaTexts:[groupPersona], cacheBoundary:groupPersonaIndex>=0 ? {index:groupPersonaIndex,offset:groupPersona.length} : undefined, trigger:trigger==='lull' ? 'continue' : 'normal', protectedPrefix:3 });
+  const lorebookTurn = await prepareNarrativePrompt(originalMsgs, { scope:conversationId, turnKey:`${trigger}:${loreHistory.at(-1)?.id || 0}`, step:db.prepare('SELECT COUNT(*) AS n FROM raw_messages WHERE conversation_id=?').get(conversationId).n, history:loreHistory, transcriptSegments:buildTranscript(db,conversationId).segments, characterNames:group.members.flatMap(m=>[m.name,m.display_name]).filter(Boolean), characterDescription:groupPersona, personaTexts:[groupPersona], cacheBoundary:groupPersonaIndex>=0 ? {index:groupPersonaIndex,offset:groupPersona.length} : undefined, trigger:trigger==='lull' ? 'continue' : 'normal', protectedPrefix:3 });
   const msgs = lorebookTurn.messages;
 
   // ── 先插 raw 占位（messages.raw_id FK 需要），流结束后回填完整剧本 ──

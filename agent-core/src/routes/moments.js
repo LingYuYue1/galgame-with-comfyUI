@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { saveBase64Image } from '../services/imagePaths.js';
 import { getDb, getSystemRules, getSystemRulesWithWorld, getWorldSetting, getGlobalRule } from '../db/index.js';
-import { chatSync } from '../services/lorebook/runtime.js';
+import { chatWithPreset } from '../services/presets/narrative.js';
 import { config } from '../config.js';
 import { getMomentDelay } from '../services/momentTiming.js';
 import { generateImageRaw } from '../services/imageSkill.js';
@@ -954,7 +954,7 @@ ${userName}的信息：${userDesc || '信息未知，按普通人处理'}
       if (lifeContext) msgs.splice(msgs.length - 1, 0, { role: 'system', content: `${MOMENT_RECORD_BACKDROP_RULE}\n\n${lifeContext}` });
     } catch (err) { console.warn('[moments] town life records unavailable:', err?.message); }
   }
-  const result = await chatSync(msgs, { temperature: 0.8, response_format: { type: 'json_object' }, label: '发朋友圈助手', lorebook:{personaTexts:[lorePersona],characterName:character.display_name,scenario:scheduleContext} });
+  const result = await chatWithPreset(msgs, { temperature: 0.8, response_format: { type: 'json_object' }, label: '发朋友圈助手', lorebook:{personaTexts:[lorePersona],characterName:character.display_name,scenario:scheduleContext} });
 
   // 解析 LLM 输出；失败时只回收正文，避免把 JSON 原文写进 content
   const parsed = parseMomentResponse(result);
@@ -1158,7 +1158,7 @@ imagePrompt 中${userName}的外观以上述描述为准。`,
   const postId = postResult.lastInsertRowid;
 
   try {
-    const result = await chatSync(msgs, {
+    const result = await chatWithPreset(msgs, {
       temperature: 0.8,
       response_format: { type: 'json_object' },
       label: '日程赴约朋友圈',

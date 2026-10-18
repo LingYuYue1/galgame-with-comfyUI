@@ -1,3 +1,4 @@
+import { chatWithPreset } from './presets/narrative.js';
 /**
  * mediaService.js — 媒体内容页（传媒 / 数字媒体）的生成引擎
  *
@@ -637,7 +638,7 @@ async function generateWeeklyIssue(outlet, manual = false) {
     { role: 'user', content: `请出《狸狸周刊》新的一期。上一期是 Vol.${prevVolume || '（尚无，本期为 Vol.1）'}，本期卷号用 ${prevVolume + 1}。\n\n必须是全新一期，不得重复往期的头条与栏目内容。` },
   ];
 
-  const raw = await chatSync(msgs, {
+  const raw = await chatWithPreset(msgs, {
     temperature: 0.9, response_format: { type: 'json_object' }, label: `media:${outlet.name}`,
   });
   const jsonStr = extractFirstJson(raw);
@@ -1166,7 +1167,7 @@ export async function generatePortalSection(postId, sectionKey) {
   const outlet = db.prepare('SELECT * FROM media_outlets WHERE id = ?').get(row.outlet_id);
   const worldSetting = getWorldSetting();
 
-  const raw = await chatSync([
+  const raw = await chatWithPreset([
     { role: 'system', content: [getSystemRules({ roleplay: false }), worldSetting].filter(Boolean).join('\n\n') },
     { role: 'system', content: outlet?.prompt || '' },
     { role: 'system', content: buildSectionBodyPrompt(section.name, section.lead) },
@@ -1258,7 +1259,7 @@ export async function generateMediaBatch({ outletId = null, count = DEFAULT_BATC
       { role: 'user', content: buildMaterialsPrompt(outlet, boards, authors, n) },
     ];
 
-    const raw = await chatSync(msgs, {
+    const raw = await chatWithPreset(msgs, {
       temperature: 0.9,
       response_format: { type: 'json_object' },
       label: `media:${outlet.name}`,

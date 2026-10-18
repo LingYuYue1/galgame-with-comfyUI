@@ -22,7 +22,7 @@
 
 import { getDb, getSystemRulesWithWorld, getGlobalRule, getWorldSetting } from '../db/index.js';
 import { getWorldIntegrationRule } from '../builtinRules.js';
-import { chatSync } from './lorebook/runtime.js';
+import { chatWithPreset } from './presets/narrative.js';
 import { generateImage } from './imageSkill.js';
 import { charArtistOverride } from './characterImageOpts.js';
 import { buildCharacterPersona } from './characterPersona.js';
@@ -423,7 +423,7 @@ async function runDiaryGeneration({ db, character, dateKey, name, task }) {
 
     // ── 步骤3：LLM 生成日记文字 + 3 段生图 prompt ──
     const messages = buildDiaryMessages({ character, dateKey, scheduleText });
-    const raw = await chatSync(messages, {
+    const raw = await chatWithPreset(messages, {
       temperature: 0.9,
       response_format: { type: 'json_object' },
       label: '日记助手',

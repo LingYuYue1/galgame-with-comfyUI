@@ -1,3 +1,4 @@
+import { chatWithPreset } from './presets/narrative.js';
 import { getDb, getSystemRulesWithWorld, getGlobalRule } from '../db/index.js';
 import { appendOathRing } from './oathUtils.js';
 import { chatSync } from './lorebook/runtime.js';
@@ -375,7 +376,7 @@ ${userContent}
     }
   }
   try {
-    const raw = await chatSync(msgs, { temperature: 0.7, response_format: { type: 'json_object' }, label: '信箱回信助手', lorebook:{personaTexts:[basePromptWithRing]} });
+    const raw = await chatWithPreset(msgs, { temperature: 0.7, response_format: { type: 'json_object' }, label: '信箱回信助手', lorebook:{personaTexts:[basePromptWithRing]} });
     return parseReplyJSON(raw, userContent);
   } catch (err) {
     console.error('[mailboxScheduler] LLM reply error:', err.message);

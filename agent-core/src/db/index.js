@@ -6,6 +6,7 @@ import { config } from '../config.js';
 import { initSettingsHandle, loadSystemSettings } from './settings.js';
 import { initWorldRepository } from './worldRepository.js';
 import { migrateLorebooks } from './lorebookRepository.js';
+import { migratePresets } from './presetRepository.js';
 import { seedAll } from './seedData.js';
 import { DEFAULT_EVENT_TYPES } from './seedEventTypes.js';
 import { DEFAULT_MOMENT_TOPICS } from './seedTopics.js';
@@ -1187,6 +1188,7 @@ function initSchema(db) {
   loadSystemSettings(db);
   initWorldRepository(db);
   migrateLorebooks(db);
+  migratePresets(db);
 
   // 重建 FTS5 索引
   rebuildFtsIndex(db);

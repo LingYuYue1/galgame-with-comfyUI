@@ -1,3 +1,4 @@
+import { chatWithPreset } from '../presets/narrative.js';
 /**
  * AI 小镇核心服务（v2：瓦片地图 + 轻量 NPC + 角色 opt-in）
  *
@@ -1810,7 +1811,7 @@ async function runEncounterDialogue(enc) {
   ];
 
   try {
-    const content = await chatWithLorebook(messages, {
+    const content = await chatWithPreset(messages, {
       temperature: 0.9,
       response_format: { type: 'json_object' },
       label: '小镇相遇对话',

@@ -16,7 +16,8 @@ import { invalidateGalleryCache } from './galleryCache.js';
 import { getDb, getSystemRulesWithWorld, getGlobalRule, getWorldSetting } from '../db/index.js';
 import { appendOathRing } from './oathUtils.js';
 import { buildCharacterAppearanceSection } from './characterPersona.js';
-import { chatSync, prepareLorebook } from './lorebook/runtime.js';
+import { chatSync } from './lorebook/runtime.js';
+import { prepareNarrativePrompt } from './presets/narrative.js';
 import { chatSync as chatWithoutLorebook } from '../llm/llm-client.js';
 import { buildConversationLorebookContext } from './lorebook/conversationContext.js';
 import { config } from '../config.js';
@@ -481,7 +482,7 @@ ${proactiveRules}
       : '';
     msgs.push({ role: 'user', content: worldRulePrefix + msgTask });
 
-    const lorebookTurn = await prepareLorebook(msgs, {
+    const lorebookTurn = await prepareNarrativePrompt(msgs, {
       ...buildConversationLorebookContext(getDb(), {conversationId, character, kind:'proactive', userName:config.user.nickname || '用户'}), maxOutputTokens:128,
     });
     const result = await chatWithoutLorebook(

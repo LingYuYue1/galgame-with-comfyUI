@@ -8,7 +8,7 @@
 
 import { getDb, getSystemRules, getWorldSetting } from '../db/index.js';
 import { chatSync } from '../llm/llm-client.js';
-import { prepareLorebook } from './lorebook/runtime.js';
+import { prepareNarrativePrompt } from './presets/narrative.js';
 import { buildConversationLorebookContext } from './lorebook/conversationContext.js';
 import { config } from '../config.js';
 import { splitText } from '../utils/sentenceSplitter.js';
@@ -69,7 +69,7 @@ export async function processWakeUp(characterId, mode, attempts = null) {
   let fullReply;
   let lorebookTurn;
   try {
-    lorebookTurn = await prepareLorebook(msgs, {
+    lorebookTurn = await prepareNarrativePrompt(msgs, {
       ...buildConversationLorebookContext(db, {conversationId, character:char, kind:`wake:${mode}`, userName}), maxOutputTokens:512,
     });
     fullReply = await chatSync(lorebookTurn.messages, {

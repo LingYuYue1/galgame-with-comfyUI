@@ -1,3 +1,4 @@
+import { chatWithPreset } from '../presets/narrative.js';
 /**
  * 轻量小镇居民（NPC）服务
  *
@@ -879,7 +880,7 @@ export async function chatWithNpc(npcId, message, opts = {}) {
       interactionCatalog = interactions.catalog;
       functionLine = describeNpcFunctions(interactions.functions);
     } catch { /* 无经济配置时仍能正常闲聊 */ }
-    const reply = useModel ? await chatSync([
+    const reply = useModel ? await chatWithPreset([
       {
         role: 'system',
         content: [

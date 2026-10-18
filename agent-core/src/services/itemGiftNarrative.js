@@ -7,7 +7,7 @@
  */
 import { getDb, getSystemRules, getWorldSetting } from '../db/index.js';
 import { config } from '../config.js';
-import { chatSync } from './lorebook/runtime.js';
+import { chatWithPreset } from './presets/narrative.js';
 import { extractFirstJson, repairJson } from './eventGenerator.js';
 import { buildCharacterPersona } from './characterPersona.js';
 import { generateImageRaw } from './imageSkill.js';
@@ -95,7 +95,7 @@ async function runGiftPipeline(id, { item, characterId, options }) {
   }
   task.characterName = character.display_name || '';
   try {
-    const llm = options.llm?.chatSync || chatSync;
+    const llm = options.llm?.chatSync || chatWithPreset;
     const messages = buildGiftMessages({ item, character });
     let text = '';
     try {

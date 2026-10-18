@@ -1,5 +1,12 @@
 const BASE = '/api'
 
+export const getPromptPresets = () => request('/presets')
+export const createPromptPreset = body => request('/presets', { method: 'POST', body })
+export const updatePromptPreset = (id, body) => request(`/presets/${id}`, { method: 'PUT', body })
+export const activatePromptPreset = (id, active, expectedRevision) => request(`/presets/${id}/active`, { method: 'PUT', body: { active, expectedRevision } })
+export const deletePromptPreset = (id, expectedRevision) => request(`/presets/${id}`, { method: 'DELETE', body: { expectedRevision } })
+export const previewPromptPreset = body => request('/presets/preview', { method: 'POST', body })
+
 /**
  * 统一请求基元：非 2xx 自动抛出服务端 error 信息，成功返回解析后的 JSON。
  *

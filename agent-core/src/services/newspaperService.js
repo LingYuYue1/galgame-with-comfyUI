@@ -14,7 +14,7 @@
  */
 
 import { getDb, getSystemRules, getWorldSetting, getGlobalRule } from '../db/index.js';
-import { chatSync } from './lorebook/runtime.js';
+import { chatWithPreset } from './presets/narrative.js';
 import { generateImageRaw } from './imageSkill.js';
 import { recordCompletedImageTask } from './imageTaskRecorder.js';
 import { saveBase64Image, deleteImageFileByUrl } from './imagePaths.js';
@@ -366,7 +366,7 @@ export async function generateDailyNewspaper({ replace = false, backgroundImages
   let raw = '';
   let draft;
   try {
-    raw = await chatSync(msgs, {
+    raw = await chatWithPreset(msgs, {
       temperature: 0.8,
       response_format: { type: 'json_object' },
       label: '报纸编辑部',

@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { getDb, getGlobalRule, getSystemRules, getWorldSetting, repairFtsIndex } from '../db/index.js';
 import { chatStream, chatSync } from '../llm/llm-client.js';
-import { prepareLorebook, chatSync as chatWithLorebook } from '../services/lorebook/runtime.js';
+import { chatSync as chatWithLorebook } from '../services/lorebook/runtime.js';
+import { prepareNarrativePrompt } from '../services/presets/narrative.js';
 import { createLorebookRepository } from '../db/lorebookRepository.js';
 import { buildConversationLorebookContext } from '../services/lorebook/conversationContext.js';
 import { config } from '../config.js';
@@ -1068,7 +1069,7 @@ ${coreRules}
       history: checkpointHistory,
       dynamicBlocks: budgetedBlocks,
     });
-    const lorebookTurn = await prepareLorebook(originalBaseMsgs, {
+    const lorebookTurn = await prepareNarrativePrompt(originalBaseMsgs, {
       ...buildConversationLorebookContext(db, {conversationId, character, kind:'chat', userName:chatUserName, throughId:userRawMsgId, turnKey:String(userRawMsgId)}),
       protectedPrefix:stableBlocks.length, maxOutputTokens:4096,
       personaTexts:[character?.base_prompt || getDefaultPrompt()],
@@ -1091,7 +1092,7 @@ ${coreRules}
         const plannerResult = await runPlanner({
           // 任务块合并进 user 消息头部；触发提醒贴在消息末尾（生成点前最后一次强化输出契约）
           messages: appendToLastUserMessage(
-            prependToLastUserMessage(baseMsgs, buildPlannerTaskBlock({
+            prependToLastUserMessage(lorebookTurn.lorebookMessages, buildPlannerTaskBlock({
               characterName: character.display_name,
               userName: chatUserName,
               stickerKeys: [...emojiMap.keys()],

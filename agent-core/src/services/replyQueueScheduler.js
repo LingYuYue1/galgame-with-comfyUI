@@ -12,7 +12,7 @@ import { isMomentBackfillRunning } from './momentBackfill.js';
 
 import { getDb, getSystemRules, getWorldSetting } from '../db/index.js';
 import { chatSync } from '../llm/llm-client.js';
-import { prepareLorebook } from './lorebook/runtime.js';
+import { prepareNarrativePrompt } from './presets/narrative.js';
 import { buildConversationLorebookContext } from './lorebook/conversationContext.js';
 import { config } from '../config.js';
 import { getCurrentActivity, syncSleepingState } from './scheduleManager.js';
@@ -185,7 +185,7 @@ async function processReplyQueue() {
     const msgs = buildDelayedReplyContext(entry, allPending, isSleepWakeup, dream);
 
     // 调用 LLM 生成回复
-    const lorebookTurn = await prepareLorebook(msgs, {
+    const lorebookTurn = await prepareNarrativePrompt(msgs, {
       ...buildConversationLorebookContext(db, {conversationId, character:entry, kind:'delayed', userName:config.user.nickname || '用户'}), maxOutputTokens:512,
     });
     const fullReply = await chatSync(lorebookTurn.messages, {

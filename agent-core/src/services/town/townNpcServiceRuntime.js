@@ -16,7 +16,7 @@ import { createHash } from 'node:crypto';
 import { getDb, getSystemRules, getWorldSetting } from '../../db/index.js';
 import { getWorldIntegrationRule } from '../../builtinRules.js';
 import { config } from '../../config.js';
-import { chatSync } from '../lorebook/runtime.js';
+import { chatWithPreset } from '../presets/narrative.js';
 import { extractFirstJson, repairJson } from '../eventGenerator.js';
 import { generateImageRaw } from '../imageSkill.js';
 import { saveBase64Image } from '../imagePaths.js';
@@ -321,7 +321,7 @@ async function runPipeline(context, { npc, offer, kind, session, prior, options 
   const db = context.db;
   const sessionId = session.id;
   try {
-    const llm = options.llm?.chatSync || chatSync;
+    const llm = options.llm?.chatSync || chatWithPreset;
     const messages = buildMessages({
       npc,
       offer,

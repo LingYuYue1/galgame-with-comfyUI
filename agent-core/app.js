@@ -18,6 +18,7 @@ import charactersRoutes from './src/routes/characters.js';
 import emojiRoutes from './src/routes/emoji.js';
 import configRoutes from './src/routes/config.js';
 import lorebookRoutes from './src/routes/lorebooks.js';
+import presetRoutes from './src/routes/presets.js';
 import momentsRoutes from './src/routes/moments.js';
 import relationshipsRoutes from './src/routes/relationships.js';
 import userRelationshipsRoutes from './src/routes/userRelationships.js';
@@ -126,6 +127,7 @@ app.use('/api/characters/emoji', wrapRouterAsync(emojiRoutes));  // 表情包管
 app.use('/api/characters', wrapRouterAsync(charactersRoutes));  // /api/characters CRUD
 app.use('/api/config', wrapRouterAsync(configRoutes));
 app.use('/api/config', wrapRouterAsync(lorebookRoutes));
+app.use('/api/presets', wrapRouterAsync(presetRoutes));
 app.use('/api/moments', wrapRouterAsync(momentsRoutes));
 app.use('/api/relationships', wrapRouterAsync(relationshipsRoutes));
 app.use('/api/user-relationships', wrapRouterAsync(userRelationshipsRoutes));

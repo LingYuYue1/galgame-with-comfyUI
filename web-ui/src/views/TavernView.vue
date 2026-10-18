@@ -111,11 +111,11 @@
     </div>
 
     <!-- ═══════════════════════════════════════════
-         入口卡片行：我的关系图 / 世界观设置（各占一半）
+         关系图整行；下方世界观 / SillyTavern 预设各占一半
          《邻舍日报》已并入「传媒」页（见 NavBar 的传媒标签）
          ═══════════════════════════════════════════ -->
     <div class="relation-entry-row">
-      <div class="relation-entry card" @click="showUserRelationGraph = true">
+      <div class="relation-entry relation-entry-full card" role="button" tabindex="0" @click="showUserRelationGraph = true" @keydown.enter.prevent="showUserRelationGraph = true" @keydown.space.prevent="showUserRelationGraph = true">
         <div class="relation-entry-icon">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="6" cy="6" r="3" /><circle cx="18" cy="6" r="3" /><circle cx="12" cy="17" r="3" />
@@ -129,7 +129,7 @@
         <span class="relation-entry-arrow">›</span>
       </div>
 
-      <div class="relation-entry card" @click="openWorldSetting">
+      <div class="relation-entry card" role="button" tabindex="0" @click="openWorldSetting" @keydown.enter.prevent="openWorldSetting" @keydown.space.prevent="openWorldSetting">
         <div class="relation-entry-icon world-icon">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="10" />
@@ -141,6 +141,18 @@
         <div class="relation-entry-text">
           <span class="relation-entry-title">世界观设置</span>
           <span class="relation-entry-hint">{{ activeWorldName || '定义所有角色共处的世界背景' }}</span>
+        </div>
+        <span class="relation-entry-arrow">›</span>
+      </div>
+      <div class="relation-entry card" role="button" tabindex="0" @click="showPromptPresets = true" @keydown.enter.prevent="showPromptPresets = true" @keydown.space.prevent="showPromptPresets = true">
+        <div class="relation-entry-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 4h16M4 12h16M4 20h16" /><circle cx="8" cy="4" r="2" /><circle cx="16" cy="12" r="2" /><circle cx="10" cy="20" r="2" />
+          </svg>
+        </div>
+        <div class="relation-entry-text">
+          <span class="relation-entry-title">SillyTavern 预设</span>
+          <span class="relation-entry-hint">导入、编辑与管理全局提示词预设</span>
         </div>
         <span class="relation-entry-arrow">›</span>
       </div>
@@ -724,6 +736,7 @@
       <StandingManagerModal :open="showStandingManager" :characters="sortedCharacters" @close="showStandingManager = false" />
 
     <WorldLorebookModal v-model="showLorebook" :world-id="selectedWorldId" :world-name="worldItems.find(item => item.id === selectedWorldId)?.name || ''" />
+    <PromptPresetModal v-model="showPromptPresets" />
     <CharacterFolderManager
       v-model="showFolderManager"
       :initial-folder-id="folderFilter"
@@ -734,6 +747,7 @@
 
 <script setup>
 import WorldLorebookModal from '../components/WorldLorebookModal.vue'
+import PromptPresetModal from '../components/PromptPresetModal.vue'
 import { ref, reactive, computed, onMounted, onUnmounted, watch, inject, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useChatStore } from '../stores/chat.js'
@@ -766,6 +780,7 @@ const backpackStore = useBackpackStore()
 const newspaperStore = useNewspaperStore()
 
 const showMailbox = ref(false)
+const showPromptPresets = ref(false)
 const showBackpack = ref(false)
 const showEmojiManager = ref(false)
 const showStandingManager = ref(false)
@@ -1859,6 +1874,7 @@ onMounted(async () => {
 .relation-entry-row .relation-entry {
   margin-bottom: 0;
 }
+.relation-entry-row .relation-entry-full { grid-column:1 / -1; }
 .relation-entry {
   display: flex;
   align-items: center;
@@ -1867,6 +1883,8 @@ onMounted(async () => {
   margin-bottom: 20px;
   border-radius: 16px;
   cursor: pointer;
+  text-align: left;
+  min-width: 0;
   transition: all 0.2s;
 }
 .relation-entry:hover {
