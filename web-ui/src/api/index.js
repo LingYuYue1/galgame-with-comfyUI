@@ -943,6 +943,38 @@ export async function uploadWorldCover(id, base64) {
   return request(`/config/world-settings/${id}/cover`, { method: 'POST', body: { base64 } })
 }
 
+/**
+ * 星图封面：让 AI 按世界观画一张（固定 1216×832）。
+ * 走 SSE —— 本地出图要几十秒，干等会让人以为卡死。
+ * @param {number} id
+ * @param {{ extra?: string, dryRun?: boolean }} opts extra=用户补充画面要求；dryRun=只出提示词不画图
+ * @param {{ onPrompt?: (d) => void, onStage?: (s: string) => void }} cbs
+ * @returns {Promise<{ ok: boolean, cover_image?: string, prompt: string, source: string }>}
+ */
+export async function generateWorldCover(id, opts = {}, { onPrompt, onStage } = {}) {
+  const res = await fetch(`${BASE}/config/world-settings/${id}/cover/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ extra: opts.extra || '', dryRun: opts.dryRun === true, stream: true }),
+  })
+  if (!res.ok || !res.headers.get('content-type')?.includes('text/event-stream')) {
+    const result = await res.json().catch(() => ({}))
+    throw new Error(result.error || `请求失败 (${res.status})`)
+  }
+  let done = null
+  let failure = null
+  await consumeSSE(res, (event, data) => {
+    if (!data) return
+    if (event === 'prompt') onPrompt?.(data)
+    else if (event === 'stage') onStage?.(data.stage)
+    else if (event === 'done') done = data
+    else if (event === 'error') failure = data.error
+  })
+  if (failure) throw new Error(failure)
+  if (!done) throw new Error('生成连接已中断，请重试')
+  return done
+}
+
 export async function getSystemRules() {
   return request(`/config/system-rules`)
 }
@@ -2603,6 +2635,11 @@ export function createWorldMap({ name, worldSettingId = null, note = '' } = {}) 
 
 export function getWorldMap(mapId) {
   return request(`/worldmap/maps/${mapId}`)
+}
+
+/** 地图上「这会儿谁在这个地点」：按日程当下的 location 反推，不需要额外维护角色坐标 */
+export function getWorldMapResidents(mapId) {
+  return request(`/worldmap/maps/${mapId}/residents`)
 }
 
 export function updateWorldMap(mapId, patch = {}) {

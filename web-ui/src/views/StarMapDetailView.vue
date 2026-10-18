@@ -1,7 +1,7 @@
 <template>
-  <div class="page smd-page">
+  <div class="page smd-page" :class="{ 'is-embedded': embedded }">
     <header class="smd-head">
-      <button type="button" class="smd-back" @click="router.push('/starmap')">← 星图</button>
+      <button v-if="!embedded" type="button" class="smd-back" @click="router.push('/starmap')">← 星图</button>
       <div class="smd-title-wrap">
         <h1 class="smd-title">{{ world?.name || '世界' }}</h1>
         <span v-if="world?.is_active" class="smd-badge">激活</span>
@@ -81,14 +81,65 @@
 
     <section v-else-if="tab === 'map'" class="smd-body">
       <div class="smd-list">
-        <div v-if="!maps.length" class="smd-hint">这个世界还没有地图。</div>
-        <div v-for="m in maps" :key="m.id" class="smd-row">
-          <span class="smd-row-name">{{ m.name }}</span>
-          <span class="smd-row-meta">{{ m.place_count || 0 }} 个地点</span>
-        </div>
+        <div v-if="!maps.length" class="smd-hint">这个世界还没有地图。新建一张，AI 会按世界观铺出地点骨架。</div>
       </div>
+
+      <!-- ★ 2026-10-18：地图不再是"一行字"，而是真的把地点铺出来，并在对应地点叠上此刻在那儿的角色头像 -->
+      <div v-for="m in mapCards" :key="m.id" class="smd-map-block">
+        <div class="smd-map-head">
+          <span class="smd-map-name">{{ m.name }}</span>
+          <span class="smd-map-count">{{ m.place_count || 0 }} 个地点</span>
+          <linshe-button variant="ghost" size="sm" class="smd-map-open" @click="router.push('/worldmap')">打开地图页</linshe-button>
+        </div>
+
+        <p v-if="!m.places.length" class="smd-hint smd-map-empty">
+          这张图还是空的。去地图页用「从世界观生成」一键铺出大地区与子地区。
+        </p>
+
+        <div v-else class="smd-places">
+          <div
+            v-for="p in m.places"
+            :key="p.id"
+            class="smd-place"
+            :class="p.level === 1 ? 'is-l1' : 'is-l2'"
+            :title="p.summary || p.name"
+          >
+            <span class="smd-place-name">{{ p.name }}</span>
+            <div v-if="(m.byPlace[p.id] || []).length" class="smd-place-people">
+              <span
+                v-for="r in (m.byPlace[p.id] || []).slice(0, 4)"
+                :key="r.id"
+                class="smd-place-ava"
+                :title="r.name + (r.location ? ' · ' + r.location : '')"
+                :style="r.avatar_path ? { backgroundImage: `url(${r.avatar_path})` } : null"
+              >{{ r.avatar_path ? '' : (r.name || '?').slice(0, 1) }}</span>
+              <span v-if="(m.byPlace[p.id] || []).length > 4" class="smd-place-ava is-more">
+                +{{ (m.byPlace[p.id] || []).length - 4 }}
+              </span>
+            </div>
+            <span v-else class="smd-place-empty">·</span>
+          </div>
+        </div>
+
+        <p v-if="m.unplaced.length" class="smd-map-unplaced">
+          <span class="smd-map-unplaced-label">不在地图上：</span>
+          <span
+            v-for="r in m.unplaced"
+            :key="r.id"
+            class="smd-map-unplaced-item"
+            :title="r.location ? '她的日程地点写着「' + r.location + '」，和这张图上的地名对不上' : '今天还没有日程'"
+          >
+            <span
+              class="smd-place-ava"
+              :style="r.avatar_path ? { backgroundImage: `url(${r.avatar_path})` } : null"
+            >{{ r.avatar_path ? '' : (r.name || '?').slice(0, 1) }}</span>
+            {{ r.name }}
+          </span>
+        </p>
+      </div>
+
       <div class="smd-foot-actions">
-        <linshe-button variant="secondary" size="sm" @click="router.push('/worldmap')">去地图页建图</linshe-button>
+        <linshe-button variant="primary" size="sm" :loading="mapBusy" @click="openCreateMap">+ 在这个世界建一张地图</linshe-button>
       </div>
     </section>
 
@@ -189,13 +240,35 @@
           v-if="world?.cover_image"
           class="smd-cover-preview"
           :style="{ backgroundImage: `url(${world.cover_image})` }"
-        ></div>
+        >
+          <span v-if="coverStage" class="smd-cover-veil">{{ coverStage }}</span>
+        </div>
         <p class="smd-hint">
-          封面会铺在星图首页的这张卡上。建议横幅构图（约 16:9），上传前会自动压到 1600px 宽 / JPEG。
+          封面会铺在星图首页的这张卡上。AI 会读你的世界观，画一张 1216×832 的横幅环境图；
+          也可以自己上传（自动压到 1600px 宽 / JPEG）。
         </p>
+
+        <!-- AI 生成：先看提示词，再决定画不画 -->
+        <label class="smd-field">
+          <span class="smd-field-label">
+            画面要求<span class="smd-optional">（可留空，AI 自己从世界观里找画面；填了就按你的来）</span>
+          </span>
+          <linshe-input
+            v-model="coverExtra"
+            placeholder="例如：雪夜的港口，不要霓虹"
+            :disabled="coverBusy"
+            @keyup.enter="generateCover"
+          />
+        </label>
+        <div v-if="coverPrompt" class="smd-cover-prompt">
+          <span class="smd-cover-prompt-label">这次用的提示词</span>
+          <p class="smd-cover-prompt-text">{{ coverPrompt }}</p>
+        </div>
+
         <input ref="coverInput" type="file" accept="image/*" class="smd-cover-file" @change="onCoverPicked" />
         <div class="smd-cover-actions">
-          <linshe-button variant="secondary" size="sm" :loading="coverBusy" @click="pickCover">选择图片</linshe-button>
+          <linshe-button variant="primary" size="sm" :loading="coverBusy" @click="generateCover">AI 生成封面</linshe-button>
+          <linshe-button variant="secondary" size="sm" :disabled="coverBusy" @click="pickCover">选择图片</linshe-button>
           <linshe-button
             v-if="world?.cover_image"
             variant="ghost"
@@ -205,6 +278,27 @@
           >清除封面</linshe-button>
         </div>
       </div>
+    </linshe-modal>
+
+    <!-- ★ 2026-10-18：在这里就能给当前世界建地图（不必先跑去地图页再选世界） -->
+    <linshe-modal v-model="mapModalOpen" title="建一张新地图">
+      <div class="smd-cover-form">
+        <p class="smd-hint">
+          地图会挂在这个世界下。填一句话说明要什么地理结构，AI 会按世界观铺出大地区与子地区（之后还能逐区展开）。
+        </p>
+        <label class="smd-field">
+          <span class="smd-field-label">地图名</span>
+          <linshe-input v-model="newMapName" placeholder="例如：王城 · 全域" @keyup.enter="confirmCreateMap" />
+        </label>
+        <label class="smd-field">
+          <span class="smd-field-label">地理构想<span class="smd-optional">（可留空，AI 自己按世界观想）</span></span>
+          <linshe-input v-model="newMapBrief" placeholder="例如：一张漂浮在云海上的环形城，分上城与下城" />
+        </label>
+      </div>
+      <template #footer>
+        <linshe-button variant="secondary" @click="mapModalOpen = false">取消</linshe-button>
+        <linshe-button variant="primary" :disabled="!newMapName.trim() || mapBusy" :loading="mapBusy" @click="confirmCreateMap">创建并生成</linshe-button>
+      </template>
     </linshe-modal>
 
     <!-- ★ 星图 T15：发起跨世界旅程 -->
@@ -250,7 +344,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, inject } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, inject } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import * as api from '../api/index.js'
 import LinsheButton from '../components/ui/LinsheButton.vue'
@@ -260,11 +354,22 @@ import LinsheSwitch from '../components/ui/LinsheSwitch.vue'
 import LinsheSelect from '../components/ui/LinsheSelect.vue'
 import LinsheModal from '../components/ui/LinsheModal.vue'
 
+// ★ 2026-10-18：改成「可嵌入」——星图首页是左列表右详情，详情作为右栏常驻组件。
+//   · 当路由页用时 worldId 从 route.params.id 取（老链接 /starmap/11 仍然直达）
+//   · 当组件用时由父级传 world-id，切换世界不重挂载，只 watch 重载
+const props = defineProps({
+  embedded: { type: Boolean, default: false },
+  worldId: { type: [Number, String], default: null },
+})
+// changed：左栏要跟着刷（改名/简介/激活/开关/角色数都会影响列表项）
+// removed：世界被删掉了，父级要回到空态
+const emit = defineEmits(['changed', 'removed'])
+
 const route = useRoute()
 const router = useRouter()
 const toastFn = inject('toast')
 
-const worldId = computed(() => Number(route.params.id))
+const worldId = computed(() => Number(props.worldId ?? route.params.id))
 const world = ref(null)
 const content = ref('')
 const tagline = ref('')
@@ -275,6 +380,12 @@ const polishing = ref(false)
 const activating = ref(false)
 const tab = ref('world')
 const maps = ref([])
+/** 地图页签的可视数据：每张图 + 地点（L1/L2）+ 此刻站在那儿的人 */
+const mapCards = ref([])
+const mapBusy = ref(false)
+const mapModalOpen = ref(false)
+const newMapName = ref('')
+const newMapBrief = ref('')
 const chars = ref([])
 // ★ 星图 T10：全部角色（用于「把角色放进这个世界」的候选）；pickCharId 用空串表示未选
 const allChars = ref([])
@@ -433,6 +544,7 @@ async function load() {
     const mr = await api.listWorldMaps()
     const all = mr?.maps || []
     maps.value = all.filter((m) => Number(m.world_setting_id) === worldId.value)
+    await loadMapCards()
   } catch { /* 地图读取失败不阻断页面 */ }
   try {
     const cr = await api.listCharacters()
@@ -443,6 +555,66 @@ async function load() {
   // ★ 星图 T15：旅程配置 + 本世界的旅程列表
   try { tripConfig.value = await api.getTripConfig() } catch { /* 老后端没有这个接口 → 用默认 6 */ }
   await loadTrips()
+}
+
+/**
+ * 地图页签的可视数据。
+ * 每张图两次请求：地点骨架（只取 L1/L2，L3 与 POI 在这里太碎）+ 此刻谁在哪个地点。
+ * 地图数量是个位数，串行够用；并行出错时反而不知道是哪张图挂的。
+ */
+async function loadMapCards() {
+  const out = []
+  for (const m of maps.value) {
+    let places = []
+    let byPlace = {}
+    let residents = []
+    try {
+      const d = await api.getWorldMap(m.id)
+      places = (d?.map?.places || []).filter(p => p.level <= 2)
+    } catch { /* 单张图读失败不影响其它图 */ }
+    try {
+      const r = await api.getWorldMapResidents(m.id)
+      byPlace = r?.by_place || {}
+      residents = r?.residents || []
+    } catch { /* 没有 residents 接口时退化成"只有地点没有头像" */ }
+    out.push({
+      ...m,
+      places,
+      byPlace,
+      // 有角色但日程地点没落到任何地点上（写的是「家里」这种图外地名，或今天还没排日程）
+      unplaced: residents.filter(x => !x.place_id),
+    })
+  }
+  mapCards.value = out
+}
+
+function openCreateMap() {
+  newMapName.value = ''
+  newMapBrief.value = ''
+  mapModalOpen.value = true
+}
+
+async function confirmCreateMap() {
+  const name = newMapName.value.trim()
+  if (!name || mapBusy.value) return
+  mapBusy.value = true
+  try {
+    const created = await api.createWorldMap({ name, worldSettingId: worldId.value, note: newMapBrief.value.trim() })
+    const mapId = created?.map?.id
+    if (!mapId) throw new Error('地图创建失败')
+    // 顺手生成骨架：只建一张空图没意义，用户要的是"能看见的地理"
+    await api.generateWorldMapSkeleton(mapId, { brief: newMapBrief.value.trim() })
+    mapModalOpen.value = false
+    const mr = await api.listWorldMaps()
+    maps.value = (mr?.maps || []).filter((m) => Number(m.world_setting_id) === worldId.value)
+    await loadMapCards()
+    emit('changed')
+    toastFn?.('地图已建好', 'success')
+  } catch (err) {
+    toastFn?.('建图失败：' + (err?.message || ''), 'error')
+  } finally {
+    mapBusy.value = false
+  }
 }
 
 // ★ 星图 T10：候选 = 还没归属本世界的角色（含"不指定"的）
@@ -462,6 +634,7 @@ async function bindCharacter(id, targetWorldId) {
     await api.updateCharacter(id, { world_setting_id: targetWorldId })
     await load()
     pickCharId.value = ''
+    emit('changed')
     toastFn?.(targetWorldId ? '已放进这个世界' : '已移出（跟随激活世界）', 'success')
   } catch (err) {
     toastFn?.('改绑失败：' + (err?.message || ''), 'error')
@@ -490,6 +663,7 @@ async function saveWorld() {
     })
     dirty.value = false
     toastFn?.('已保存', 'success')
+    emit('changed')
   } catch (err) {
     toastFn?.('保存失败：' + (err?.message || ''), 'error')
   } finally {
@@ -503,6 +677,7 @@ async function saveMeta() {
       tagline: tagline.value,
       visual_tone: visualTone.value,
     })
+    emit('changed')
   } catch (err) {
     toastFn?.('保存失败：' + (err?.message || ''), 'error')
   }
@@ -514,6 +689,7 @@ async function makeActive() {
   try {
     await api.activateWorldSetting(worldId.value)
     await load()
+    emit('changed')
     toastFn?.('已激活这个世界', 'success')
   } catch (err) {
     toastFn?.('激活失败：' + (err?.message || ''), 'error')
@@ -526,6 +702,7 @@ async function saveEnabled(val) {
   try {
     await api.updateWorldSetting(worldId.value, { is_enabled: !!val })
     if (world.value) world.value.is_enabled = val ? 1 : 0
+    emit('changed')
     toastFn?.(val ? '世界已启用' : '世界已休眠', 'success')
   } catch (err) {
     toastFn?.('开关保存失败：' + (err?.message || ''), 'error')
@@ -569,6 +746,7 @@ async function confirmRename() {
     await api.updateWorldSetting(worldId.value, { name: v })
     if (world.value) world.value.name = v
     renameOpen.value = false
+    emit('changed')
     toastFn?.('已重命名', 'success')
   } catch (err) {
     toastFn?.('重命名失败：' + (err?.message || ''), 'error')
@@ -576,9 +754,47 @@ async function confirmRename() {
 }
 
 // ── 世界封面 ─────────────────────────────────────────────
+const coverExtra = ref('')     // 用户补充的画面要求（可留空）
+const coverPrompt = ref('')    // 这次实际用的提示词（给用户看，免得"不知道 AI 在想什么"）
+const coverStage = ref('')     // 生成中的阶段提示，压在预览图上
+
 function pickCover() {
   if (coverBusy.value) return
   coverInput.value?.click()
+}
+
+/** AI 按世界观画封面（后端固定 1216×832） */
+async function generateCover() {
+  if (coverBusy.value) return
+  coverBusy.value = true
+  coverPrompt.value = ''
+  coverStage.value = '正在读世界观…'
+  try {
+    const r = await api.generateWorldCover(
+      worldId.value,
+      { extra: coverExtra.value.trim() },
+      {
+        onPrompt: (d) => {
+          coverPrompt.value = d.prompt || ''
+          if (d.note) toastFn?.(d.note, 'error')
+          // LLM 不通时后端会用规则拼装，这里说清楚，免得用户以为 AI 变笨了
+          if (d.source === 'fallback') toastFn?.('大模型没接上，按已有字段拼了个简易提示词', 'error')
+        },
+        onStage: (s) => {
+          if (s === 'prompting') coverStage.value = '正在读世界观…'
+          else if (s === 'generating') coverStage.value = '正在画（本地出图，约 1 分钟）…'
+        },
+      },
+    )
+    if (world.value && r.cover_image) world.value.cover_image = r.cover_image
+    emit('changed')
+    toastFn?.('封面已生成', 'success')
+  } catch (err) {
+    toastFn?.('生成失败：' + (err?.message || ''), 'error')
+  } finally {
+    coverBusy.value = false
+    coverStage.value = ''
+  }
 }
 
 /** 读文件 → 等比压到 ≤1600px → JPEG 0.85（原图几 MB，卡面只要几百 KB） */
@@ -614,6 +830,7 @@ async function onCoverPicked(e) {
     const base64 = await compressImage(file)
     const r = await api.uploadWorldCover(worldId.value, base64)
     if (world.value) world.value.cover_image = r?.cover_image || ''
+    emit('changed')
     coverOpen.value = false
     toastFn?.('封面已更新', 'success')
   } catch (err) {
@@ -628,6 +845,7 @@ async function clearCover() {
   try {
     await api.updateWorldSetting(worldId.value, { cover_image: '' })
     if (world.value) world.value.cover_image = ''
+    emit('changed')
     toastFn?.('已清除封面', 'success')
   } catch (err) {
     toastFn?.('清除失败：' + (err?.message || ''), 'error')
@@ -652,6 +870,7 @@ async function removeWorld() {
   try {
     await api.deleteWorldSetting(worldId.value)
     toastFn?.('世界已删除', 'success')
+    emit('removed')
     router.replace('/starmap')
   } catch (err) {
     toastFn?.('删除失败：' + (err?.message || ''), 'error')
@@ -666,6 +885,13 @@ onMounted(() => {
 onUnmounted(() => {
   if (tickTimer) { clearInterval(tickTimer); tickTimer = null }
 })
+
+// 嵌入模式下切换世界不重挂载 → 必须自己跟着 worldId 重载
+watch(worldId, (id, prev) => {
+  if (!props.embedded || !id || id === prev) return
+  dirty.value = false
+  load()
+})
 </script>
 
 <style scoped>
@@ -674,6 +900,12 @@ onUnmounted(() => {
   margin: 0 auto;
   padding: 18px 20px 48px;
   box-sizing: border-box;
+}
+/* 嵌入在星图右栏时：父级已经给了边距，自己不再撑 max-width / padding */
+.smd-page.is-embedded {
+  max-width: none;
+  margin: 0;
+  padding: 0;
 }
 .smd-head {
   display: flex;
@@ -707,8 +939,8 @@ onUnmounted(() => {
   line-height: 1;
   padding: 4px 7px;
   border-radius: 999px;
-  background: var(--accent-solid);
-  color: #fff;
+  background: var(--card-badge-bg);
+  color: var(--card-badge-ink);
 }
 .smd-head-actions {
   margin-left: auto;
@@ -721,21 +953,22 @@ onUnmounted(() => {
 .smd-body { display: flex; flex-direction: column; gap: 14px; }
 
 .smd-paper {
-  background: #f4f1ee;
-  color: #554a43;
-  border: 1.5px solid #cbb599;
+  /* 可翻转纸面：暖色与旧观感一致，暗夜转深色纸（见 tokens.css --card-* 说明） */
+  background: var(--card-paper);
+  color: var(--card-ink);
+  border: 1.5px solid var(--card-line);
   border-radius: 16px;
   padding: 14px;
-  box-shadow: 0 2px 0 rgba(53, 42, 35, 0.08);
+  box-shadow: var(--shadow-xs);
 }
-/* 纸内输入框跟随纸色 —— 不在暖纸上再套一个白框（避免"卡片套卡片"的观感） */
+/* 纸内输入框跟随纸色 —— 不在纸上再套一个白框（避免"卡片套卡片"的观感） */
 .smd-paper :deep(.ls-input) {
-  background: #fbf8f4;
-  border-color: #d8c7b0;
-  color: #4a3f38;
-  --ls-input-focus-color: #ae6451;
+  background: var(--card-paper-raised);
+  border-color: var(--card-line);
+  color: var(--card-ink);
+  --ls-input-focus-color: var(--accent);
 }
-.smd-paper :deep(.ls-input::placeholder) { color: #786a5e; }
+.smd-paper :deep(.ls-input::placeholder) { color: var(--card-ink-muted); }
 
 .smd-textarea { width: 100%; }
 .smd-paper-foot {
@@ -745,8 +978,8 @@ onUnmounted(() => {
   gap: 10px;
   padding-top: 10px;
 }
-/* 亮纸上的强调小字：#ae6451 实测 3.95 → 压到 #8f4a38 得 5.84 */
-.smd-dirty { font-size: 12px; color: #8f4a38; margin-right: auto; }
+/* 纸面强调小字：用主题强调色（亮色/暗夜各自已达标，写死会在另一套主题上掉到 3.x） */
+.smd-dirty { font-size: 12px; color: var(--accent); margin-right: auto; }
 
 .smd-fields { display: flex; flex-direction: column; gap: 12px; }
 .smd-field { display: flex; flex-direction: column; gap: 6px; }
@@ -754,7 +987,78 @@ onUnmounted(() => {
 .smd-optional { font-size: 11px; color: var(--text-secondary); }
 
 .smd-list { display: flex; flex-direction: column; gap: 8px; }
-.smd-row {
+
+/* ── 地图页签：地点铺出来 + 地点头像 ───────────────────── */
+.smd-map-block {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: var(--bg-secondary);
+}
+.smd-map-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.smd-map-name { font-size: 14px; font-weight: 500; color: var(--text-bright); }
+.smd-map-count { font-size: 11.5px; color: var(--text-secondary); }
+.smd-map-open { margin-left: auto; }
+.smd-map-empty { padding: 2px 0; }
+
+.smd-places {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(136px, 1fr));
+  gap: 8px;
+}
+.smd-place {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 38px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+}
+/* 大地区：占满一行当"分区标题"，否则和子地区混在同一个网格里，看不出谁属于谁 */
+.smd-place.is-l1 {
+  grid-column: 1 / -1;
+  min-height: 32px;
+  background: var(--bg-tertiary);
+  border-color: var(--border-strong);
+}
+.smd-place.is-l1 .smd-place-name { font-size: 13px; font-weight: 500; color: var(--text-bright); }
+/* 子地区用虚线弱化一档 */
+.smd-place.is-l2 { background: transparent; border-style: dashed; }
+.smd-place-name {
+  font-size: 12.5px;
+  color: var(--text-primary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.smd-place-people { margin-left: auto; display: flex; align-items: center; flex: none; }
+.smd-place-ava {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: #fff;
+  background: #8a6550 center/cover no-repeat;
+  /* 与卡片底色同色描边，叠起来才有"叠"的层次 */
+  border: 2px solid var(--bg-secondary);
+  box-sizing: content-box;
+  overflow: hidden;
+}
+.smd-place-ava + .smd-place-ava { margin-left: -6px; }
+.smd-place-ava.is-more { background: var(--bg-hover); color: var(--text-secondary); }
+.smd-place-empty { margin-left: auto; color: var(--text-secondary); opacity: .45; font-size: 11px; }
+
+.smd-map-unplaced { margin: 10px 0 0; font-size: 11.5px; color: var(--text-secondary); line-height: 1.7; }
+.smd-map-unplaced-label { margin-right: 4px; }
+.smd-map-unplaced-item { display: inline-flex; align-items: center; gap: 5px; margin-right: 12px; }
+/* 这里的小头像跟在文字前面，不需要"叠"的负边距与纸色描边 */
+.smd-map-unplaced-item .smd-place-ava { width: 18px; height: 18px; border-width: 0; font-size: 9px; }.smd-row {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -772,8 +1076,8 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   font-size: 12px;
-  background: #e6dccd;
-  color: #554a43;
+  background: var(--card-paper-raised);
+  color: var(--card-ink-muted);
   flex: none;
 }
 .smd-hint { font-size: 12.5px; color: var(--text-secondary); padding: 8px 2px; }
@@ -867,14 +1171,45 @@ onUnmounted(() => {
 /* 封面弹窗 */
 .smd-cover-form { display: flex; flex-direction: column; gap: 12px; }
 .smd-cover-preview {
+  position: relative;
   width: 100%;
-  aspect-ratio: 16 / 9;
+  /* 与 AI 出图的实际比例一致（1216×832），预览什么样、卡上就什么样 */
+  aspect-ratio: 1216 / 832;
   border-radius: 12px;
   background: var(--bg-secondary) center/cover no-repeat;
   border: 1px solid var(--border);
 }
+/* 生成中：盖一层半透明底 + 阶段文案，避免"点了没反应"的错觉 */
+.smd-cover-veil {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: rgba(22, 19, 26, 0.62);
+  color: #fff;
+  font-size: 13px;
+  letter-spacing: .02em;
+}
 .smd-cover-file { display: none; }
-.smd-cover-actions { display: flex; gap: 10px; }
+.smd-cover-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+/* 提示词回显：让用户看得见 AI 到底要画什么（也方便自己改写后重试） */
+.smd-cover-prompt {
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+}
+.smd-cover-prompt-label { font-size: 11px; color: var(--text-secondary); }
+.smd-cover-prompt-text {
+  margin: 3px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  word-break: break-word;
+}
 
 /* 发起旅程弹窗 */
 .smd-trip-form { display: flex; flex-direction: column; gap: 12px; }

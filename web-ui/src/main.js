@@ -44,9 +44,11 @@ const routes = [
   { path: '/events', component: EventsView },
   { path: '/town', component: TownView, props: route => ({ initialPanel: route.query.panel === 'life' ? 'life' : '' }) },
   { path: '/worldmap', component: WorldMapView },
-  // 「星图」（2026-10-17）：多世界管理 —— 世界卡片墙 + 世界详情（四页签）。懒加载，低频页面。
+  // 「星图」（2026-10-17）：多世界管理 —— 左侧世界列表 + 右侧详情（四页签）。懒加载，低频页面。
+  // 2026-10-18：两条路由指向同一个页面（左列表右详情）；`:id` 只决定右栏选中哪个世界，
+  //   这样「/starmap/11」这种深链仍然直达，而页面骨架不会因为多一层路由而闪一下。
   { path: '/starmap', component: () => import('./views/StarMapView.vue') },
-  { path: '/starmap/:id', component: () => import('./views/StarMapDetailView.vue') },
+  { path: '/starmap/:id', component: () => import('./views/StarMapView.vue') },
   { path: '/schedule', component: ScheduleView },
   { path: '/gallery', component: GalleryView },
   { path: '/draw', component: DrawView },

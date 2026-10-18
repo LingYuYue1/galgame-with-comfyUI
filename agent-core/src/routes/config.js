@@ -18,6 +18,8 @@ import { BUILTIN_RULE_KEYS } from '../builtinRules.js';
 import { getMemorySettings, saveMemorySettings, normalizeMemorySettings } from '../services/memory/memoryConfig.js';
 import { getPreferredMemoryEmbeddingProfile, testEmbeddingProvider, testRerankerProvider } from '../services/memory/memoryProviders.js';
 import { reindexAllMemories } from '../services/memory/memoryRepository.js';
+import { generateImage } from '../services/imageSkill.js';
+import sharp from 'sharp';
 
 const router = Router();
 
@@ -945,6 +947,193 @@ router.post('/world-settings/:id/cover', (req, res) => {
   } catch (err) {
     console.error('[world] cover upload failed:', err.message);
     res.status(500).json({ error: `封面上传失败：${err.message}` });
+  }
+});
+
+// ── 星图封面：让 AI 按世界观画一张横幅 ───────────────────────
+// 为什么要 LLM 先出提示词、再交给生图链路：
+//   直接把世界观正文丢给生图模型，它只会画出「一堆抽象色块」——正文是设定说明，不是画面。
+//   这里先让 LLM 把设定翻译成一段**纯视觉**的英文画面描述（地点/时间/天气/材质/光），
+//   再原封不动送进 ComfyUI（alreadyPrepared:true 跳过后端二次改写，避免提示词被稀释）。
+//
+// 兜底：LLM 不可用（没配 key / 超时）时用规则拼装，封面功能不能因为 LLM 挂了就整块不可用。
+
+/** 封面提示词的固定尾巴：压掉文字水印，并钉死"环境大景、不怼脸"的构图 */
+const COVER_PROMPT_TAIL = 'no text, no watermark, no logo, no signature, no close-up face, '
+  + 'wide establishing shot, scenery, cinematic lighting, highly detailed environment';
+
+/** 把 LLM 输出清洗成单行提示词（去代码块/引号/前缀标签，压掉换行） */
+function normalizeCoverPrompt(raw) {
+  let s = String(raw || '').trim();
+  const fence = s.match(/^```[a-zA-Z]*\n?([\s\S]*?)\n?```$/);
+  if (fence) s = fence[1].trim();
+  s = s.replace(/^[\s"'`]*(prompt|提示词)\s*[:：]/i, '');
+  s = s.replace(/[\r\n]+/g, ', ').replace(/\s*,\s*(?:,\s*)+/g, ', ').replace(/\s{2,}/g, ' ');
+  return s.replace(/^[,\s]+|[,\s]+$/g, '');
+}
+
+/** 规则兜底：不问 LLM，只用已有字段拼一段能看的画面描述 */
+function fallbackCoverPrompt(world, extra) {
+  const parts = [
+    String(world.visual_tone || '').trim(),
+    String(world.tagline || '').trim(),
+    String(world.name || '').trim() ? `the world of ${String(world.name).trim()}` : '',
+    extra,
+  ].filter(Boolean);
+  return normalizeCoverPrompt(parts.join(', '));
+}
+
+/**
+ * 让 LLM 把世界观读成一段画面描述。
+ * @returns {Promise<{ prompt: string, source: 'llm'|'fallback', note?: string }>}
+ */
+async function buildWorldCoverPrompt(world, extra) {
+  const name = String(world.name || '').trim();
+  const tagline = String(world.tagline || '').trim();
+  const tone = String(world.visual_tone || '').trim();
+  const content = String(world.content || '').trim().slice(0, 2600);
+
+  const systemPrompt = `你是一名电影概念设计师。用户给你一份虚构世界的设定，你要写一段**用于 AI 绘图的英文画面描述**，画的是这个世界的"封面大景"。
+
+【硬性要求】
+- 只写**看得见的东西**：地点、时辰、天气、建筑与材质、光源、色调、镜头。不要写剧情、人物关系、设定解释、情感评价。
+- **不要出现具体角色**，也不要写人脸特写；可以是空无一人的场景，远处可有极小的身影点缀。
+- 输出必须是**一整段英文**，不要分行、不要编号、不要 Markdown、不要引号包裹、不要写 "Prompt:" 前缀。
+- 长度 40～70 个英文单词，用逗号分隔的短语串联即可（例：a rain-soaked harbor at dusk, wooden piers, distant lighthouse, warm lantern glow, volumetric fog）。
+- 时代与题材必须和设定一致：仙舟就是东方古典科幻，赛博都市就是霓虹钢铁，不要串味。
+- **用户的补充要求若是否定句（"不要 X / 别 X / 去掉 X"），必须把 X 从画面里彻底剔除，用换掉景物的方式表达**——绝不能写成 "no X"。绘画模型对否定词几乎不服从，写了反而更容易画出 X。
+- 画面里**不要出现任何文字、招牌字样、水印**。`;
+
+  const userPrompt = [
+    name ? `世界名称：${name}` : '',
+    tagline ? `一句话简介：${tagline}` : '',
+    tone ? `视觉基调（作者已指定，必须遵守）：${tone}` : '',
+    content ? `世界观正文（只用来提取画面线索，不要照抄）：\n${content}` : '',
+    extra ? `用户补充的画面要求（优先级最高）：${extra}` : '',
+  ].filter(Boolean).join('\n\n');
+
+  if (!content && !tone && !tagline && !extra) {
+    return { prompt: '', source: 'fallback', note: '这个世界还没有任何内容，先在「世界观」页签写几句，AI 才知道该画什么' };
+  }
+
+  try {
+    const msgs = [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }];
+    const raw = await chatSync(msgs, {
+      model: config.llm.model || 'deepseek-chat',
+      temperature: 0.85,
+      max_tokens: 320,
+      // 320 是"一段画面描述"的正文预算，思考会把预算吃光 → 空返回（F-58/F-60/F-62 同构缺口）
+      thinking: { type: 'disabled' },
+      label: '世界封面提示词',
+    });
+    const prompt = normalizeCoverPrompt(raw);
+    if (prompt && prompt.length >= 8) {
+      return { prompt: `${prompt}, ${COVER_PROMPT_TAIL}`, source: 'llm' };
+    }
+    console.warn('[world] 封面提示词为空，改用规则拼装');
+  } catch (err) {
+    console.warn('[world] 封面提示词 LLM 失败，改用规则拼装:', err.message);
+  }
+
+  const fb = fallbackCoverPrompt(world, extra);
+  if (!fb) return { prompt: '', source: 'fallback', note: '这个世界还没有任何内容，先在「世界观」页签写几句，AI 才知道该画什么' };
+  return { prompt: `${fb}, ${COVER_PROMPT_TAIL}`, source: 'fallback' };
+}
+
+// POST /api/world-settings/:id/cover/generate — 按世界观生成封面（默认 1216×832）
+//
+// body: { extra?: string, dryRun?: boolean, stream?: boolean }
+//   extra  —— 用户补充的画面要求（例如「想要雪夜」「不要霓虹」），优先级最高
+//   dryRun —— 只出提示词不画图，用于先看提示词再决定（也方便命令行验证提示词质量）
+//   stream —— true 走 SSE，逐段推 stage / prompt / progress / done，避免 60 秒干等
+router.post('/world-settings/:id/cover/generate', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const world = id ? getWorldSettingById(id) : null;
+  if (!world) return res.status(404).json({ error: '世界不存在' });
+
+  const extra = typeof req.body?.extra === 'string' ? req.body.extra.trim() : '';
+  const dryRun = req.body?.dryRun === true;
+  const streaming = req.body?.stream === true;
+
+  const send = (event, data) => {
+    if (streaming && !res.destroyed && !res.writableEnded) {
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    }
+  };
+  if (streaming) {
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders?.();
+  }
+  const finish = (payload, status = 200) => {
+    if (streaming) { send('done', payload); res.end(); }
+    else res.status(status).json(payload);
+  };
+
+  try {
+    send('stage', { stage: 'prompting' });
+    const { prompt, source, note } = await buildWorldCoverPrompt(world, extra);
+    if (!prompt) {
+      return streaming
+        ? (send('error', { error: note || '这个世界还没有内容，AI 不知道画什么' }), res.end())
+        : res.status(400).json({ error: note || '这个世界还没有内容，AI 不知道画什么' });
+    }
+    send('prompt', { prompt, source, note: note || '' });
+    if (dryRun) return finish({ ok: true, dry_run: true, prompt, source });
+
+    send('stage', { stage: 'generating' });
+    // 尺寸固定 1216×832（用户指定）：SDXL 系的 19:13，横向横幅，正好铺星图卡片
+    const result = await generateImage(prompt, {
+      width: 1216,
+      height: 832,
+      scene: 'events',            // 借用"奇遇配图"的 LoRA 作用域：那是场景大图，最接近封面
+      loras: [],                  // 不注入角色 LoRA —— 封面不该有某个角色的脸
+      disableRAG: true,           // 不检索角色/记忆知识库，纯风景
+      alreadyPrepared: true,      // 提示词已由上面的 LLM 写定，别再被二次改写
+      promptScene: 'events',
+      onProgress: (p) => { if (p?.stage) send('progress', { stage: p.stage, progress: p.progress ?? null }); },
+    });
+
+    if (!result?.success || !result.images?.length || !result.images[0]?.base64) {
+      const msg = result?.error || '生图没有返回图片（ComfyUI 是否在运行？）';
+      return streaming
+        ? (send('error', { error: msg }), res.end())
+        : res.status(500).json({ error: msg });
+    }
+
+    // 落盘：生成图在 ComfyUI 输出目录，会被清理；封面必须存进自己的目录
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const coversDir = path.join(path.resolve(here, '../..'), 'data', 'world-covers');
+    fs.mkdirSync(coversDir, { recursive: true });
+    const filename = `world_${id}_${Date.now()}.jpg`;
+    // ★ ComfyUI 交上来的是 PNG（2MB 上下）。直接改后缀存成 .jpg 会让 Content-Type 与实际内容不符，
+    //   体积也不适合当卡片背景 —— 真转一次 JPEG（1216×832 无损尺寸，只压画质）。
+    // ★ 注意 images[].base64 其实是**完整 data URL**（`data:image/png;base64,...`，见 comfyClient.downloadImageAsBase64），
+    //   不剥前缀直接 Buffer.from 会得到一堆解不出来的乱码（sharp 报 unsupported image format）。
+    const rawB64 = String(result.images[0].base64).replace(/^data:image\/\w+;base64,/, '');
+    const jpegBuf = await sharp(Buffer.from(rawB64, 'base64'))
+      .jpeg({ quality: 88, mozjpeg: true })
+      .toBuffer();
+    fs.writeFileSync(path.join(coversDir, filename), jpegBuf);
+
+    // 删旧封面（只删本世界前缀，不越界）
+    const old = String(world.cover_image || '');
+    if (old) {
+      const oldName = path.basename(old);
+      if (oldName.startsWith(`world_${id}_`)) {
+        try { fs.unlinkSync(path.join(coversDir, oldName)); } catch { /* 旧文件不在就算了 */ }
+      }
+    }
+
+    const coverUrl = `/world-covers/${filename}`;
+    updateWorldSetting(id, { cover_image: coverUrl });
+    console.log(`[world] 封面已生成 #${id} (${source}): ${filename}`);
+    finish({ ok: true, cover_image: coverUrl, prompt, source });
+  } catch (err) {
+    console.error('[world] cover generate failed:', err.message);
+    if (streaming) { send('error', { error: `封面生成失败：${err.message}` }); res.end(); }
+    else res.status(500).json({ error: `封面生成失败：${err.message}` });
   }
 });
 

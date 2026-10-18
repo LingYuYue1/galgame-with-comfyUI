@@ -12,7 +12,7 @@
 
 import { Router } from 'express';
 import {
-  listMaps, createMap, updateMap, deleteMap, duplicateMap, getMap,
+  listMaps, createMap, updateMap, deleteMap, duplicateMap, getMap, getMapResidents,
   addPlace, upsertPlace, deletePlace,
   generateSkeleton, expandPlace, expandPois, exportMarkdown, generateScenePrompt,
   refinePlaceFromImage, refinePlaceFromText,
@@ -79,6 +79,16 @@ router.delete('/maps/:id', (req, res) => {
     const r = deleteMap(Number(req.params.id));
     if (!r.ok) return res.status(404).json({ error: '地图不存在' });
     res.json(r);
+  } catch (err) { fail(res, err); }
+});
+
+// GET /api/worldmap/maps/:id/residents — 「这会儿谁在这个地点」
+// 逻辑全在 worldMapService.getMapResidents（可单独测），这里只做转发。
+router.get('/maps/:id/residents', (req, res) => {
+  try {
+    const data = getMapResidents(Number(req.params.id));
+    if (!data) return res.status(404).json({ error: '地图不存在' });
+    res.json(data);
   } catch (err) { fail(res, err); }
 });
 

@@ -19,7 +19,8 @@
  *   · 类型化表达（"巷口面包铺 · 烘焙/早餐"），**不写人物剧情/前史**
  */
 
-import { getDb, getWorldSetting, getSystemRulesWithWorld, getSystemRules, getCharacterWorldSettingId, getActiveTrip } from '../db/index.js';
+import { getDb, getWorldSetting, getSystemRulesWithWorld, getSystemRules, getCharacterWorldSettingId, getActiveTrip, getWorldSettingById } from '../db/index.js';
+import { getCurrentActivity } from './scheduleManager.js';
 import { chatSync } from '../llm/llm-client.js';
 // ⚠ 项目里有**两个同名导出**、语义不同，别拿错：
 //   · eventGenerator.extractFirstJson → 返回 **JSON 字符串**（调用方自己 JSON.parse(repairJson(s))）—— 本文件用这个
@@ -225,8 +226,105 @@ function buildTree(places) {
 // 写
 // ═══════════════════════════════════════════════════════════
 
-export function createMap({ name, worldSettingId = null, note = '' } = {}) {
+/**
+ * 这张地图属于哪个世界 → 就用那个世界的正文。
+ *
+ * ★ 2026-10-18 实锤 bug：此前所有生成链路一律 `getWorldSetting()` = **激活世界**，
+ *   于是给「二维市」建图，生成出来的却是激活世界（星穹铁道）的「星轨锚带 / 列车枢台」。
+ *   表现就是用户说的「地图系统无法创建多个世界观的地图」—— 图能建、归属也能选，
+ *   但内容永远只有激活世界那一套。
+ *
+ * 回退顺序：地图归属世界 → 激活世界（老数据没有 world_setting_id 时行为不变）。
+ */
+function worldTextForMapId(mapId) {
   const db = getDb();
+  const row = mapId
+    ? db.prepare('SELECT world_setting_id FROM world_maps WHERE id = ?').get(mapId)
+    : null;
+  const own = row?.world_setting_id ? getWorldSettingById(row.world_setting_id) : null;
+  if (own) return String(own.content || '');
+  try { return getWorldSetting() || ''; } catch { return ''; }
+}
+
+/**
+ * 地图链路专用的 system 上下文。
+ *
+ * ★ 不能走 `getSystemRulesWithWorld({ worldTransform })`：那个函数只在
+ *   `getWorldSetting()` 取到东西时才调用 transform —— 激活世界为空（或只剩一个空壳）时
+ *   它会把我们传的世界正文**直接丢掉**，表现为"生成了但完全没看世界观"（T16 首跑即翻车）。
+ *   这里自己拼：规则 + 这张图归属世界的正文。
+ */
+function worldSystemForMapId(mapId, fallback = '你是一个世界观设定师。') {
+  const text = worldTextForMapId(mapId);
+  try {
+    const rules = getSystemRules();
+    return [rules, text].filter(Boolean).join('\n\n') || fallback;
+  } catch {
+    return text || fallback;
+  }
+}
+
+/**
+ * 日程里的地点名 → 地图上的地点。
+ *
+ * 日程地点是 LLM 写的自由文本，可能写成「旧书店二楼」「甲子区·甲咖啡馆」，
+ * 而地图上叫「旧书店」「甲咖啡馆」——**精确相等会漏掉一大半**。
+ * 所以：先精确，再双向包含，包含时取名字最长的那个
+ * （否则「咖啡」会同时命中「咖啡馆」「咖啡厅」，选中哪个看遍历顺序，等于随机）。
+ */
+export function matchPlaceByName(location, places) {
+  const loc = String(location || '').trim();
+  if (!loc) return null;
+  const exact = (places || []).find(p => p.name === loc);
+  if (exact) return exact;
+  const hit = (places || [])
+    .filter(p => p.name && (loc.includes(p.name) || p.name.includes(loc)))
+    .sort((a, b) => b.name.length - a.name.length);
+  return hit[0] || null;
+}
+
+/**
+ * 「这会儿谁在这个地点」——地图页签的头像来源。
+ *
+ * 数据源是**日程的当下那一段**（`getCurrentActivity().location`），不是新表：
+ * 角色下午的日程写到「旧书店」，图上头像就自己挪过去。额外维护一套"角色坐标"
+ * 一定会和日程打架，那时候要以谁为准就说不清了。
+ */
+export function getMapResidents(mapId) {
+  const map = getMap(mapId);
+  if (!map) return null;
+  const db = getDb();
+  // 只看"这个世界的居民"：别的世界的角色不可能出现在这张图上
+  const chars = map.world_setting_id
+    ? db.prepare(`
+        SELECT id, name, display_name, avatar_path
+        FROM characters
+        WHERE COALESCE(archived, 0) = 0 AND world_setting_id = ?
+        ORDER BY id
+      `).all(map.world_setting_id)
+    : [];
+
+  const byPlace = {};
+  const residents = [];
+  for (const c of chars) {
+    let location = '';
+    try { location = getCurrentActivity(c.id)?.location || ''; } catch { /* 没日程 = 不在图上 */ }
+    const place = matchPlaceByName(location, map.places);
+    const row = {
+      id: c.id,
+      name: c.display_name || c.name || `#${c.id}`,
+      avatar_path: c.avatar_path || '',
+      location,
+      place_id: place ? place.id : null,
+    };
+    residents.push(row);
+    if (place) (byPlace[place.id] ||= []).push(row);
+  }
+
+  return { map_id: map.id, world_setting_id: map.world_setting_id, residents, by_place: byPlace };
+}
+
+export function createMap({ name, worldSettingId = null, note = '' } = {}) {  const db = getDb();
   const clean = clampText(name, 40) || '未命名地图';
   const r = db.prepare('INSERT INTO world_maps (name, world_setting_id, note) VALUES (?, ?, ?)')
     .run(clean, worldSettingId, clampText(note, 500));
@@ -440,7 +538,7 @@ export async function expandPois(placeId, { count = 4, hint = '', excludeNames =
   const place = db.prepare('SELECT * FROM world_map_places WHERE id = ?').get(placeId);
   if (!place) throw Object.assign(new Error('地点不存在'), { statusCode: 404 });
 
-  const world = (() => { try { return getWorldSetting(); } catch { return ''; } })();
+  const world = worldTextForMapId(place.map_id);
   const parent = place.parent_id
     ? db.prepare('SELECT name FROM world_map_places WHERE id = ?').get(place.parent_id)
     : null;
@@ -462,7 +560,7 @@ export async function expandPois(placeId, { count = 4, hint = '', excludeNames =
 
   const n = Math.max(1, Math.min(8, Number(count) || 4));
   const msgs = [
-    { role: 'system', content: getSystemRulesWithWorld() || '你是一个世界观设定师。' },
+    { role: 'system', content: worldSystemForMapId(place.map_id) },
     { role: 'system', content: POI_APPEND_FORMAT(existingNames, siblingNames) },
     {
       role: 'user',
@@ -628,7 +726,7 @@ export async function refinePlaceFromImage({ placeId, image = '', hints = '' } =
   }
 
   const corpus = buildPlaceCorpus(place, db);
-  const world = (() => { try { return getWorldSetting(); } catch { return ''; } })();
+  const world = worldTextForMapId(place.map_id);
 
   const textPart = [
     `当前地点「${place.name}」的已有信息（供参考，以图为准）：`,
@@ -871,11 +969,12 @@ export async function generateSkeleton(mapId, { brief = '', regionCount = 2, dis
   const map = db.prepare('SELECT * FROM world_maps WHERE id = ?').get(mapId);
   if (!map) throw new Error('地图不存在');
 
-  const world = getWorldSetting();
-  if (!world) throw new Error('没有激活的世界观，请先在「世界观设置」里启用一个');
+  // ★ 2026-10-18：按**这张图归属的世界**取正文（原先是取激活世界 → 换世界建图也只会生成激活世界的地理）
+  const world = worldTextForMapId(mapId);
+  if (!world) throw new Error('这张地图还没有可用的世界观，请先给它归属一个世界');
 
   const msgs = [
-    { role: 'system', content: getSystemRulesWithWorld() || '你是一个世界观设定师。' },
+    { role: 'system', content: worldSystemForMapId(mapId) },
     { role: 'system', content: SKELETON_FORMAT(regionCount, districtPerRegion) },
     { role: 'user', content: buildSkeletonUserMsg(map, brief) },
   ];
@@ -986,11 +1085,11 @@ export async function expandPlace(placeId) {
 
   const map = db.prepare('SELECT * FROM world_maps WHERE id = ?').get(place.map_id);
   const parent = place.parent_id ? db.prepare('SELECT * FROM world_map_places WHERE id = ?').get(place.parent_id) : null;
-  const world = getWorldSetting();
-  if (!world) throw new Error('没有激活的世界观');
+  const world = worldTextForMapId(place.map_id);
+  if (!world) throw new Error('这张地图还没有可用的世界观');
 
   const msgs = [
-    { role: 'system', content: getSystemRulesWithWorld() || '你是一个世界观设定师。' },
+    { role: 'system', content: worldSystemForMapId(place.map_id) },
     { role: 'system', content: SCENE_FORMAT() },
     { role: 'user', content: `请展开这个${levelLabel(place.level)}：**${place.name}**${place.name_en ? `（${place.name_en}）` : ''}
 ${parent ? `它属于「${parent.name}」。` : ''}${place.summary ? `它的定位：${place.summary}` : ''}

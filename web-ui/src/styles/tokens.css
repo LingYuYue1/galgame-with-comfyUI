@@ -17,6 +17,20 @@
   --bg-tertiary: #ebebeb;
   --bg-hover: #e0e0e0;
   --bg-sunken: #f5f1ec;          /* 凹陷槽底色（分段控件/页签轨道，暖色沿用旧暖纸） */
+  /* ── 可翻转纸面（星图卡片 / 世界编辑器）────────────────────
+     ★ 与 --town-paper-* 的分工：那一组是小镇「质感岛」，两种主题都恒亮；
+       这一组是**横跨页面基底**的普通卡片与编辑纸，必须随主题明暗翻转。
+       2026-10-18 用户专项反馈：「黑夜背景下这两个卡片依旧是白天的样式，白色的」——
+       暗夜下发亮的白纸在深底上晃眼，属观感缺陷而非对比度缺陷
+       （白纸上的深棕字任何时候都过 AA，问题在"整块亮面"）。
+     暖色档取值 = 原写死的暖纸值，视觉零变化。 */
+  --card-paper: #f4f1ee;         /* 纸面底色 */
+  --card-paper-raised: #fbf8f4;  /* 纸面内的输入框/凹槽（比纸面再亮一档） */
+  --card-ink: #554a43;           /* 纸面正文 */
+  --card-ink-muted: #6f6259;     /* 纸面次要文字（原 #76665a / #746759 合并，对比度只升不降） */
+  --card-line: #cbb599;          /* 纸面描边 */
+  --card-badge-bg: #9c5745;      /* 「激活」徽标底（白字 5.13） */
+  --card-badge-ink: #fff7ef;
   --border: #e0dcd6;
   --border-strong: #d0c3b8;      /* 漫画格描边（组件级 2px 描边用） */
   --cel-outline: #4a3d36;        /* 赛璐璐深描边色 */
@@ -263,6 +277,15 @@
   --bg-tertiary: #2b2633;
   --bg-hover: #383142;
   --bg-sunken: #2b2633;          /* 凹陷槽底色：暗夜沿用原分段轨道 */
+  /* 可翻转纸面 · 暗夜档：深色纸（比页面底 --bg-primary:#16131a 亮一档，才是"盖上来的纸"）。
+     徽标底压深到 #7a3a2b：在深纸上有层次，又有足够亮度托住浅字。 */
+  --card-paper: #221e28;
+  --card-paper-raised: #2b2633;
+  --card-ink: #e7e2de;
+  --card-ink-muted: #a39ba9;
+  --card-line: #575060;
+  --card-badge-bg: #7a3a2b;
+  --card-badge-ink: #ffe9df;
   --border: #3b3544;
   --border-strong: #575060;
   --cel-outline: #0a090c;
