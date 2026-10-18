@@ -886,6 +886,8 @@ async function onGenerateScenePrompt(mode) {
       return addPlace.parent?.name || ''
     })()
     const r = await api.generateWorldMapScenePrompt({
+      // 编辑态带上 placeId → 服务端按这张地图归属的世界取设定；新建时没有 id，落回激活世界
+      placeId: mode === 'edit' && src.id ? src.id : null,
       name,
       nameEn: String(src.nameEn || '').trim(),
       kind: String(src.kind || '').trim(),

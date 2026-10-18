@@ -458,16 +458,27 @@ export function upsertPlace(placeId, patch = {}) {
  *
  * ⚠ 只依据用户已填的**中文**信息做翻译+扩写；无世界观的纯地名也能生成（不强制依赖世界观）。
  *
- * @param {{name?:string, kind?:string, summary?:string, nameEn?:string, context?:string}} input
+ * @param {{name?:string, kind?:string, summary?:string, nameEn?:string, context?:string, placeId?:number}} input
+ *   `placeId` 有值 → 按**该地点所属地图的世界**取正文（新建地点时还没有 id，落回激活世界）
  * @returns {Promise<{ok:true, scenePrompt:string}>}
  */
-export async function generateScenePrompt({ name = '', kind = '', summary = '', nameEn = '', context = '' } = {}) {
+export async function generateScenePrompt({ name = '', kind = '', summary = '', nameEn = '', context = '', placeId = null } = {}) {
   const nm = String(name || '').trim();
   if (!nm) throw Object.assign(new Error('请先填写名称'), { statusCode: 400 });
 
-  const world = (() => { try { return getWorldSetting(); } catch { return ''; } })();
+  // ★ 2026-10-18：有 placeId 就按它所属的地图世界取正文 —— 否则给「二维市」的地点写画面描述，
+  //   用的还是激活世界（仙舟罗浮）的设定，等于同一处串味在另一条链路上重演。
+  let mapId = null;
+  if (placeId) {
+    try {
+      mapId = getDb().prepare('SELECT map_id FROM world_map_places WHERE id = ?').get(Number(placeId))?.map_id || null;
+    } catch { /* 查不到就当新建地点 */ }
+  }
+  const world = mapId
+    ? worldTextForMapId(mapId)
+    : (() => { try { return getWorldSetting(); } catch { return ''; } })();
   const msgs = [
-    { role: 'system', content: getSystemRulesWithWorld() || '你是一个场景美术描述师。' },
+    { role: 'system', content: mapId ? worldSystemForMapId(mapId, '你是一个场景美术描述师。') : (getSystemRulesWithWorld() || '你是一个场景美术描述师。') },
     {
       role: 'system',
       content: `你要为一个虚构地点写一条**英文画面描述**，供 AI 生图模型取景使用。

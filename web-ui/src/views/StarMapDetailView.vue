@@ -147,7 +147,13 @@
       <div class="smd-list">
         <div v-if="!chars.length" class="smd-hint">还没有角色归属这个世界。</div>
         <div v-for="c in chars" :key="c.id" class="smd-row">
-          <span class="smd-avatar">{{ (c.display_name || c.name || '?').slice(0, 1) }}</span>
+          <!-- 星图首页的卡片都在用头像，这里只有首字就断档了；
+               没设头像的角色才退回首字占位（与卡片同一口径）。 -->
+          <span
+            class="smd-avatar"
+            :class="{ 'has-img': !!c.avatar_path }"
+            :style="c.avatar_path ? { backgroundImage: `url(${c.avatar_path})` } : null"
+          >{{ c.avatar_path ? '' : (c.display_name || c.name || '?').slice(0, 1) }}</span>
           <span class="smd-row-name">{{ c.display_name || c.name }}</span>
           <!-- ★ 星图 T15：在途的人不给"前往"（一段没走完不能再起一段），显示倒计时 -->
           <span v-if="transitOf(c.id)" class="smd-transit-badge">在途 · 还需 {{ remainText(transitOf(c.id)) }}</span>
@@ -1079,6 +1085,14 @@ watch(worldId, (id, prev) => {
   background: var(--card-paper-raised);
   color: var(--card-ink-muted);
   flex: none;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+/* 有头像时：铺图 + 一圈细描边（透明头像压在白底上会"糊掉"） */
+.smd-avatar.has-img {
+  background-size: cover;
+  background-position: center;
+  border: 1px solid var(--border);
 }
 .smd-hint { font-size: 12.5px; color: var(--text-secondary); padding: 8px 2px; }
 .smd-hint-foot { padding-top: 2px; }
