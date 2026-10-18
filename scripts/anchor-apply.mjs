@@ -60,11 +60,17 @@ for (const o of before.outfits) console.log(`  [${o.scene}] ${o.name}`);
 console.log(`\n【原 body】\n${beforeBody}`);
 
 // ── 备份 ──
-fs.mkdirSync(BACKUP_DIR, { recursive: true });
-const stamp = new Date().toISOString().slice(0, 16).replace('T', '-').replace(':', '');
-const backupFile = path.join(BACKUP_DIR, `${stamp}-char${id}-${payload.label || 'x'}-before.json`);
-fs.writeFileSync(backupFile, JSON.stringify({ capturedAt: new Date().toISOString(), characterId: id, body: beforeBody, outfits: before.outfits }, null, 2), 'utf8');
-console.log(`\n[备份] 原值已存 → ${backupFile}`);
+// ⚠ 干跑不写快照：`--dry` 语义是"只看不改"，落一份文件会污染 output/anchor-backup/
+//   （那里每份都是"某次真实写入前的原值"，混进干跑快照后就没法按时间倒推真正的还原点）。
+if (DRY) {
+  console.log('\n[备份] 干跑模式，不写快照');
+} else {
+  fs.mkdirSync(BACKUP_DIR, { recursive: true });
+  const stamp = new Date().toISOString().slice(0, 16).replace('T', '-').replace(':', '');
+  const backupFile = path.join(BACKUP_DIR, `${stamp}-char${id}-${payload.label || 'x'}-before.json`);
+  fs.writeFileSync(backupFile, JSON.stringify({ capturedAt: new Date().toISOString(), characterId: id, body: beforeBody, outfits: before.outfits }, null, 2), 'utf8');
+  console.log(`\n[备份] 原值已存 → ${backupFile}`);
+}
 
 // ── 差异预览 ──
 console.log('\n=== 变更预览 ===');
