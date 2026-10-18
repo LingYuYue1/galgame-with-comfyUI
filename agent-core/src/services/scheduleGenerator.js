@@ -11,6 +11,7 @@
  */
 
 import { getDb, getWorldSetting, getSystemRules, listTransitEdges, getTripStatusFor, formatRemain } from '../db/index.js';
+import { buildAutoScheduleAreas } from './worldMapService.js';
 import { chatSync } from '../llm/llm-client.js';
 import { config } from '../config.js';
 import { getLocalDateKey, shiftDateKey } from '../utils/localDate.js';
@@ -915,8 +916,26 @@ ${direction}**
   //   （免得未配日型的历史日期无日程可回落，见 upsertDefaultTemplate 注释）；
   //   仅当调用方显式传 fallbackToDefaultCalendar: false（"只当日型"）时跳过。
   const fallbackToDefaultCalendar = options?.fallbackToDefaultCalendar !== false;
+  // ★ 星图 T11：自动生成路径**从来没带过区域**（调度器 / 新建角色 / 全量重排都不带），
+  //   于是提示词里一句具体地名都没有 —— 模型只能从世界观正文里抓画面，排出来人人像在同一个路口。
+  //   这里按「这个角色所在世界」的地图自动补全区域与地点。
+  //   两道不补的闸（都不许擅自替用户做主）：
+  //     · 已经带了非空 areas（手动弹窗选的）→ 原样用；
+  //     · `areasSpecified`（用户明确传了空数组 = 不限区域）→ 不补。
+  let areaOptions = options;
+  if (!(Array.isArray(options?.areas) && options.areas.length) && !options?.areasSpecified) {
+    try {
+      const auto = buildAutoScheduleAreas(character?.id);
+      if (auto) {
+        areaOptions = { ...options, ...auto };
+        console.log(`[schedule] 角色 ${character?.id} 未指定区域 → 按所在世界自动补全：地图「${auto.mapName}」${auto.areas.length} 个子区`);
+      }
+    } catch (err) {
+      console.warn(`[schedule] 自动补全区域失败（不影响生成）: ${err.message}`);
+    }
+  }
   const constraintLayer = buildScheduleConstraintBlock({
-    ...options,
+    ...areaOptions,
     dayType: dayTypeForPrompt,
     transitMode,
     characterName: character.display_name || character.name || '',

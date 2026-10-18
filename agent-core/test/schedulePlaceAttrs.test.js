@@ -267,11 +267,15 @@ test('★★ T6：`scheduleInst` 不再列举会漂移的地名黑名单，改�
 });
 
 test('★ T6：地图里受限地点是唯一真源（collectAccessNotes 只读地图、不另抄清单）', () => {
-  const src = fs.readFileSync(new URL('../src/routes/schedule.js', import.meta.url), 'utf8');
-  const fn = src.match(/function collectAccessNotes[\s\S]*?\n}/)?.[0] || '';
-  assert.ok(fn, 'collectAccessNotes 应存在');
-  // 它必须从地图读（loadScheduleAreas），而不是引用任何写死的地名数组
-  assert.match(fn, /loadScheduleAreas\(/, 'collectAccessNotes 必须从地图读');
+  // ★ 星图 T11（2026-10-18）：该函数已从 `routes/schedule.js` **下沉到**
+  //   `services/worldMapService.js` —— 因为自动生成日程不经过 HTTP 路由，也要用同一份口径；
+  //   留在路由里就只能"服务层 import 路由"（倒置）或另抄一份（漂移）。
+  //   护栏的意图不变：只读地图、不硬编码任何地名。落点换成服务层文件。
+  const src = fs.readFileSync(new URL('../src/services/worldMapService.js', import.meta.url), 'utf8');
+  const fn = src.match(/export function collectAccessNotes[\s\S]*?\n}/)?.[0] || '';
+  assert.ok(fn, 'collectAccessNotes 应存在（worldMapService）');
+  // 它必须从地图读（listAreasForSchedule），而不是引用任何写死的地名数组
+  assert.match(fn, /listAreasForSchedule\(/, 'collectAccessNotes 必须从地图读');
   assert.match(fn, /normalizeAccess\(/, '必须按 access 语义判定，而非按名字');
   // 不得断言"任何中文"（理由文案『仅限特定对象/整个区域』是中文标签，不是地名）；
   // 也先剥掉注释（函数体内的说明注释会举地名为例，那是文档不是清单）。

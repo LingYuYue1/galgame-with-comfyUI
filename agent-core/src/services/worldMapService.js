@@ -19,7 +19,7 @@
  *   · 类型化表达（"巷口面包铺 · 烘焙/早餐"），**不写人物剧情/前史**
  */
 
-import { getDb, getWorldSetting, getSystemRulesWithWorld, getSystemRules, getCharacterWorldSettingId } from '../db/index.js';
+import { getDb, getWorldSetting, getSystemRulesWithWorld, getSystemRules, getCharacterWorldSettingId, getActiveTrip } from '../db/index.js';
 import { chatSync } from '../llm/llm-client.js';
 // ⚠ 项目里有**两个同名导出**、语义不同，别拿错：
 //   · eventGenerator.extractFirstJson → 返回 **JSON 字符串**（调用方自己 JSON.parse(repairJson(s))）—— 本文件用这个
@@ -1289,7 +1289,166 @@ function resolveDefaultMapId(characterId = null) {
   return listMaps()[0]?.id ?? null;
 }
 
-/** 列出可作为日常活动区域的子区（含其下地点属性）——日程弹窗与注入共用 */
+/**
+ * ★ 星图 T11：把「某子区下可用于日程的地点」整理成约束层要的形状。
+ *
+ * ── 为什么从 `routes/schedule.js` 搬到这里 ────────────────
+ * 自动生成日程（调度器 / 新建角色 / 全量重排）**不经过 HTTP 路由**，但它同样需要
+ * 「按角色所在世界的地图给出地点清单」。若这段逻辑留在路由里，服务层就只能
+ * import 路由（依赖倒置）或另抄一份（口径漂移，红线 8）。下沉到服务层后，
+ * 手动弹窗与自动生成走**同一个函数**，两处口径永远一致。
+ *
+ * 每区的产出：
+ *   · `scenesByArea`    地点名（已过准入过滤，受限地点默认不进）
+ *   · `notesByArea`     需要标注限制的地点
+ *   · `promptsByArea`   场景提示词（生图/氛围用）
+ *   · `zonesByArea` / `placeZonesByArea`  区域与逐点 zone（住宅/商店不能整区一刀切）
+ *   · `summariesByArea` 地点简介（「八股现象」的解药：有素材才不会复读）
+ *
+ * @param {string[]} names 这次要纳入的子区名
+ * @param {number|null} mapId 显式指定的图；null = 按 characterId 所在世界解析
+ * @param {Object<string,string[]>} [excludedByArea] 用户取消勾选的地点
+ * @param {string[]} [pickedPlaces] 用户**显式勾选**的受限地点（强制进池并标注）
+ * @param {number|string|null} [characterId] 决定"取哪张图"
+ */
+export function buildScenesByArea(names, mapId = null, excludedByArea = {}, pickedPlaces = [], characterId = null) {
+  const { areas } = listAreasForSchedule(mapId, characterId);
+  const out = {}, notes = {}, prompts = {}, zones = {}, placeZones = {}, summaries = {};
+  // ★ 用户显式勾选的受限地点：**必须真的进候选集**（`pickSchedulePlaces` 的 picked 参数）。
+  //   曾经只把它拼成一句给模型看的"注释行"，地点名不进清单 →
+  //   用户勾了完全没用（2026-10-07 用户实报）。名字在全图内唯一性由地图层保证（`uniqueKey`）。
+  const picked = new Set(Array.isArray(pickedPlaces) ? pickedPlaces : []);
+  for (const n of names) {
+    const area = areas.find(a => a.name === n);
+    if (!area) { out[n] = []; continue; }
+    const excluded = new Set(Array.isArray(excludedByArea[n]) ? excludedByArea[n] : []);
+    // ⚠ 把**子区自身的 access** 传下去：`幻月秘庭` 是 lv2 子区且 restricted，
+    //   只管子项的话整区会被放行（实测踩过）。private 不继承（见 pickSchedulePlaces）。
+    const { included } = pickSchedulePlaces(area.places || [], excluded, area.access || '', picked);
+    out[n] = included.map(p => p.name);
+    const ns = included.filter(p => p.note).map(p => ({ name: p.name, note: p.note }));
+    if (ns.length) notes[n] = ns;
+    const ps = included.filter(p => p.scene_prompt).map(p => ({ name: p.name, prompt: p.scene_prompt }));
+    if (ps.length) prompts[n] = ps;
+    const zs = [...new Set(included.map(p => p.zone).filter(Boolean))];
+    if (zs.length) zones[n] = zs;
+    // ★ 逐点 zone（区域里既可能有住宅也可能有商店，不能整区一刀切）
+    const pz = included.filter(p => p.zone).map(p => ({ name: p.name, zone: p.zone }));
+    if (pz.length) placeZones[n] = pz;
+    // ★★ 地点简介 —— 这是「八股现象」的直接解药（2026-10-05 用户实报）：
+    //   只给裸地名，模型不知道这些地方长什么样，只能反复用 <world_setting> 里
+    //   唯一被具体描写过的画面（"世界尽头酒馆总是黄金马桶"）。简介一给就有素材了。
+    const sm = included.filter(p => p.summary).map(p => ({ name: p.name, summary: p.summary }));
+    if (sm.length) summaries[n] = sm;
+  }
+  return {
+    scenesByArea: out, notesByArea: notes, promptsByArea: prompts,
+    zonesByArea: zones, placeZonesByArea: placeZones, summariesByArea: summaries,
+  };
+}
+
+/**
+ * ★ 星图 T11：地图里**真实标注过**的受限地点清单（「改地图即生效」的落点）。
+ * 与勾选无关，无条件收集 —— 用户不勾任何区域时这段仍然出现。
+ * 子区自身受限时整区都要报（`幻月秘庭` 是 lv2 且 restricted，只看子项会漏）。
+ */
+export function collectAccessNotes(mapId = null, characterId = null) {
+  try {
+    const { areas } = listAreasForSchedule(mapId, characterId);
+    const out = [];
+    for (const a of areas) {
+      const aa = normalizeAccess(a.access);
+      if (aa === 'restricted' || aa === 'private') {
+        out.push({ name: a.name, area: a.region, note: (accessReason({ access: aa }) || '仅限特定对象') + '（整个区域）' });
+      }
+      for (const p of a.places || []) {
+        const acc = normalizeAccess(p.access);
+        if (acc === 'restricted' || acc === 'private') {
+          out.push({ name: p.name, area: a.name, note: accessReason(p) || '仅限特定对象' });
+        }
+      }
+    }
+    return out;
+  } catch { return []; }
+}
+
+// 自动注入的规模上限（T11）—— 见 buildAutoScheduleAreas 的说明
+const AUTO_MAX_AREAS = 20;
+const AUTO_MAX_SCENES_PER_AREA = 12;
+
+/**
+ * ★ 星图 T11：自动生成日程时，「按角色所在世界」自动补全区域与地点。
+ *
+ * ── 为什么需要它 ─────────────────────────────────────────
+ * 改造前：日程弹窗（手动）会带 `areas`，而**自动生成**（调度器 / 新建角色 / 全量重排）
+ * 什么都不带 → 提示词里一句具体地名都没有 → 模型只能从世界观正文里抓画面，于是
+ * 「每个角色的日程都像在同一个路口发生」。地图里明明有整套地点，自动路径却用不上。
+ *
+ * ── 规模上限（为什么不无脑全塞）──────────────────────────
+ * 自动路径没有用户在场，不能假定地图规模合理。给两道闸：
+ *   区域 ≤ 20、每区地点 ≤ 12 —— 超出按**地图顺序**截断并留日志。
+ * 手动弹窗不受这些上限影响（用户自己选的，尊重原样）。
+ *
+ * @returns {null|{areas:string[], autoAreas:true, mapId:number, mapName:string, ...}}
+ */
+export function buildAutoScheduleAreas(characterId = null) {
+  let db;
+  try { db = getDb(); } catch { return null; }
+
+  // ① 在途 → 不补。旅途日由 T15 的「旅途日」层接管；此时塞一张地区清单，
+  //   模型很可能让她"下车逛街"，与"还在路上"直接打架。
+  try { if (getActiveTrip(characterId)) return null; } catch { /* 旅程表缺失 → 当不在途 */ }
+
+  // ② 这个角色**实际所在的世界**：绑定的世界优先；未绑定 = 跟随激活世界（T07 语义）
+  let wid = null;
+  try { wid = getCharacterWorldSettingId(characterId); } catch { /* 解析异常 → 下面按激活世界 */ }
+  if (!wid) {
+    try { wid = Number(db.prepare('SELECT id FROM world_settings WHERE is_active = 1 ORDER BY id LIMIT 1').get()?.id) || null; } catch { /* 没有激活世界 */ }
+  }
+  if (!wid) return null;
+
+  // ③ **只认这个世界自己的图**。⚠ 这里刻意不走 resolveDefaultMapId 的降级链：
+  //   那条链会落到"玩家所在地图/最新图"——对别的地方是合理兜底，对**自动注入**却是串味
+  //   （角色在 C 世界，日程里却出现 A 世界的街名）。自动注入的准则是：宁可没有，也不借。
+  const row = (() => {
+    try { return db.prepare('SELECT id, name FROM world_maps WHERE world_setting_id = ? ORDER BY id DESC LIMIT 1').get(wid); }
+    catch { return null; }
+  })();
+  if (!row) return null;
+
+  const { mapId, mapName, areas } = listAreasForSchedule(row.id, null);
+  if (!mapId || !Array.isArray(areas) || !areas.length) return null;
+
+  let picked = areas;
+  if (areas.length > AUTO_MAX_AREAS) {
+    picked = areas.slice(0, AUTO_MAX_AREAS);
+    console.warn(`[worldMapService] 自动日程：地图「${mapName}」有 ${areas.length} 个子区，超上限只取前 ${AUTO_MAX_AREAS} 个（顺序按地图）`);
+  }
+  const names = picked.map(a => a.name).filter(Boolean);
+  if (!names.length) return null;
+
+  const built = buildScenesByArea(names, mapId, {}, [], characterId);
+  // 每区地点数上限：截断 scenes 与配套映射，保持"名字与附带信息一一对应"
+  let truncated = 0;
+  for (const n of names) {
+    const list = built.scenesByArea[n] || [];
+    if (list.length <= AUTO_MAX_SCENES_PER_AREA) continue;
+    truncated += list.length - AUTO_MAX_SCENES_PER_AREA;
+    const keep = new Set(list.slice(0, AUTO_MAX_SCENES_PER_AREA));
+    built.scenesByArea[n] = list.slice(0, AUTO_MAX_SCENES_PER_AREA);
+    for (const key of ['notesByArea', 'promptsByArea', 'summariesByArea', 'placeZonesByArea']) {
+      if (Array.isArray(built[key]?.[n])) built[key][n] = built[key][n].filter(x => keep.has(x.name));
+    }
+  }
+  if (truncated > 0) {
+    console.warn(`[worldMapService] 自动日程：地点超上限，每区只取前 ${AUTO_MAX_SCENES_PER_AREA} 个（共截断 ${truncated} 个）`);
+  }
+
+  return { areas: names, autoAreas: true, mapId, mapName, ...built };
+}
+
+/**
+ * 列出可作为日常活动区域的子区（含其下地点属性）——日程弹窗与注入共用 */
 export function listAreasForSchedule(mapId = null, characterId = null) {
   let id = Number(mapId) || null;
   // ★ F-37：默认取「玩家当前所在地图」；★ T14：传了角色就优先取**该角色所在世界**的图

@@ -31,7 +31,7 @@ import { generateSchedule, assignNextRefreshTime, snapshotTodaySchedule, SLEEP_T
 import { TRANSIT_MODES, DEFAULT_TRANSIT_MODE, isTransitExempt, normalizeTransitMode } from '../services/characterTransitMode.js';
 import { DAY_TYPES, DAY_TYPE_LABEL, normalizeDayType, dayTypeOf } from '../utils/scheduleDayType.js';
 import { ledgerOverview, auditCharacter } from '../services/scheduleLedger.js';
-import { listMaps, getMap, listAreasForSchedule, pickSchedulePlaces, resolveEffectiveAccess, normalizeAccess, accessReason, ACCESS_LABEL, ZONE_LABEL } from '../services/worldMapService.js';
+import { listMaps, getMap, listAreasForSchedule, pickSchedulePlaces, resolveEffectiveAccess, normalizeAccess, accessReason, ACCESS_LABEL, ZONE_LABEL, buildScenesByArea, collectAccessNotes } from '../services/worldMapService.js';
 import { updateScheduleActivity } from '../services/scheduleEditor.js';
 import { generateImage, getLastWorkflowMode } from '../services/imageSkill.js';
 import { charArtistOverride } from '../services/characterImageOpts.js';
@@ -217,55 +217,6 @@ function loadScheduleAreas(mapId, characterId = null) {
   };
 }
 
-/**
- * 地名 → 本次**可进提示词**的场景清单（含准入过滤与用户排除）。
- *
- * ★ 这里是「问题 2：谢绝外人会被 ROLL 到」的落点：过去只取全部场景名，
- *   地图里的准入属性完全没参与；现在按 `access` 过滤，并把「被显式放行但需标注」
- *   的例外单独带出来（`notes`），注入时写明原因，模型就不会乱去。
- *
- * ⚠ 返回值保持 `Record<string, string[]>` **不变**（约束块与既有测试都按这个契约），
- *   附带信息走**并列的独立字段**（notesByArea / promptsByArea / zonesByArea），
- *   不要把它们塞进 names 里。
- */
-function scenesByAreaFor(names, mapId, excludedByArea = {}, pickedPlaces = [], characterId = null) {
-  const { areas } = loadScheduleAreas(mapId, characterId);
-  const out = {}, notes = {}, prompts = {}, zones = {}, placeZones = {}, summaries = {};
-  // ★ 用户显式勾选的受限地点：**必须真的进候选集**（`pickSchedulePlaces` 的 picked 参数）。
-  //   曾经只把它拼成一句给模型看的"注释行"（forcedPlaces），地点名不进清单 →
-  //   用户勾了完全没用（2026-10-07 用户实报）。名字在全图内唯一性由地图层保证（`uniqueKey`）。
-  const picked = new Set(Array.isArray(pickedPlaces) ? pickedPlaces : []);
-  for (const n of names) {
-    const area = areas.find(a => a.name === n);
-    if (!area) { out[n] = []; continue; }
-    const excluded = new Set(Array.isArray(excludedByArea[n]) ? excludedByArea[n] : []);
-    // ⚠ 把**子区自身的 access** 传下去：`幻月秘庭` 是 lv2 子区且 restricted，
-    //   只管子项的话整区会被放行（实测踩过）。
-    //   ⚠ 但 private **不继承**（见 pickSchedulePlaces 的说明）。
-    const { included } = pickSchedulePlaces(area.places || [], excluded, area.access || '', picked);
-    out[n] = included.map(p => p.name);
-    const ns = included.filter(p => p.note).map(p => ({ name: p.name, note: p.note }));
-    if (ns.length) notes[n] = ns;
-    const ps = included.filter(p => p.scene_prompt).map(p => ({ name: p.name, prompt: p.scene_prompt }));
-    if (ps.length) prompts[n] = ps;
-    const zs = [...new Set(included.map(p => p.zone).filter(Boolean))];
-    if (zs.length) zones[n] = zs;
-    // ★ 逐点 zone（区域里既可能有住宅也可能有商店，不能整区一刀切）
-    const pz = included.filter(p => p.zone).map(p => ({ name: p.name, zone: p.zone }));
-    if (pz.length) placeZones[n] = pz;
-    // ★★ 地点简介 —— 这是「八股现象」的直接解药（2026-10-05）。
-    //   地图里本来就有这些简介（实测 lv3 78 个里 65 个有），但过去**只注入了裸地名**：
-    //   模型拿到「鸽川大道、鸽川埠、鸽川河与滨河道…」这样一串名字，不知道它们长什么样，
-    //   只好反复用世界观里唯一具体描述过的那几个画面（于是"世界尽头酒馆总是黄金马桶"）。
-    //   把简介一并给它，模型才有"可写的东西"，才不必复读。
-    const sm = included.filter(p => p.summary).map(p => ({ name: p.name, summary: p.summary }));
-    if (sm.length) summaries[n] = sm;
-  }
-  return {
-    scenesByArea: out, notesByArea: notes, promptsByArea: prompts,
-    zonesByArea: zones, placeZonesByArea: placeZones, summariesByArea: summaries,
-  };
-}
 
 /**
  * 从请求体读出本次编排约束。**未传任何一项时返回 {}** → 不产生约束层（行为不变）。
@@ -276,6 +227,15 @@ export function readScheduleOptions(body = {}, characterId = null) {
   const areas = Array.isArray(body.areas)
     ? body.areas.map(a => String(a ?? '').trim()).filter(Boolean)
     : [];   // 非数组一律忽略（不抛错）
+  // ★ 星图 T11：区分「没传区域」与「明确传了空数组」——
+  //   没传 = 自动生成路径，按角色所在世界的地图补全；
+  //   传了空数组 = 用户主动"不限区域"，必须尊重，不许替他补。
+  //   ⚠ 用**不可枚举**属性：这个标记只给 generateSchedule 内部看，
+  //     `readScheduleOptions()` 的对外契约是「未传任何一项 → 返回 {}」，
+  //     而且它还会被拿去算并发去重键（JSON.stringify）——多一个可枚举字段会同时打破两者。
+  if (Array.isArray(body.areas)) {
+    Object.defineProperty(out, 'areasSpecified', { value: true, enumerable: false });
+  }
   // ── ★ 准入禁令：**无条件**收集（不依赖用户勾了哪些区域）──
   //   见 collectAccessNotes 的说明：这是「改地图即生效」的落点。
   try {
@@ -338,7 +298,7 @@ export function readScheduleOptions(body = {}, characterId = null) {
     out.areas = areas;
     out.areaStrict = !!body.areaStrict;
     try {
-      const r = scenesByAreaFor(areas, body.mapId, excludedByArea, pickedPlaces, characterId);
+      const r = buildScenesByArea(areas, body.mapId, excludedByArea, pickedPlaces, characterId);
       out.scenesByArea = r.scenesByArea;
       if (Object.keys(r.notesByArea).length) out.notesByArea = r.notesByArea;
       if (Object.keys(r.promptsByArea).length) out.promptsByArea = r.promptsByArea;
@@ -382,35 +342,6 @@ export function readScheduleOptions(body = {}, characterId = null) {
   return out;
 }
 
-/**
- * 全图**受限地点清单** —— 补上「改地图即生效」这条链路。
- *
- * 过去「谢绝外人」只写在 `scheduleInst` 的散文常量里（珠星总部/海原电视塔/幻月秘庭），
- * 在地图数据之外；用户在地图里给某个地点标了 access=restricted 也不会影响日程。
- * 这里把标注过的全列出来，**无论用户勾没勾区域**都注入 → 地图即真源。
- * （T6 2026-10-06：散文已同步改为"以地图数据为准"，不再列举会漂移的清单。）
- */
-function collectAccessNotes(mapId, characterId = null) {
-  try {
-    const { areas } = loadScheduleAreas(mapId, characterId);
-    const out = [];
-    for (const a of areas) {
-      // ⚠ 子区自身受限时，整区都要报（`幻月秘庭` 是 lv2 且 restricted，
-      //   只看子项会漏掉"整个区域谢绝外人"这件事）
-      const aa = normalizeAccess(a.access);
-      if (aa === 'restricted' || aa === 'private') {
-        out.push({ name: a.name, area: a.region, note: (accessReason({ access: aa }) || '仅限特定对象') + '（整个区域）' });
-      }
-      for (const p of a.places || []) {
-        const acc = normalizeAccess(p.access);
-        if (acc === 'restricted' || acc === 'private') {
-          out.push({ name: p.name, area: a.name, note: accessReason(p) || '仅限特定对象' });
-        }
-      }
-    }
-    return out;
-  } catch { return []; }
-}
 
 // ── GET /api/schedule/regenerate-options — 日程弹窗的全部选项（单一真源）──
 //
