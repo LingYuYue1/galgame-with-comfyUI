@@ -2621,6 +2621,9 @@ function migrateLlmProfiles(db) {
     const defaultProfile = {
       id: 'p_' + Date.now(),
       name: '默认配置',
+      connectionType: config.llm.connectionType,
+      vertexRegion: config.llm.vertexRegion,
+      vertexServiceAccount: config.llm.vertexServiceAccount,
       apiKey: config.llm.apiKey || '',
       baseURL: config.llm.baseURL || 'https://api.deepseek.com',
       model: config.llm.model || 'deepseek-flash',

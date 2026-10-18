@@ -278,11 +278,12 @@
         </template>
       </linshe-modal>
       <!-- LLM API 设置 -->
-      <div class="card">
+      <div class="card llm-card" :class="{ 'llm-card-first': llmCardFirst }">
         <div class="llm-card-header">
           <h3>LLM API 设置</h3>
           <!-- 每日免费鸡蛋：点击开启/关闭，免 Key 走 opencode zen 免费端点 -->
           <div
+            v-if="llmSetupMode === 'full' || freeEgg"
             ref="freeEggBtn"
             role="button"
             tabindex="0"
@@ -301,51 +302,48 @@
           </div>
         </div>
 
-        <Transition name="egg-page" mode="out-in">
-        <div v-if="!freeEgg" key="llm-custom" class="llm-api-switch-body">
-        <p class="fd">配置 AI 对话和角色生成所使用的 LLM 接口</p>
-        <p class="fd">deepseek的key获取地址：<a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener" class="ext-link">https://platform.deepseek.com/api_keys</a> ，充多少用多少</p>
-
-        <!-- LLM Profile 切换 -->
-        <div class="llm-profiles-bar">
-          <div v-for="p in llmProfiles" :key="p.id" class="profile-item-row">
-            <div
-              role="button"
-              tabindex="0"
-              :class="['profile-tag', { active: p.id === activeLlmProfileId }]"
-              @click="switchProfile(p.id)"
-              @keydown.enter.prevent="switchProfile(p.id)"
-              @keydown.space.prevent="switchProfile(p.id)"
-              :title="(p.preview || '未设置Key') + ' · ' + (p.model || '?')"
-            >
-              <span class="profile-name">{{ p.name }}</span>
-              <span v-if="p.id === activeLlmProfileId" class="profile-dot"></span>
-            </div>
-            <div
-              v-if="llmProfiles.length > 1 && p.id !== activeLlmProfileId"
-              role="button"
-              tabindex="0"
-              class="profile-tag profile-delete-btn"
-              @click="removeProfile(p.id)"
-              @keydown.enter.prevent="removeProfile(p.id)"
-              @keydown.space.prevent="removeProfile(p.id)"
-              title="删除该配置"
-            >
-              <span class="profile-x">×</span>
-            </div>
-          </div>
-          <div role="button" tabindex="0" class="profile-tag profile-add" @click="showAddProfile = true" @keydown.enter.prevent="showAddProfile = true" @keydown.space.prevent="showAddProfile = true">
-            <span>+ 新增配置</span>
-          </div>
+        <Transition name="llm-connection" mode="out-in">
+        <p v-if="llmSetupMode === 'loading'" key="llm-loading" class="llm-help-copy" role="status">正在读取接口设置…</p>
+        <p v-else-if="llmSetupMode === 'error'" key="llm-error" class="llm-help-copy" role="alert">暂时无法读取接口设置，请刷新页面重试。</p>
+        <DeepseekSetup
+          v-else-if="!freeEgg && llmSetupMode === 'guided'"
+          key="llm-guided"
+          :has-api-key="llmPreview.hasApiKey"
+          :preview="llmPreview.preview"
+          @connected="onGuidedLlmConnected"
+          @configure="openFullLlmSetup"
+          @start-chat="router.push('/chat')"
+        />
+        <div v-else-if="!freeEgg" key="llm-custom" class="llm-api-switch-body">
+        <div class="llm-full-intro">
+          <p class="llm-intro">配置 AI 对话和角色生成使用的模型接口</p>
+          <linshe-button v-if="canReturnToGuidedSetup" variant="link" size="sm" @click="returnToGuidedSetup">返回 DeepSeek 简易设置</linshe-button>
         </div>
 
-        <!-- 新增 Profile 弹窗 -->
+        <div class="llm-profile-toolbar" role="group" aria-label="已保存的 LLM 配置">
+          <div v-for="profile in llmProfiles" :key="profile.id" class="llm-profile-item">
+            <linshe-button
+              variant="chip"
+              size="sm"
+              :active="profile.id === activeLlmProfileId"
+              :aria-pressed="profile.id === activeLlmProfileId"
+              :title="`${profile.name} · ${profile.model || '未选择模型'}`"
+              @click="switchProfile(profile.id)"
+            >
+              <span class="llm-profile-label">{{ profile.name }}</span>
+              <span v-if="profile.id === activeLlmProfileId" aria-hidden="true">●</span>
+            </linshe-button>
+            <linshe-button v-if="llmProfiles.length > 1 && profile.id !== activeLlmProfileId" variant="link" tone="danger" size="sm" :aria-label="`删除配置 ${profile.name}`" :title="`删除配置 ${profile.name}`" @click="removeProfile(profile.id)">×</linshe-button>
+          </div>
+          <linshe-button size="sm" variant="chip" @click="showAddProfile = true">+ 新增配置</linshe-button>
+        </div>
+
         <linshe-modal v-model="showAddProfile" title="新增配置">
-          <p class="fd">将当前 LLM 配置（地址、模型、自定义开关等）保存为一个新的配置快照（不含 API Key）</p>
+          <p class="llm-help-copy">将当前已保存的 LLM 配置保存为一个新的配置快照（不含 API Key 或服务账号 JSON）。</p>
           <linshe-input
             v-model="newProfileName"
-            class="fi"
-            placeholder="输入配置名称，如：我的OpenAI、本地LLM"
+            placeholder="输入配置名称，如：我的 OpenAI、本地 LLM"
+            aria-label="配置名称"
             @keyup.enter="addProfile"
             ref="newProfileInput"
           />
@@ -354,100 +352,125 @@
             <linshe-button variant="primary" :disabled="!newProfileName.trim()" @click="addProfile">确定</linshe-button>
           </template>
         </linshe-modal>
-        <!-- API Key -->
-        <label class="fl llm-label">API Key</label>
-        <div class="apikey-row">
-          <linshe-input
-            v-model="llmApiKey"
-            :type="showApiKey ? 'text' : 'password'"
-            class="fi"
-            style="margin-bottom:0"
-            name="linshe-llm-key"
-            autocomplete="new-password"
-            placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx"
-            @input="onLlmKeyInput"
-          />
-          <linshe-button class="sp-btn-small" size="sm" style="flex-shrink:0" title="复制完整 API Key" @click="copyLlmApiKey">复制</linshe-button>
-          <linshe-button class="sp-btn-small" variant="ghost" size="sm" style="flex-shrink:0" @click="showApiKey = !showApiKey">
-            {{ showApiKey ? '隐藏' : '显示' }}
-          </linshe-button>
-        </div>
-        <div v-if="llmPreview.hasApiKey" class="key-status">
-          <span class="key-ok">🔑 当前:</span>
-          <code class="key-preview" role="button" tabindex="0" title="点击复制完整 API Key" @click="copyLlmApiKey" @keydown.enter="copyLlmApiKey">{{ llmPreview.preview }}</code>
-        </div>
-        <div v-else class="key-status key-missing">⚠️ 未设置，AI 对话功能不可用</div>
 
-        <!-- API 地址 -->
-        <label class="fl llm-label" style="margin-top:14px">API 地址</label>
-        <linshe-select v-model="llmBaseURLSelectVal" :options="llmBaseURLOptions" placeholder="请选择API地址" style="margin-bottom:6px" />
-        <linshe-input v-if="isCustomBaseURL" v-model="llmBaseURL" class="fi" placeholder="https://your-api-endpoint/v1" @input="onLlmEndpointInput" />
-
-        <!-- 模型 -->
-        <label class="fl llm-label">模型（建议点击自动获取选择deepseek-flash）</label>
-        <div class="llm-model-row">
-          <linshe-select
-            ref="llmModelSelect"
-            v-model="llmModelSelectVal"
-            class="llm-model-select"
-            :options="llmModelOptions"
-            searchable
-            allow-free-input
-            placeholder="deepseek-flash"
-            aria-label="模型"
-          />
-          <linshe-button
-            class="model-fetch-btn"
-            variant="secondary"
-            :disabled="llmModelsLoading || !llmBaseURL.trim()"
-            @click="loadAvailableModels"
-          >
-{{ llmModelsLoading ? '获取中…' : '自动获取' }}
-</linshe-button>
-        </div>
-        <p v-if="llmModelsError" class="model-fetch-error" role="alert">{{ llmModelsError }}</p>
-
-        <label class="fl llm-label" for="llm-max-tokens">最大输出 token（MAX_tokens）</label>
-        <linshe-input
-          id="llm-max-tokens"
-          v-model.number="llmMaxTokens"
-          type="number"
-          min="1"
-          step="1"
-          :invalid="!llmMaxTokensValid"
-          aria-describedby="llm-max-tokens-hint"
-          @input="onLlmMaxTokensInput"
-        />
-        <p id="llm-max-tokens-hint" class="llm-token-hint" :class="{ 'is-invalid': !llmMaxTokensValid }" aria-live="polite">{{ llmMaxTokensHint }}</p>
-
-        <div class="toggle-row thinking-setting">
-          <div>
-            <div class="tl llm-label">思考模式</div>
-            <div class="td">“关”默认禁用思考；“不传”会从请求体中省略 thinking 参数</div>
+        <section class="llm-section" aria-labelledby="llm-connection-heading">
+          <div class="llm-section-heading">
+            <h4 id="llm-connection-heading">连接信息</h4>
+            <linshe-button variant="link" size="sm" @click="showLlmHelp = true">接入说明</linshe-button>
           </div>
-          <linshe-tabs v-model="llmThinkingMode" :options="thinkingModeOptions" size="sm" aria-label="思考模式" @update:model-value="markLlmDirty" />
-        </div>
+          <div class="llm-field">
+            <label class="llm-label" for="llm-connection-type">接入方式</label>
+            <linshe-select id="llm-connection-type" v-model="llmConnectionType" :options="llmConnectionOptions" aria-label="接入方式" @update:model-value="onLlmConnectionChange" />
+          </div>
+          <Transition name="llm-connection" mode="out-in">
+            <div v-if="llmConnectionType === 'openai'" key="openai" class="llm-credentials">
+              <div class="llm-inline-help">
+                <p class="llm-help-copy">选择 API 地址并填写服务商提供的 Key，再获取或手动输入模型 ID。DeepSeek 官方接口建议选择 deepseek-flash。<a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener" class="ext-link">获取 DeepSeek API Key ↗</a></p>
+              </div>
+              <div class="llm-field">
+                <label class="llm-label" for="llm-endpoint-preset">API 地址</label>
+                <div class="llm-endpoint-row">
+                  <linshe-select id="llm-endpoint-preset" v-model="llmBaseURLSelectVal" :options="llmBaseURLOptions" aria-label="API 地址预设" />
+                  <linshe-input v-if="isCustomBaseURL" v-model="llmBaseURL" placeholder="https://your-api-endpoint/v1" aria-label="自定义 API 地址" @input="onLlmEndpointInput" />
+                </div>
+              </div>
+              <div class="llm-field">
+                <div class="llm-field-heading">
+                  <label class="llm-label" for="llm-api-key">API Key</label>
+                  <span class="llm-credential-status" aria-live="polite">{{ llmApiKeyTouched ? '待保存' : llmPreview.hasApiKey ? `已保存 · ${llmPreview.preview}` : '尚未设置' }}</span>
+                </div>
+                <div class="llm-key-row">
+                  <linshe-input
+                    id="llm-api-key"
+                    v-model="llmApiKey"
+                    :type="showApiKey ? 'text' : 'password'"
+                    name="linshe-llm-key"
+                    autocomplete="new-password"
+                    :placeholder="llmPreview.hasApiKey ? '已保存密钥，输入新密钥可替换' : '输入 API Key'"
+                    @input="onLlmKeyInput"
+                  />
+                  <div class="llm-inline-actions">
+                    <linshe-button variant="ghost" size="sm" title="复制完整 API Key" @click="copyLlmApiKey">复制</linshe-button>
+                    <linshe-button variant="ghost" size="sm" @click="showApiKey = !showApiKey">{{ showApiKey ? '隐藏' : '显示' }}</linshe-button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div v-else key="vertexai" class="llm-credentials">
+              <div class="llm-field">
+                <label class="llm-label" for="vertex-account">服务账号 JSON</label>
+                <linshe-input id="vertex-account" v-model="vertexServiceAccount" type="textarea" :rows="4" autocomplete="off" spellcheck="false" :placeholder="hasVertexServiceAccount ? '已保存服务账号；留空保留，粘贴新 JSON 可替换' : '粘贴完整 service_account JSON（包括最外层大括号）'" @input="onVertexAccountInput" />
+                <div class="vertex-status-row">
+                  <linshe-button variant="secondary" size="sm" :loading="vertexValidating" :disabled="vertexValidating || (!vertexServiceAccount.trim() && !hasVertexServiceAccount)" @click="validateVertexAccount">验证 JSON</linshe-button>
+                  <span class="vertex-status" aria-live="polite">{{ vertexValidation || (vertexServiceAccount.trim() ? '新 JSON 尚未验证 / 保存' : hasVertexServiceAccount ? '服务账号已配置' : '缺少服务账号') }}</span>
+                </div>
+              </div>
+              <div class="llm-field">
+                <label class="llm-label" for="vertex-region">地区</label>
+                <linshe-select id="vertex-region" v-model="vertexRegion" :options="vertexRegionOptions" aria-label="地区" searchable allow-free-input @update:model-value="onLlmEndpointInput" />
+                <p class="llm-field-hint">默认 global，模型可用性取决于项目权限和地区。</p>
+              </div>
+            </div>
+          </Transition>
+        </section>
+
+        <section class="llm-section" aria-labelledby="llm-model-heading">
+          <div class="llm-section-heading"><h4 id="llm-model-heading">模型参数</h4></div>
+          <div class="llm-field">
+            <label class="llm-label">模型</label>
+            <div class="llm-model-row">
+              <linshe-select
+                ref="llmModelSelect"
+                v-model="llmModelSelectVal"
+                class="llm-model-select"
+                :options="llmModelOptions"
+                searchable
+                allow-free-input
+                :placeholder="llmConnectionType === 'vertexai' ? '如 gemini-2.5-pro' : '选择或输入模型 ID'"
+                aria-label="模型"
+              />
+              <linshe-button variant="secondary" :loading="llmModelsLoading" :disabled="llmModelsLoading || (llmConnectionType === 'openai' && !llmBaseURL.trim())" @click="loadAvailableModels">获取模型</linshe-button>
+            </div>
+            <p v-if="llmModelsError" class="model-fetch-error" role="alert">{{ llmModelsError }}</p>
+          </div>
+          <div class="llm-parameter-grid">
+            <div class="llm-field">
+              <label class="llm-label" for="llm-max-tokens">最大输出 tokens</label>
+              <linshe-input id="llm-max-tokens" v-model.number="llmMaxTokens" type="number" min="1" step="1" :invalid="!llmMaxTokensValid" aria-describedby="llm-max-tokens-hint" @input="onLlmMaxTokensInput" />
+              <p id="llm-max-tokens-hint" class="llm-token-hint" :class="{ 'is-invalid': !llmMaxTokensValid }" aria-live="polite">{{ llmMaxTokensHint }}</p>
+            </div>
+            <div class="llm-field">
+              <span class="llm-label">思考模式</span>
+              <linshe-tabs v-model="llmThinkingMode" :options="thinkingModeOptions" size="sm" aria-label="思考模式" @update:model-value="markLlmDirty" />
+              <p class="llm-field-hint">{{ llmConnectionType === 'vertexai' ? '「不传」使用 Google 默认；Pro 无法完全关闭思考。' : '「不传」使用服务商默认设置。' }}</p>
+            </div>
+          </div>
+        </section>
+
+        <linshe-modal v-model="showLlmHelp" title="LLM 接入说明">
+          <div class="llm-help-section">
+            <h4>Google Vertex AI / Agent Platform</h4>
+            <p class="llm-help-copy">使用完整版 Service Account：粘贴下载的完整 JSON，点击「验证 JSON」。项目 ID 会自动读取，无需 API Key 或 API 地址；地区默认 global。保存后隐藏 JSON，仅显示配置状态。</p>
+            <p class="llm-help-copy">可获取模型目录或手动填写模型 ID（如 gemini-2.5-pro）。目录不代表项目已获授权，请用「测试连接」验证。Gemini Pro 选择关闭思考时，会使用模型允许的最低档位或自动预算。</p>
+          </div>
+          <template #footer><linshe-button variant="secondary" @click="showLlmHelp = false">知道了</linshe-button></template>
+        </linshe-modal>
 
         <template v-if="isCustomBaseURL">
-          <div
-            role="button"
-            tabindex="0"
-            class="llm-advanced-toggle"
-            :aria-expanded="llmAdvancedOpen"
-            @click="toggleLlmAdvanced"
-            @keydown.enter.prevent="toggleLlmAdvanced"
-            @keydown.space.prevent="toggleLlmAdvanced"
-          >
-            <span class="llm-advanced-label llm-label">高级设置</span>
-            <svg class="llm-advanced-chevron" :class="{ open: llmAdvancedOpen }" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9" /></svg>
+          <div class="llm-advanced-heading">
+            <linshe-button variant="link" size="sm" :aria-expanded="llmAdvancedOpen" aria-controls="llm-advanced-body" @click="toggleLlmAdvanced">
+              高级设置
+              <svg class="llm-advanced-chevron" :class="{ open: llmAdvancedOpen }" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9" /></svg>
+            </linshe-button>
+            <span class="llm-field-hint">请求参数与兼容选项</span>
           </div>
           <CollapseTransition :show="llmAdvancedOpen">
-            <div class="llm-advanced-body">
+            <div id="llm-advanced-body" class="llm-advanced-body">
               <!-- 自定义请求头（仅自定义API时显示，部分中转站如 OpenRouter 需要） -->
           <div class="toggle-row llm-custom-toggle">
             <div>
               <div class="tl">自定义请求头</div>
-              <div class="td">为 OpenRouter 等中转服务附加 HTTP 请求头</div>
+              <div class="td">{{ llmConnectionType === 'vertexai' ? '附加 HTTP 请求头；认证头由服务账号自动生成' : '为 OpenRouter 等中转服务附加 HTTP 请求头' }}</div>
             </div>
             <linshe-switch v-model="llmHeadersEnabled" title="启用自定义请求头" aria-label="启用自定义请求头" @change="markLlmDirty" />
           </div>
@@ -469,7 +492,7 @@
           <div class="toggle-row llm-custom-toggle">
             <div>
               <div class="tl">自定义请求体</div>
-              <div class="td">注入 agent 等额外 body 参数；输出额度以 MAX_tokens 为准，其余同名字段覆盖内置参数</div>
+              <div class="td">{{ llmConnectionType === 'vertexai' ? '支持 generationConfig、safetySettings 等 Google 原生参数；输出额度以 MAX_tokens 为准' : '注入 agent 等额外 body 参数；输出额度以 MAX_tokens 为准，其余同名字段覆盖内置参数' }}</div>
             </div>
             <linshe-switch v-model="llmExtraBodyEnabled" title="启用自定义请求体" aria-label="启用自定义请求体" @change="markLlmDirty" />
           </div>
@@ -481,7 +504,7 @@
               class="fi llm-json-textarea"
               type="textarea"
               :invalid="!llmExtraBodyValid"
-              placeholder="{&quot;agent&quot;:&quot;my-agent&quot;,&quot;agentName&quot;:&quot;Nova&quot;}"
+              :placeholder="llmExtraBodyPlaceholder"
               @input="markLlmDirty"
             />
             <p v-if="!llmExtraBodyValid" class="gen-error" role="alert">JSON 格式无效</p>
@@ -501,10 +524,7 @@
               <div class="td">同时运行的后台 LLM 任务数上限</div>
             </div>
             <div class="freq-control">
-              <input
-type="range" min="1" max="10" step="1"
-                v-model.number="backgroundConcurrency" @change="markLlmDirty()"
-/>
+              <linshe-slider v-model="backgroundConcurrency" :min="1" :max="10" :step="1" aria-label="最大并发后台请求数" @change="markLlmDirty()" />
               <span class="freq-val">{{ backgroundConcurrency }}</span>
             </div>
           </div>
@@ -520,22 +540,13 @@ type="range" min="1" max="10" step="1"
           </CollapseTransition>
         </template>
 
-        <div class="sa" style="margin-top:12px">
-          <linshe-button variant="primary" :disabled="!llmDirty || !llmHeadersValid || !llmExtraBodyValid || !llmMaxTokensValid" @click="saveLlmConfig">保存</linshe-button>
-          <span v-if="llmSaved" class="smsg">已保存</span>
-          <linshe-button class="llm-test-btn" variant="secondary" :disabled="llmTesting || !llmHeadersValid || !llmExtraBodyValid" @click="runLlmConnectionTest">
-            {{ llmTesting ? '测试中…' : '测试连接' }}
-          </linshe-button>
-          <div
-            role="button"
-            tabindex="0"
-            class="relay-intro-btn relay-intro-footer"
-            @click="showRelayModal = true"
-            @keydown.enter.prevent="showRelayModal = true"
-            @keydown.space.prevent="showRelayModal = true"
-          >
-推荐中转站
-</div>
+        <div class="llm-footer">
+          <div class="llm-footer-actions">
+            <linshe-button variant="primary" :disabled="!llmDirty || !llmHeadersValid || !llmExtraBodyValid || !llmMaxTokensValid" @click="saveLlmConfig">保存</linshe-button>
+            <linshe-button variant="secondary" :loading="llmTesting" :disabled="llmTesting || !llmHeadersValid || !llmExtraBodyValid" @click="runLlmConnectionTest">测试连接</linshe-button>
+            <span class="llm-save-status" aria-live="polite">{{ llmDirty ? '有未保存的修改' : llmSaved ? '已保存' : '' }}</span>
+          </div>
+          <linshe-button variant="link" size="sm" @click="showRelayModal = true">推荐中转站</linshe-button>
         </div>
         </div>
 
@@ -1177,8 +1188,11 @@ base
 
 <script setup>
 import { defaultMaxTokens, isValidMaxTokens } from '../../../agent-core/src/llm/modelCapabilities.js'
+import { validateVertexServiceAccount } from '../api/index.js'
 import { ref, reactive, computed, onMounted, inject, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
+import DeepseekSetup from '../components/DeepseekSetup.vue'
+import { canUseDeepseekSetup, initialLlmSetupMode, readLlmSetupPreference, writeLlmSetupPreference } from '../utils/llmSetup.js'
 import { getConfig, updateComfyConfig, updateLlmConfig, testLlmConnection, setLlmFreeEgg, fetchLlmModels, fetchLlmApiKey, updateFeatureFlag, imageProviderHealth, testStyle, testHires, updateProactiveFreq, updateEventFreq, updateMomentFreq, updateBackgroundConcurrency, updateDisturbMode, updateDisturbSettings, updateWeatherCity, getArtistFavorites, addArtistFavorite, deleteArtistFavorite, listCharacters, restoreWorkflow, getWorkflows, updateWorkflowMode, updateWorkflowScene, getLlmProfiles, addLlmProfile, deleteLlmProfile, activateLlmProfile, syncActiveLlmProfile } from '../api/index.js'
 import { useSettingsStore } from '../stores/settings.js'
 import ImageLightbox from '../components/ImageLightbox.vue'
@@ -1507,12 +1521,74 @@ function onLlmKeyInput() {
   markLlmDirty()
 }
 const llmBaseURL = ref('https://api.deepseek.com')
+const llmConnectionType = ref('openai')
+const llmConnectionOptions = [
+  { value: 'openai', label: 'OpenAI 兼容接口（DeepSeek / 自定义）' },
+  { value: 'vertexai', label: 'Google Vertex AI（服务账号）' },
+]
+const vertexServiceAccount = ref('')
+const hasVertexServiceAccount = ref(false)
+const vertexRegion = ref('global')
+const vertexRegionOptions = ['global', 'us-central1', 'europe-west1', 'asia-northeast1'].map(value => ({ value, label: value }))
+const vertexValidating = ref(false)
+const vertexValidation = ref('')
+let vertexValidationVersion = 0
+function onVertexAccountInput() {
+  vertexValidationVersion++
+  vertexValidation.value = ''
+  vertexValidating.value = false
+  clearLlmModels()
+  markLlmDirty()
+}
+function restoreVertexSettings(saved) {
+  llmConnectionType.value = saved.connectionType === 'vertexai' ? 'vertexai' : 'openai'
+  vertexRegion.value = saved.vertexRegion || 'global'
+  hasVertexServiceAccount.value = Boolean(saved.hasVertexServiceAccount)
+  vertexServiceAccount.value = ''
+  vertexValidation.value = ''
+  vertexValidationVersion++
+  vertexValidating.value = false
+}
+function onLlmConnectionChange() {
+  if (llmConnectionType.value === 'vertexai') {
+    llmBaseURL.value = 'https://aiplatform.googleapis.com'
+    llmModel.value = 'gemini-2.5-pro'
+    llmThinkingMode.value = 'omit'
+    isCustomBaseURL.value = true
+  } else {
+    llmBaseURL.value = 'https://api.deepseek.com'
+    llmModel.value = 'deepseek-flash'
+    llmThinkingMode.value = 'disabled'
+    isCustomBaseURL.value = false
+  }
+  llmHeadersEnabled.value = false
+  llmExtraBodyEnabled.value = false
+  clearLlmModels()
+  fillLlmMaxTokens()
+  markLlmDirty()
+}
+async function validateVertexAccount() {
+  if (vertexValidating.value) return
+  const version = ++vertexValidationVersion
+  vertexValidating.value = true
+  vertexValidation.value = ''
+  try {
+    const result = await validateVertexServiceAccount({ vertexServiceAccount: vertexServiceAccount.value.trim() || undefined })
+    if (version !== vertexValidationVersion) return
+    vertexValidation.value = `认证通过 · ${result.projectId}${vertexServiceAccount.value.trim() ? ' · 请保存配置' : ''}`
+  } catch (error) {
+    if (version !== vertexValidationVersion) return
+    vertexValidation.value = error.message || '服务账号验证失败'
+  } finally {
+    if (version === vertexValidationVersion) vertexValidating.value = false
+  }
+}
 const llmModel = ref('deepseek-chat')
 const llmModels = ref([])
 const llmModelsLoading = ref(false)
 const llmModelsError = ref('')
 const llmModelSelect = ref(null)
-const llmModelOptions = computed(() => llmModels.value.map(model => ({ value: model, label: model })))
+const llmModelOptions = computed(() => (llmModels.value.length ? llmModels.value : llmConnectionType.value === 'vertexai' ? ['gemini-2.5-pro', 'gemini-2.5-flash'] : []).map(model => ({ value: model, label: model })))
 const llmModelSelectVal = computed({
   get: () => llmModel.value,
   set: (val) => {
@@ -1548,6 +1624,7 @@ function fillLlmMaxTokens() {
   llmTokenSource.value = isValidMaxTokens(capability?.maxTokens) ? 'model' : 'default'
 }
 function restoreLlmMaxTokens(saved) {
+  restoreVertexSettings(saved)
   clearLlmModels()
   llmTokenEditVersion++
   llmMaxTokens.value = isValidMaxTokens(saved.maxTokens) ? saved.maxTokens : defaultMaxTokens(llmBaseURL.value, llmModel.value)
@@ -1607,6 +1684,7 @@ const llmHeadersValid = computed(() => {
 })
 const llmExtraBodyEnabled = ref(false)
 const llmExtraBodyText = ref('{}')
+const llmExtraBodyPlaceholder = computed(() => JSON.stringify(llmConnectionType.value === 'vertexai' ? { generationConfig: { topK: 40 } } : { agent: 'my-agent', agentName: 'Nova' }))
 const llmExtraBodyValid = computed(() => {
   if (!llmExtraBodyEnabled.value) return true
   try { JSON.parse(llmExtraBodyText.value); return true } catch { return false }
@@ -1682,6 +1760,7 @@ async function applyRelayConfig(station) {
     llmExtraBodyText.value = '{}'
     const name = uniqueProfileName(station.name)
     const result = await addLlmProfile(name, {
+      connectionType: 'openai',
       apiKey: '',
       baseURL: station.url,
       model: 'deepseek-flash',
@@ -1846,7 +1925,7 @@ async function copyLlmApiKey() {
 }
 
 async function loadAvailableModels() {
-  if (llmModelsLoading.value || !llmBaseURL.value.trim()) return
+  if (llmModelsLoading.value || (llmConnectionType.value === 'openai' && !llmBaseURL.value.trim())) return
   if (llmHeadersEnabled.value && !llmHeadersValid.value) {
     llmModelsError.value = '请先修正自定义请求头 JSON'
     return
@@ -1860,6 +1939,9 @@ async function loadAvailableModels() {
   try {
     const headers = llmHeadersEnabled.value ? JSON.parse(llmHeadersText.value) : {}
     const result = await fetchLlmModels({
+      connectionType: llmConnectionType.value,
+      vertexRegion: vertexRegion.value,
+      vertexServiceAccount: llmConnectionType.value === 'vertexai' ? vertexServiceAccount.value.trim() || undefined : undefined,
       baseURL: llmBaseURL.value.trim(),
       // 未手动输入时不传 key，由后端回落到库里存的那个（避免用浏览器自动填充的旧值去请求）
       apiKey: llmApiKeyTouched.value ? (llmApiKey.value.trim() || undefined) : undefined,
@@ -1883,8 +1965,40 @@ async function loadAvailableModels() {
 }
 
 // ── LLM Profile 切换 ──
+const showLlmHelp = ref(false)
 const llmProfiles = ref([])
 const activeLlmProfileId = ref('')
+const llmSetupMode = ref('loading')
+const llmCardFirst = ref(false)
+const canReturnToGuidedSetup = computed(() => !llmDirty.value && !freeEgg.value && canUseDeepseekSetup({
+  llm: llmPreview.value, llmProfiles: llmProfiles.value, features,
+}))
+function openFullLlmSetup() {
+  writeLlmSetupPreference(localStorage, 'full')
+  llmSetupMode.value = 'full'
+}
+function returnToGuidedSetup() {
+  if (!canReturnToGuidedSetup.value) return
+  writeLlmSetupPreference(localStorage, 'guided')
+  llmSetupMode.value = 'guided'
+}
+function onGuidedLlmConnected(result) {
+  settingsStore.setHasApiKey(result.hasApiKey)
+  llmPreview.value = { ...result }
+  llmBaseURL.value = result.baseURL
+  llmModel.value = result.model
+  llmThinkingMode.value = result.thinkingMode
+  restoreLlmMaxTokens(result)
+  llmApiKey.value = ''
+  llmApiKeyTouched.value = false
+  llmDirty.value = false
+  llmSaved.value = true
+  llmProfiles.value = llmProfiles.value.map(profile => profile.id === activeLlmProfileId.value
+    ? { ...profile, hasApiKey: result.hasApiKey, preview: result.preview, model: result.model, baseURL: result.baseURL }
+    : profile)
+  writeLlmSetupPreference(localStorage, 'guided')
+}
+
 const showAddProfile = ref(false)
 const newProfileName = ref('')
 const newProfileInput = ref(null)
@@ -2093,7 +2207,11 @@ onMounted(async () => {
       workflowScene.value = { chat: 'turbo', group: 'base', moments: 'base', events: 'base', schedule: 'base', mailbox: 'base', ...data.workflow.scene }
     }
     loadLlmProfiles(data)
-  } catch {}
+    llmSetupMode.value = initialLlmSetupMode(data, readLlmSetupPreference(localStorage))
+    llmCardFirst.value = llmSetupMode.value === 'guided' || !data.llm.hasApiKey
+  } catch {
+    llmSetupMode.value = 'error'
+  }
   await checkHealth()
   await loadArtistFavorites()
 })
@@ -2298,9 +2416,13 @@ async function fetchNovelaiModels() {
 }
 
 function buildLlmPayload() {
-  const payload = {}
+  const payload = { connectionType: llmConnectionType.value }
+  if (llmConnectionType.value === 'vertexai') {
+    payload.vertexRegion = vertexRegion.value.trim() || 'global'
+    if (vertexServiceAccount.value.trim()) payload.vertexServiceAccount = vertexServiceAccount.value.trim()
+  }
   // 只有用户手动输入过才提交 apiKey —— 否则浏览器自动填充的旧值会被当成"用户的输入"写回库
-  if (llmApiKeyTouched.value && llmApiKey.value.trim()) payload.apiKey = llmApiKey.value.trim()
+  if (llmConnectionType.value === 'openai' && llmApiKeyTouched.value && llmApiKey.value.trim()) payload.apiKey = llmApiKey.value.trim()
   if (llmBaseURL.value) payload.baseURL = llmBaseURL.value
   if (llmModel.value) payload.model = llmModel.value
   if (!llmMaxTokensValid.value) throw new Error('MAX_tokens 必须为正整数')
@@ -2321,7 +2443,7 @@ async function runLlmConnectionTest() {
     toastFn?.('请先修正 LLM 自定义请求头或请求体 JSON', 'warning')
     return
   }
-  if (!llmBaseURL.value.trim()) {
+  if (llmConnectionType.value === 'openai' && !llmBaseURL.value.trim()) {
     toastFn?.('请先填写 API 地址', 'warning')
     return
   }
@@ -3288,15 +3410,6 @@ function resetTestPrompts() {
 
 .sp-btn-small { padding:6px 14px; font-size:12px; margin-right:6px; }
 
-/* ── LLM API ── */
-.apikey-row { display: flex; gap: 8px; align-items: center; }
-.apikey-row .fi { flex: 1; min-width: 0; }
-.key-status { margin-top: 8px; font-size: 13px; display: flex; align-items: center; gap: 6px; }
-.key-ok { color: var(--success); }
-.key-missing { color: var(--danger); padding: 6px 10px; border-radius: 6px; background: rgba(255, 77, 79, 0.06); }
-.key-preview { font-size: 12px; padding: 2px 8px; border-radius: 4px; background: var(--glass-bg-strong); border: 1px solid var(--glass-border); color: var(--text-secondary); cursor: pointer; transition: border-color 0.15s; }
-.key-preview:hover { border-color: var(--accent); }
-
 /* ── 每日免费鸡蛋（LLM 卡片右上角按钮） ── */
 .llm-card-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
 .llm-card-header h3 { margin-bottom: 0; }
@@ -3432,84 +3545,59 @@ function resetTestPrompts() {
 .free-egg-title { font-size: 14px; font-weight: 600; color: var(--text-primary); }
 .free-egg-desc { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
 .free-egg-hint { font-size: 11px; color: var(--text-secondary); opacity: 0.75; margin-top: 2px; }
-.llm-model-row { display: flex; align-items: stretch; gap: 8px; margin-bottom: 14px; }
-.llm-model-row .ls-select-wrapper { flex: 1; min-width: 0; }
-.model-fetch-btn {
-  min-width: 82px;
-  padding: 0 12px;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.model-fetch-error { margin-top: -8px; margin-bottom: 14px; color: var(--danger); font-size: 12px; line-height: 1.5; }
-.thinking-setting { min-width: 0; flex-wrap: wrap; gap: 12px; }
-.llm-token-hint { margin: 6px 0 14px; color: var(--text-secondary); font-size: var(--fs-sm); line-height: 1.5; overflow-wrap: anywhere; }
-.llm-token-hint.is-invalid { color: var(--danger); }
-.thinking-setting,
-.llm-custom-toggle,
-.llm-option-row { border-bottom: none; }
+/* LLM 设置：平面分区，控件皮肤由 Linshe 组件统一管理。 */
+.llm-card { container-type: inline-size; }
+.llm-card-first { order: -1; }
+.llm-full-intro { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; margin-bottom: 10px; }
+.llm-full-intro .llm-intro { margin-bottom: 0; }
+.llm-intro { margin: 0 0 10px; color: var(--text-secondary); font-size: var(--fs-sm); line-height: 1.6; }
+.llm-profile-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-bottom: 12px; }
+.llm-profile-item { display: flex; align-items: center; gap: 2px; max-width: 100%; min-width: 0; }
+.llm-profile-item > :first-child { min-width: 0; max-width: 100%; }
+.llm-profile-label { min-width: 0; overflow-wrap: anywhere; white-space: normal; text-align: left; }
+.llm-inline-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.llm-section { padding: 10px 0; border-top: 1px solid var(--glass-border); }
+.llm-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 24px; margin-bottom: 6px; }
+.llm-section-heading h4, .llm-help-section h4 { margin: 0; color: var(--text-bright); font-size: var(--fs-md); font-weight: 600; }
+.llm-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.llm-label { color: var(--text-primary); font-size: var(--fs-sm); font-weight: 600; line-height: 1.5; }
+.llm-field-heading { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; }
+.llm-credential-status, .llm-save-status { font-size: var(--fs-xs); color: var(--text-secondary); line-height: 1.5; overflow-wrap: anywhere; }
+.llm-credentials { display: grid; gap: 10px; margin-top: 10px; min-width: 0; }
+.llm-endpoint-row { display: grid; grid-template-columns: minmax(140px, 0.8fr) minmax(0, 2fr); gap: 8px; }
+.llm-endpoint-row > :only-child { grid-column: 1 / -1; }
+.llm-key-row, .llm-model-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.llm-key-row > :first-child, .llm-model-row > :first-child { flex: 1; min-width: 0; }
+.llm-model-row > :last-child { flex-shrink: 0; }
+.llm-parameter-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; margin-top: 10px; }
+.llm-field-hint, .llm-token-hint { margin: 0; color: var(--text-secondary); font-size: var(--fs-xs); line-height: 1.6; overflow-wrap: anywhere; }
+.llm-token-hint.is-invalid, .model-fetch-error { color: var(--danger); }
+.model-fetch-error { margin: 0; font-size: var(--fs-sm); line-height: 1.5; overflow-wrap: anywhere; }
+.llm-connection-enter-active, .llm-connection-leave-active { transition: opacity 0.3s var(--ease-standard); }
+.llm-connection-enter-from, .llm-connection-leave-to { opacity: 0; }
+.vertex-status-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.vertex-status { font-size: var(--fs-xs); line-height: 1.5; color: var(--text-secondary); overflow-wrap: anywhere; }
+.llm-advanced-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 0; border-top: 1px solid var(--glass-border); }
+.llm-advanced-chevron { flex-shrink: 0; transition: transform 0.3s var(--ease-standard); }
+.llm-advanced-chevron.open { transform: rotate(180deg); }
+.llm-advanced-body { padding-bottom: 12px; }
+.llm-custom-toggle, .llm-option-row { border-bottom: none; }
 .llm-custom-editor { padding: 4px 0 2px; }
 .llm-json-textarea { min-height: 72px; font-family: monospace; font-size: 12px; resize: vertical; }
-.llm-label { font-size: 13px; font-weight: 600; color: var(--text-bright); }
-.llm-advanced-toggle {
-  display: flex; align-items: center; justify-content: flex-start; gap: 6px;
-  width: 100%; margin-top: 4px; padding: 12px 0 10px;
-  border: none; border-bottom: 1px solid var(--glass-border);
-  background: none; color: var(--text-bright);
-  font-size: 13px; font-weight: 600; cursor: pointer;
-  user-select: none;
-  transition: color 0.15s;
+.llm-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; border-top: 1px solid var(--glass-border); padding-top: 10px; }
+.llm-footer-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.llm-help-copy { margin: 0 0 12px; color: var(--text-secondary); font-size: var(--fs-sm); line-height: 1.7; }
+.llm-help-section + .llm-help-section { border-top: 1px solid var(--glass-border); margin-top: 20px; padding-top: 20px; }
+.llm-help-section h4 { margin-bottom: 10px; }
+.llm-inline-help .llm-help-copy { margin: 0; line-height: 1.6; }
+.llm-inline-help .ext-link { margin-left: 6px; font-size: var(--fs-sm); }
+@container (max-width: 480px) {
+  .llm-endpoint-row, .llm-parameter-grid { grid-template-columns: minmax(0, 1fr); }
+  .llm-key-row { flex-wrap: wrap; }
+  .llm-key-row > :first-child { flex-basis: 100%; }
+  .llm-key-row > .llm-inline-actions { margin-left: auto; }
+  .llm-parameter-grid { gap: 10px; }
 }
-.llm-advanced-label { min-width: 0; }
-.llm-advanced-chevron { flex-shrink: 0; color: var(--text-secondary); transition: color 0.15s, transform 0.25s ease; }
-.llm-advanced-toggle:hover .llm-advanced-chevron { color: var(--accent); }
-.llm-advanced-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.llm-advanced-chevron.open { transform: rotate(180deg); }
-.llm-advanced-body { padding-top: 2px; }
-
-/* ── LLM Profile 切换 ── */
-.llm-profiles-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; align-items: center; }
-.profile-item-row { display: flex; align-items: center; gap: 0; }
-.profile-tag {
-  padding: 4px 12px;
-  border: 1px solid var(--glass-border);
-  background: var(--glass-bg-strong);
-  color: var(--text-secondary);
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.2s;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-  border-radius: 8px;
-  font-family: inherit;
-  user-select: none;
-}
-.profile-item-row .profile-tag { border-radius: 0; }
-.profile-item-row .profile-tag:first-child { border-radius: 9999px 0 0 9999px; }
-.profile-item-row .profile-tag:last-child { border-radius: 0 9999px 9999px 0; }
-.profile-item-row .profile-tag:first-child:last-child { border-radius: 9999px; }
-.profile-item-row .profile-tag:first-child:not(:last-child) { padding-right: 8px; }
-.profile-item-row .profile-tag:last-child:not(:first-child) { padding-left: 6px; }
-.profile-tag:hover { border-color: var(--accent); color: var(--text-bright); }
-.profile-tag.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-  font-weight: 600;
-}
-.profile-dot {
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: #fff;
-  flex-shrink: 0;
-}
-.profile-delete-btn { padding: 4px 8px; min-width: unset; border: none; background: transparent; }
-.profile-delete-btn:hover { background: rgba(255, 77, 79, 0.08); }
-.profile-x { font-size: 14px; line-height: 1; color: var(--danger); }
-.profile-add { border-radius: 20px; border-style: dashed; color: var(--text-muted); }
-.profile-add:hover { border-color: var(--accent); color: var(--accent); }
 
 /* ── 测试画风 ── */
 .style-test-row { display: flex; align-items: center; gap: 10px; margin-top: auto; padding-top: 12px; flex-wrap: wrap; }

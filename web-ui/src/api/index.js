@@ -709,6 +709,10 @@ export function testLlmConnection(data) {
   return request(`/config/llm/test`, { method: 'POST', body: data })
 }
 
+export function validateVertexServiceAccount(data) {
+  return request('/config/llm/vertex/validate', { method: 'POST', body: data })
+}
+
 /** 每日免费鸡蛋开关（opencode zen 免费端点，免 Key） */
 export function setLlmFreeEgg(enabled) {
   return request(`/config/llm/free-egg`, { method: 'PUT', body: { enabled } })

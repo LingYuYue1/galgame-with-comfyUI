@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
+import { generateKeyPairSync } from 'node:crypto';
 
 const stub = source => `data:text/javascript,${encodeURIComponent(source)}`;
 const configModule = stub(`
@@ -21,6 +22,7 @@ const sourceUrl = new URL('../src/llm/llm-client.js', import.meta.url);
 const imports = {
   openai: import.meta.resolve('openai'),
   './modelCapabilities.js': new URL('../src/llm/modelCapabilities.js', import.meta.url).href,
+  './vertex-client.js': new URL('../src/llm/vertex-client.js', import.meta.url).href,
   '../config.js': configModule,
   '../services/llmImageInput.js': stub('export const compressLlmImageInputs = async messages => messages;'),
   '../services/llmConcurrency.js': stub('export const acquireSlot = async () => {}; export const releaseSlot = () => {};'),
@@ -31,6 +33,36 @@ const source = readFileSync(sourceUrl, 'utf8').replace(/from '([^']+)'/g,
 const client = await import(stub(source));
 const limitKeys = ['max_tokens', 'max_completion_tokens', 'max_output_tokens'];
 const messages = [{ role: 'system', content: 'stable rules' }, { role: 'user', content: 'task' }];
+
+test('shared sync, stream and connection-test entry points route Vertex requests through service-account authentication', async t => {
+  t.mock.method(console, 'log', () => {});
+  const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  Object.assign(config.llm, {
+    connectionType: 'vertexai', vertexRegion: 'global', freeEgg: false,
+    vertexServiceAccount: JSON.stringify({ type: 'service_account', project_id: 'fixture', client_email: 'test@example.com', private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }) }),
+    model: 'gemini-2.5-pro', maxTokens: 65536, thinkingMode: 'omit', headers: {}, extraBody: {},
+  });
+  const calls = [];
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    if (String(url).includes('oauth2')) return new Response(JSON.stringify({ access_token: 'fixture-token' }));
+    calls.push({ url, body: JSON.parse(options.body) });
+    const data = { candidates: [{ content: { parts: [{ text: 'vertex reply' }] }, finishReason: 'STOP' }] };
+    return new Response(url.includes('streamGenerateContent') ? `data: ${JSON.stringify(data)}\n\n` : JSON.stringify(data));
+  });
+  client.resetClient();
+  assert.equal(await client.chatSync(messages, { retries: 0 }), 'vertex reply');
+  let streamed = '';
+  for await (const chunk of client.chatStream(messages)) streamed += chunk;
+  assert.equal(streamed, 'vertex reply');
+  assert.equal((await client.testLlmConnection()).reply, 'vertex reply');
+  assert.equal(calls.length, 3);
+  for (const call of calls) {
+    assert.match(call.url, /^https:\/\/aiplatform.googleapis.com\/v1\/projects\/fixture\//);
+    assert.equal(call.body.generationConfig.maxOutputTokens, 65536);
+  }
+  config.llm.connectionType = 'openai';
+  client.resetClient();
+});
 
 // Exercise the real SDK and capture serialized HTTP bodies, without production config or paid calls.
 test('all LLM request paths use the configured output allowance', async t => {

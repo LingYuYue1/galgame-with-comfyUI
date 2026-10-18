@@ -6,6 +6,7 @@ import { load as yamlLoad } from 'js-yaml';
 import { config, updateComfyConfig, getNovelaiApiKey, updateFeatureFlag, getLlmConfig, getLlmApiKey, updateLlmConfig, updateFreeEggEnabled, updateUserConfig, getUserConfig, updateProactiveFreq, updateEventFreq, updateMomentFreq, updateBackgroundConcurrency, updateDisturbMode, updateDisturbSettings, updateWorkflowMode, updateWorkflowScene, updateWorkflowCustomTemplate, getWorkflowConfig, getLlmProfiles, getActiveProfileId, addLlmProfile, deleteLlmProfile, activateLlmProfile, syncActiveLlmProfile, updateWeatherConfig, updateGlobalLora, updateHiresSettings, updateHiresLora, updateGroupSummaryInterval, updateGroupTemperature, updateGroupActivity, updateScheduleRefreshDays } from '../config.js';
 import { resetClient, chatSync, resetFreeEggFailureCount, testLlmConnection } from '../llm/llm-client.js';
 import { normalizeModelCapabilities } from '../llm/modelCapabilities.js';
+import { parseServiceAccount, getVertexAccessToken, listVertexModels } from '../llm/vertex-client.js';
 import { getDb, getSystemRules } from '../db/index.js';
 import { listWorldSettings, getActiveWorldSetting, getWorldSettingById, createWorldSetting, updateWorldSetting, deleteWorldSetting, activateWorldSetting } from '../db/index.js';
 import { DEFAULT_GLOBAL_RULES } from '../db/seedData.js';
@@ -307,14 +308,13 @@ router.put('/background-llm-concurrency', (req, res) => {
 
 // PUT /api/config/llm — 更新 LLM 配置
 router.put('/llm', (req, res) => {
-  const { apiKey, baseURL, model, thinkingMode, maxTokens, headers, extraBody } = req.body;
-  const result = updateLlmConfig({ apiKey, baseURL, model, thinkingMode, maxTokens, headers, extraBody });
+  const result = updateLlmConfig(req.body);
   if (!result.ok) {
     return res.status(400).json(result);
   }
   resetClient();
 
-  const effectiveUrl = baseURL || config.llm.baseURL;
+  const effectiveUrl = config.llm.baseURL;
   if (effectiveUrl && PRESET_LLM_URLS.includes(effectiveUrl) && config.features.serializeBackgroundLLM) {
     updateFeatureFlag('serializeBackgroundLLM', false);
     console.log('[config] serializeBackgroundLLM auto-disabled (preset LLM selected)');
@@ -354,9 +354,22 @@ router.get('/llm/key', (req, res) => {
 
 // POST /api/config/llm/models — 从 OpenAI-compatible 接口获取可用模型
 // POST /api/config/llm/test — 使用当前或表单 LLM 配置测试一次最小对话请求
+router.post('/llm/vertex/validate', async (req, res) => {
+  try {
+    const account = parseServiceAccount(req.body?.vertexServiceAccount || config.llm.vertexServiceAccount);
+    await getVertexAccessToken(account, { signal: AbortSignal.timeout(15000) });
+    res.json({ ok: true, projectId: account.project_id, clientEmail: account.client_email });
+  } catch (error) {
+    res.status(error.status === 400 ? 400 : 502).json({ ok: false, error: error.message });
+  }
+});
+
 router.post('/llm/test', async (req, res) => {
   try {
     const result = await testLlmConnection({
+      connectionType: req.body?.connectionType ?? config.llm.connectionType,
+      vertexRegion: req.body?.vertexRegion ?? config.llm.vertexRegion,
+      vertexServiceAccount: req.body?.vertexServiceAccount || config.llm.vertexServiceAccount,
       baseURL: req.body?.baseURL || config.llm.baseURL,
       apiKey: req.body?.apiKey || config.llm.apiKey,
       model: req.body?.model || config.llm.model,
@@ -378,6 +391,14 @@ router.post('/llm/test', async (req, res) => {
 });
 
 router.post('/llm/models', async (req, res) => {
+  if ((req.body?.connectionType ?? config.llm.connectionType) === 'vertexai') {
+    try {
+      return res.json(await listVertexModels({
+        vertexServiceAccount: req.body?.vertexServiceAccount || config.llm.vertexServiceAccount,
+        vertexRegion: req.body?.vertexRegion ?? config.llm.vertexRegion,
+      }));
+    } catch (error) { return res.status(error.status === 400 ? 400 : 502).json({ error: error.message }); }
+  }
   const baseURL = String(req.body?.baseURL || config.llm.baseURL || '').trim().replace(/\/+$/, '');
   if (!baseURL) return res.status(400).json({ error: '请先填写 API 地址' });
 

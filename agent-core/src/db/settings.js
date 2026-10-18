@@ -51,6 +51,9 @@ export function setSetting(key, value) {
 
 // 需要从 DB 迁移到 config 的字段映射
 export const SETTING_TO_CONFIG = {
+  llm_connection_type: { obj: 'llm', key: '_connectionType', type: 'string' },
+  llm_vertex_region: { obj: 'llm', key: 'vertexRegion', type: 'string' },
+  llm_vertex_service_account: { obj: 'llm', key: 'vertexServiceAccount', type: 'string' },
   image_provider:         { obj: 'comfyui',   key: 'imageProvider',    type: 'string'  },
   novelai_api_format:     { obj: 'comfyui', key: 'novelaiApiFormat', type: 'string' },
   novelai_url:            { obj: 'comfyui',   key: 'novelaiUrl',       type: 'string'  },

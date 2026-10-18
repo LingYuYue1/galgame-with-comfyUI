@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { generateKeyPairSync } from 'node:crypto';
 import { defaultMaxTokens, normalizeModelCapabilities, isValidMaxTokens } from '../src/llm/modelCapabilities.js';
 
 test('official, known text models and unknown models get appropriate defaults', () => {
@@ -42,12 +43,70 @@ const imports = {
   './db/settings.js': settingsUrl,
   './services/weatherSource.js': stub('export const notifyWeatherSourceChange = () => {};'),
   './llm/modelCapabilities.js': new URL('../src/llm/modelCapabilities.js', import.meta.url).href,
+  './llm/vertex-client.js': new URL('../src/llm/vertex-client.js', import.meta.url).href,
 };
 const source = "const fixtureEnv = {};\n" + readFileSync(configUrl, 'utf8')
   .replaceAll('process.env', 'fixtureEnv')
   .replace('fileURLToPath(import.meta.url)', JSON.stringify(fileURLToPath(configUrl)))
   .replace(/from '([^']+)'/g, (match, specifier) => imports[specifier] ? `from ${JSON.stringify(imports[specifier])}` : match);
 const runtime = await import(stub(source));
+
+test('LLM save route forwards Vertex fields, returns only public config and rejects invalid JSON', () => {
+  const routes = readFileSync(new URL('../src/routes/config.js', import.meta.url), 'utf8');
+  const route = routes.slice(routes.indexOf("router.put('/llm',"), routes.indexOf('// PUT /api/config/llm/free-egg'));
+  let handler, resets = 0, syncs = 0;
+  new Function('router', 'updateLlmConfig', 'resetClient', 'config', 'PRESET_LLM_URLS', 'updateFeatureFlag', 'syncActiveLlmProfile', 'getLlmConfig', route)(
+    { put(_path, fn) { handler = fn; } }, runtime.updateLlmConfig, () => resets++, runtime.config, [], () => {}, () => syncs++, runtime.getLlmConfig,
+  );
+  const response = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
+  handler({ body: { connectionType: 'vertexai', vertexRegion: 'global' } }, response);
+  assert.equal(response.body.connectionType, 'vertexai');
+  assert.equal(response.body.vertexServiceAccount, undefined);
+  assert.equal(resets, 1);
+  assert.equal(syncs, 1);
+  handler({ body: { connectionType: 'openai', vertexServiceAccount: '{invalid' } }, response);
+  assert.equal(response.statusCode, 400);
+  assert.equal(runtime.config.llm.connectionType, 'vertexai');
+  assert.equal(resets, 1);
+  assert.equal(syncs, 1);
+  runtime.config.llm.connectionType = 'openai';
+});
+
+test('Vertex credentials persist privately, survive free mode and stay isolated across profiles', () => {
+  const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const account = JSON.stringify({ type: 'service_account', project_id: 'test-project', client_email: 'test@example.com', private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }) });
+  const { config, getLlmConfig, getLlmProfiles, addLlmProfile, activateLlmProfile, updateLlmConfig, syncActiveLlmProfile, updateFreeEggEnabled } = runtime;
+  const profile = addLlmProfile('vertex').profile;
+  assert.equal(profile.vertexServiceAccount, undefined);
+  activateLlmProfile(profile.id);
+  assert.equal(updateLlmConfig({ connectionType: 'vertexai', vertexRegion: 'global', vertexServiceAccount: account, model: 'gemini-2.5-pro' }).ok, true);
+  syncActiveLlmProfile();
+  assert.equal(getLlmConfig().hasApiKey, true);
+  assert.equal(getLlmConfig().hasVertexServiceAccount, true);
+  assert.equal(config.llm.vertexServiceAccount, account);
+  assert.equal(settings.values.get('llm_vertex_service_account'), account);
+  for (const result of [getLlmConfig(), getLlmProfiles()]) assert.equal(JSON.stringify(result).includes('PRIVATE KEY'), false);
+  const before = getLlmConfig();
+  assert.equal(updateLlmConfig({ connectionType: 'openai', vertexServiceAccount: '{invalid' }).ok, false);
+  assert.deepEqual(getLlmConfig(), before);
+  assert.equal(updateLlmConfig({ connectionType: 'openai', headers: '{invalid' }).ok, false);
+  assert.deepEqual(getLlmConfig(), before);
+  updateLlmConfig({ vertexServiceAccount: '' });
+  assert.equal(config.llm.vertexServiceAccount, account);
+  updateFreeEggEnabled(true);
+  assert.equal(config.llm.connectionType, 'openai');
+  updateFreeEggEnabled(false);
+  assert.equal(config.llm.connectionType, 'vertexai');
+  settings.values.set('llm_profiles', JSON.stringify([...JSON.parse(settings.values.get('llm_profiles')), { id: 'legacy', name: 'legacy' }]));
+  activateLlmProfile('legacy');
+  assert.equal(config.llm.connectionType, 'openai');
+  assert.equal(config.llm.vertexServiceAccount, '');
+  activateLlmProfile(profile.id);
+  assert.equal(config.llm.vertexServiceAccount, account);
+  // Restore the initial fixture for the existing tests below.
+  settings.values.clear();
+  Object.assign(config.llm, { connectionType: 'openai', vertexServiceAccount: '', model: 'deepseek-flash', maxTokens: null });
+});
 
 test('MAX_tokens persists, round-trips profiles and survives free mode; invalid updates are rejected before mutation', () => {
   const { config, getLlmConfig, updateLlmConfig, addLlmProfile, activateLlmProfile, syncActiveLlmProfile, updateFreeEggEnabled } = runtime;

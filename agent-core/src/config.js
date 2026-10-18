@@ -6,6 +6,7 @@ import fs from 'fs';
 import { setSetting, getSetting } from './db/settings.js';
 import { notifyWeatherSourceChange } from './services/weatherSource.js';
 import { defaultMaxTokens, isValidMaxTokens } from './llm/modelCapabilities.js';
+import { parseServiceAccount, normalizeVertexRegion } from './llm/vertex-client.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const envPath = resolve(__dirname, '..', '.env');
@@ -26,6 +27,11 @@ export const config = {
   dbPath: process.env.DB_PATH || resolve(__dirname, '..', 'data', 'agent.db'),
   llm: {
     provider: process.env.LLM_PROVIDER || 'deepseek',
+    _connectionType: 'openai',
+    vertexRegion: 'global',
+    vertexServiceAccount: '',
+    get connectionType() { return this.freeEgg ? 'openai' : this._connectionType; },
+    set connectionType(v) { this._connectionType = v; },
     // 每日免费鸡蛋开关（仅内存，不做持久化：重启后默认关闭）。
     // 开启后通过下方 getter 覆盖生效值：免 Key 走免费端点 + 强制关闭思考；
     // 用户自有的 Key/地址/模型保存在 _* 字段中，关闭开关即原样恢复。
@@ -708,9 +714,12 @@ export function getLlmConfig() {
   const preview = !key ? '' : (key.length <= 12 ? '***' : `${key.slice(0, 5)}...${key.slice(-4)}`);
   return {
     provider: config.llm.provider,
+    connectionType: config.llm.connectionType,
+    vertexRegion: config.llm.vertexRegion,
+    hasVertexServiceAccount: Boolean(config.llm.vertexServiceAccount),
     freeEgg,
     // 免费鸡蛋模式下无需 Key 即可用，视为已配置，避免前端"未设置 Key"横幅误报
-    hasApiKey: freeEgg ? true : !!key,
+    hasApiKey: freeEgg ? true : config.llm.connectionType === 'vertexai' ? Boolean(config.llm.vertexServiceAccount) : !!key,
     preview,
     baseURL: config.llm.baseURL,
     model: config.llm.model,
@@ -733,14 +742,29 @@ export function updateFreeEggEnabled(enabled) {
   return { ok: true };
 }
 
-export function updateLlmConfig({ apiKey, baseURL, model, thinkingMode, maxTokens, headers, extraBody }) {
+export function updateLlmConfig({ apiKey, baseURL, model, thinkingMode, maxTokens, headers, extraBody, connectionType, vertexRegion, vertexServiceAccount }) {
+  // Validate all new fields before persisting anything; blank JSON means retain the saved secret.
+  try {
+    if (connectionType !== undefined && !['openai', 'vertexai'].includes(connectionType)) throw new Error('不支持的 LLM 接入方式');
+    if (vertexRegion !== undefined) vertexRegion = normalizeVertexRegion(vertexRegion);
+    if (vertexServiceAccount !== undefined && vertexServiceAccount !== '') vertexServiceAccount = JSON.stringify(parseServiceAccount(vertexServiceAccount));
+    for (const [name, raw] of [['headers', headers], ['extraBody', extraBody]]) {
+      if (raw === undefined) continue;
+      const value = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${name} 必须是 JSON 对象`);
+      if (name === 'headers') headers = value;
+      else extraBody = value;
+    }
+  } catch (error) { return { ok: false, error: error.message }; }
   if (maxTokens !== undefined && !isValidMaxTokens(maxTokens)) {
     return { ok: false, error: 'MAX_tokens 必须为正整数' };
   }
+  if (thinkingMode !== undefined && !['enabled', 'disabled', 'omit'].includes(thinkingMode)) return { ok: false, error: 'thinkingMode must be enabled, disabled, or omit' };
+  if (apiKey !== undefined && (typeof apiKey !== 'string' || !apiKey.trim())) return { ok: false, error: 'API Key cannot be empty' };
+  if (connectionType !== undefined) { config.llm.connectionType = connectionType; setSetting('llm_connection_type', connectionType); }
+  if (vertexRegion !== undefined) { config.llm.vertexRegion = vertexRegion; setSetting('llm_vertex_region', vertexRegion); }
+  if (vertexServiceAccount) { config.llm.vertexServiceAccount = vertexServiceAccount; setSetting('llm_vertex_service_account', vertexServiceAccount); }
   if (apiKey !== undefined) {
-    if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
-      return { ok: false, error: 'API Key cannot be empty' };
-    }
     config.llm.apiKey = apiKey.trim();
     persistEnv('LLM_API_KEY', config.llm.apiKey);
   }
@@ -753,14 +777,11 @@ export function updateLlmConfig({ apiKey, baseURL, model, thinkingMode, maxToken
     persistEnv('LLM_MODEL', model);
   }
   if (thinkingMode !== undefined) {
-    if (!['enabled', 'disabled', 'omit'].includes(thinkingMode)) {
-      return { ok: false, error: 'thinkingMode must be enabled, disabled, or omit' };
-    }
     config.llm.thinkingMode = thinkingMode;
     persistEnv('LLM_THINKING_MODE', thinkingMode);
   }
   if (maxTokens !== undefined || baseURL !== undefined || model !== undefined) {
-    config.llm.maxTokens = maxTokens ?? defaultMaxTokens(config.llm.baseURL, config.llm.model);
+    config.llm.maxTokens = maxTokens ?? defaultMaxTokens(config.llm.connectionType === 'vertexai' ? '' : config.llm.baseURL, config.llm.model);
     persistEnv('LLM_MAX_TOKENS', String(config.llm.maxTokens));
   }
   if (headers !== undefined) {
@@ -925,6 +946,8 @@ export function getLlmProfiles() {
     id: p.id,
     name: p.name,
     ...maskApiKey(p.apiKey),
+    connectionType: p.connectionType || 'openai',
+    hasVertexServiceAccount: Boolean(p.vertexServiceAccount),
     baseURL: p.baseURL || '',
     model: p.model || '',
     createdAt: p.createdAt || '',
@@ -943,6 +966,9 @@ export function addLlmProfile(name, overrides = {}) {
     id,
     name: name.trim(),
     apiKey: overrides.apiKey !== undefined ? overrides.apiKey : '',
+    connectionType: overrides.connectionType ?? config.llm.connectionType,
+    vertexRegion: overrides.vertexRegion ?? config.llm.vertexRegion,
+    vertexServiceAccount: '', // New snapshots never copy secrets; save credentials after activation.
     baseURL: overrides.baseURL !== undefined ? overrides.baseURL : (config.llm.baseURL || 'https://api.deepseek.com'),
     model: overrides.model !== undefined ? overrides.model : (config.llm.model || 'deepseek-flash'),
     thinkingMode: overrides.thinkingMode !== undefined ? overrides.thinkingMode : (config.llm.thinkingMode || 'disabled'),
@@ -956,7 +982,8 @@ export function addLlmProfile(name, overrides = {}) {
   };
   profiles.push(profile);
   writeProfilesToDb(profiles);
-  return { ok: true, profile: { ...profile, ...maskApiKey(profile.apiKey) } };
+  const { apiKey: _apiKey, vertexServiceAccount: _account, ...publicProfile } = profile;
+  return { ok: true, profile: { ...publicProfile, ...maskApiKey(profile.apiKey) } };
 }
 
 export function deleteLlmProfile(id) {
@@ -981,6 +1008,12 @@ export function deleteLlmProfile(id) {
 }
 
 function _applyProfileToConfig(profile) {
+  config.llm.connectionType = profile.connectionType === 'vertexai' ? 'vertexai' : 'openai';
+  config.llm.vertexRegion = profile.vertexRegion || 'global';
+  config.llm.vertexServiceAccount = profile.vertexServiceAccount || '';
+  setSetting('llm_connection_type', config.llm._connectionType);
+  setSetting('llm_vertex_region', config.llm.vertexRegion);
+  setSetting('llm_vertex_service_account', config.llm.vertexServiceAccount);
   config.llm.apiKey = profile.apiKey || '';
   persistEnv('LLM_API_KEY', config.llm.apiKey);
   if (profile.baseURL !== undefined) {
@@ -1034,6 +1067,9 @@ export function syncActiveLlmProfile() {
   if (idx === -1) return;
   profiles[idx] = {
     ...profiles[idx],
+    connectionType: config.llm._connectionType,
+    vertexRegion: config.llm.vertexRegion,
+    vertexServiceAccount: config.llm.vertexServiceAccount,
     apiKey: config.llm.apiKey || '',
     baseURL: config.llm.baseURL || '',
     model: config.llm.model || '',

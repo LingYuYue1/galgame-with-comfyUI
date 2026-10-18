@@ -16,7 +16,8 @@ function fixture(fetchLlmModels = async () => ({ models: [], capabilities: {} })
     ${declaration('buildLlmPayload')}
     return { llmBaseURL, llmModel, llmModelSelectVal, llmBaseURLSelectVal, llmMaxTokens, llmThinkingMode,
       llmMaxTokensValid, llmModels, llmModelsLoading, loadAvailableModels, restoreLlmMaxTokens,
-      onLlmMaxTokensInput, buildLlmPayload };
+      onLlmMaxTokensInput, buildLlmPayload, llmConnectionType, onLlmConnectionChange,
+      vertexServiceAccount, vertexRegion, hasVertexServiceAccount, restoreVertexSettings, llmModelsError };
   `)(ref, computed, defaultMaxTokens, isValidMaxTokens, fetchLlmModels);
 }
 
@@ -37,6 +38,26 @@ test('official preset exposes disabled thinking and 384K; saved manual values ro
   ui.llmMaxTokens.value = '';
   assert.equal(ui.llmMaxTokensValid.value, false);
   assert.throws(() => ui.buildLlmPayload(), /正整数/);
+});
+
+test('Vertex form defaults, draft credentials and secret-free restore work across provider/profile changes', () => {
+  const ui = fixture();
+  ui.llmConnectionType.value = 'vertexai';
+  ui.onLlmConnectionChange();
+  assert.equal(ui.llmModel.value, 'gemini-2.5-pro');
+  assert.equal(ui.llmMaxTokens.value, 65536);
+  assert.equal(ui.vertexRegion.value, 'global');
+  assert.equal(ui.llmThinkingMode.value, 'omit');
+  ui.vertexServiceAccount.value = '{"draft":true}';
+  assert.equal(ui.buildLlmPayload().vertexServiceAccount, '{"draft":true}');
+  ui.restoreVertexSettings({ connectionType: 'vertexai', vertexRegion: 'us-central1', hasVertexServiceAccount: true });
+  assert.equal(ui.vertexServiceAccount.value, '');
+  assert.equal(ui.hasVertexServiceAccount.value, true);
+  assert.equal(ui.buildLlmPayload().vertexServiceAccount, undefined);
+  ui.llmConnectionType.value = 'openai';
+  ui.onLlmConnectionChange();
+  assert.equal(ui.buildLlmPayload().connectionType, 'openai');
+  assert.equal(ui.buildLlmPayload().vertexRegion, undefined);
 });
 
 test('model capabilities fill current and subsequently selected models', async () => {

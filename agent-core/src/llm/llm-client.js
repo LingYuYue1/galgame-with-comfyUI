@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { createVertexClient, clearVertexTokenCache, vertexBaseURL } from './vertex-client.js';
 import { randomUUID } from 'node:crypto';
 import { config, updateFreeEggEnabled, FREE_EGG_MODELS } from '../config.js';
 import { compressLlmImageInputs } from '../services/llmImageInput.js';
@@ -9,10 +10,11 @@ import { defaultMaxTokens, isValidMaxTokens } from './modelCapabilities.js';
 const _limitEnabled = () => config.features.serializeBackgroundLLM;
 
 function isDeepseek() {
-  return (config.llm.baseURL || '').includes('deepseek.com');
+  return config.llm.connectionType !== 'vertexai' && (config.llm.baseURL || '').includes('deepseek.com');
 }
 
 function providerLabel() {
+  if (config.llm.connectionType === 'vertexai') return 'Google Vertex AI';
   const url = config.llm.baseURL || '';
   try {
     return new URL(url).hostname;
@@ -62,6 +64,10 @@ function logResponse(label, content, reasoning) {
 // 频繁创建 client 会实例化底层 undici 连接池，在高并发场景下浪费 FD 和内存
 let _client = null;
 function getClient() {
+  if (config.llm.connectionType === 'vertexai') {
+    if (!_client) _client = createVertexClient(config.llm);
+    return _client;
+  }
   if (!_client) {
     const opts = {
       baseURL: config.llm.baseURL,
@@ -87,6 +93,7 @@ function getClient() {
 
 export function resetClient() {
   _client = null;
+  clearVertexTokenCache();
 }
 
 // ── 免费鸡蛋模型轮换：按 deepseek → MiMo → Hy3 依次请求，每个模型只请求一次；
@@ -299,9 +306,9 @@ async function syncRetryDelay(ms, signal) {
  * 用当前或表单中的 LLM 配置发一次最小对话请求，用于设置页的连接测试。
  * 不修改全局 config，也不走免费鸡蛋/并发队列，避免影响真实聊天请求。
  */
-export async function testLlmConnection({ baseURL, apiKey, model, maxTokens = config.llm.maxTokens, thinkingMode = config.llm.thinkingMode, headers = {}, extraBody = {} } = {}) {
+export async function testLlmConnection({ baseURL, apiKey, model, maxTokens = config.llm.maxTokens, thinkingMode = config.llm.thinkingMode, headers = {}, extraBody = {}, connectionType = config.llm.connectionType, vertexServiceAccount = config.llm.vertexServiceAccount, vertexRegion = config.llm.vertexRegion } = {}) {
   if (maxTokens !== undefined && !isValidMaxTokens(maxTokens)) throw Object.assign(new Error('MAX_tokens 必须为正整数'), { status: 400 });
-  const effectiveBaseURL = String(baseURL || config.llm.baseURL || '').trim().replace(/\/+$/, '');
+  const effectiveBaseURL = connectionType === 'vertexai' ? vertexBaseURL(vertexRegion) : String(baseURL || config.llm.baseURL || '').trim().replace(/\/+$/, '');
   if (!effectiveBaseURL) throw new Error('API 地址未配置');
   try {
     const parsed = new URL(effectiveBaseURL);
@@ -325,7 +332,9 @@ export async function testLlmConnection({ baseURL, apiKey, model, maxTokens = co
   if (!effectiveApiKey) {
     clientOptions.defaultHeaders = { Authorization: null, ...(clientOptions.defaultHeaders || {}) };
   }
-  const client = new OpenAI(clientOptions);
+  const client = connectionType === 'vertexai'
+    ? createVertexClient({ vertexServiceAccount, vertexRegion, headers: effectiveHeaders, timeout: 15000 })
+    : new OpenAI(clientOptions);
 
   const params = {
     model: effectiveModel,

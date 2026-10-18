@@ -32,7 +32,7 @@ export async function memoryHealth() {
   const settings = getMemorySettings({ includeSecrets: true });
   const embedding = getPreferredMemoryEmbeddingProfile(settings, 'embedding');
   const enabled = config.features.memory !== false;
-  const llmReady = config.llm.freeEgg === true || Boolean(config.llm.apiKey);
+  const llmReady = config.llm.freeEgg === true || Boolean(config.llm.connectionType === 'vertexai' ? config.llm.vertexServiceAccount : config.llm.apiKey);
   const vectorServiceReachable = await healthCheck();
 
   const counts = db.prepare(`
@@ -120,7 +120,7 @@ export async function memoryHealth() {
   return {
     level,
     enabled,
-    llm: { ready: llmReady, freeEgg: config.llm.freeEgg === true, hasApiKey: Boolean(config.llm.apiKey) },
+    llm: { ready: llmReady, freeEgg: config.llm.freeEgg === true, hasApiKey: Boolean(config.llm.apiKey), hasVertexServiceAccount: Boolean(config.llm.vertexServiceAccount) },
     embedding: {
       source: embedding.source,
       label: SOURCE_LABEL[embedding.source] || embedding.source,
