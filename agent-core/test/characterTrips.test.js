@@ -135,6 +135,16 @@ test('★★★ T15：到达结算 → 标记 arrived + 改绑目的地，且重
   assert.equal(getTripById(trip.id).status, 'arrived');
   assert.equal(getCharacterWorldSettingId(charA), wB, '结算后应改绑到目的地');
 
+  // ★ 到达还要把「日程刷新时间」提前到当下 —— 光清 day_plans 不够：
+  //   默认日历不会自动重排，不推刷新时间她可能按旧世界再过多一两天。
+  const refreshAt = db.prepare('SELECT next_schedule_refresh_at FROM characters WHERE id = ?').get(charA).next_schedule_refresh_at;
+  assert.ok(refreshAt, '到达后应把日程刷新时间推到当下（不许留空）');
+  assert.match(String(refreshAt), /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/, '应是 SQLite datetime 文本（UTC）');
+  // 与"现在"对齐：SQLite 同一口径取一次 now，前后差应在 2 分钟内（不写死具体时刻，防时钟漂移）
+  const nowText = db.prepare("SELECT datetime('now') AS n").get().n;
+  const toMs = (s2) => Date.parse(String(s2).replace(' ', 'T') + 'Z');
+  assert.ok(Math.abs(toMs(refreshAt) - toMs(nowText)) < 2 * 60 * 1000, '刷新时间应≈当前时刻');
+
   // 幂等：再结算一次什么都不做（不会重复改绑、不重复清日程）
   const again = finalizeDueTrips({ characterId: charA });
   assert.equal(again.length, 0, '重复结算必须无事发生');

@@ -361,6 +361,14 @@ export function finalizeDueTrips(opts = {}) {
             console.log(`[trip] 角色 #${t.character_id} 换了世界 → 清空 ${cleared.changes} 份按日型日程方案（下次生成按新世界重排）`);
           }
         } catch { /* 老库没有这张表 */ }
+
+        // ★ 2026-10-18：光清方案不够 —— 真正决定"什么时候重排"的是
+        //   `characters.next_schedule_refresh_at`（调度器按它派单），而默认日历（schedule_templates）
+        //   并不会因为方案被清就重生成。不把刷新时间提前，她可能还要按旧世界过一两天。
+        //   这里推到"现在"，下一个调度周期就会按新世界重排一次。
+        try {
+          db.prepare("UPDATE characters SET next_schedule_refresh_at = datetime('now') WHERE id = ?").run(t.character_id);
+        } catch { /* 老库没有该列 */ }
       }
 
       if (rebound) bumpWorldCache(`trip.arrive#${t.id}`);
