@@ -176,6 +176,18 @@ function isInDisturbTimeRange(now, startTime, endTime) {
  *
  * @param {number|string|null} [characterId] 角色 id；不传 = 按激活世界（旧行为）
  */
+/**
+ * 主世界（框架）与具体世界同时存在时的关系说明。
+ *
+ * 没有这句，模型会把两个 <world_setting> 当成互相矛盾的两份设定，然后随机挑一段遵守。
+ * 它的职责只有一条：**冲突时以具体世界为准，框架只兜底**。
+ */
+const FRAMEWORK_MERGE_HINT = [
+  '<world_setting role="framework"> 是所有世界共用的基础规则（世界群通则）；',
+  '<world_setting role="current"> 是本次场景所在的具体世界。',
+  '两者冲突时以 current 为准；framework 只补 current 没提到的部分，不要拿 framework 去否定 current 的具体设定。',
+].join('');
+
 export function getWorldSetting(characterId = null) {
   // 防打扰隐藏世界观：不改 DB，仅在 prompt 构建时返回 null
   // ⚠ 这一层**不进缓存**：它随「当前时刻」变化（同一角色白天有世界、夜里没有），
@@ -200,30 +212,43 @@ export function getWorldSetting(characterId = null) {
   // 构建耗时：只统计"未命中"的那一次（这正是缓存想省掉的工作量）
   const buildStart = Date.now();
   let out = null;
-  // ① 角色绑定了世界 → 覆盖（早返回，绝不与激活世界拼接）
+  // ① 主世界（骨架层）：**永远叠加**，包成 framework 块。
+  //    它是所有角色共用的基础规则，不属于任何一个具体世界。
+  const core = getCoreWorldSetting();
+  const coreBlock = core?.content?.trim()
+    ? adaptWorldText(
+        `<world_setting role="framework">\n${core.content}\n</world_setting>`,
+        'strip', safeSlotsFor(core))
+    : '';
+
+  // ② 角色绑定的具体世界（在途 → 旅途伪世界，走同一条解析链）
   const bound = resolveBoundWorld(characterId);
-  if (bound) {
-    if (bound.content?.trim()) {
-      const raw = `<world_setting>\n${bound.content}\n</world_setting>`;
-      out = adaptWorldText(raw, 'strip', safeSlotsFor(bound));
-    }
-  } else {
-    // ② 未绑定 → 回落激活世界（以下为改造前原样逻辑）
-    // 只要存在激活项就以它为准：内容为空视为用户主动选择"无世界观"，不再回退旧表
+  let specificBlock = '';
+  if (bound?.content?.trim()) {
+    specificBlock = adaptWorldText(
+      `<world_setting role="current">\n${bound.content}\n</world_setting>`,
+      'strip', safeSlotsFor(bound));
+  } else if (!core) {
+    // ③ 老库兜底：还没有主世界（未跑 011 迁移）→ 维持改造前「激活世界当默认」的行为
     const active = getActiveWorldSetting();
-    if (active) {
-      if (active.content?.trim()) {
-        const raw = `<world_setting>\n${active.content}\n</world_setting>`;
-        // ★ 单点收口：按该世界观项目库声明的氛围节裁剪（未声明 → 原样，保守默认）
-        out = adaptWorldText(raw, 'strip', safeActiveSlots());
-      }
+    if (active?.content?.trim()) {
+      specificBlock = adaptWorldText(
+        `<world_setting>\n${active.content}\n</world_setting>`, 'strip', safeActiveSlots());
     } else {
       // 兼容旧表（仅 world_settings 表无激活项时）
       const world = getGlobalRule('world_setting');
       if (world?.rule_content && world.is_active) {
-        out = adaptWorldText(world.rule_content, 'strip', safeActiveSlots());
+        specificBlock = adaptWorldText(world.rule_content, 'strip', safeActiveSlots());
       }
     }
+  }
+
+  // 主世界在前（框架先立），具体世界在后（细节覆盖框架）。
+  // ★ 两块之间必须有一句关系说明：否则模型会把它们当成两个互相打架的世界。
+  if (coreBlock && specificBlock) {
+    out = `${coreBlock}\n\n${FRAMEWORK_MERGE_HINT}\n\n${specificBlock}`;
+  } else {
+    out = coreBlock || specificBlock || null;
   }
 
   writeWorldMemo(memoKey, out, Date.now() - buildStart);
@@ -279,8 +304,17 @@ export function getCharacterWorldSettingId(characterId) {
  * @param {number|string|null} [characterId] 传了按该角色绑定世界解析（同 getWorldSetting）
  */
 export function getWorldSettingRaw(characterId = null) {
+  // 与 getWorldSetting 同构：主世界（framework）+ 角色绑定世界（current）
+  const core = getCoreWorldSetting();
+  const coreBlock = core?.content?.trim()
+    ? `<world_setting role="framework">\n${core.content}\n</world_setting>` : '';
   const bound = resolveBoundWorld(characterId);
-  if (bound) return bound.content?.trim() ? `<world_setting>\n${bound.content}\n</world_setting>` : null;
+  const specificBlock = bound?.content?.trim()
+    ? `<world_setting role="current">\n${bound.content}\n</world_setting>` : '';
+  if (coreBlock && specificBlock) return `${coreBlock}\n\n${FRAMEWORK_MERGE_HINT}\n\n${specificBlock}`;
+  if (coreBlock || specificBlock) return coreBlock || specificBlock;
+
+  // 老库兜底（没有主世界时维持旧行为）
   const active = getActiveWorldSetting();
   if (active) return active.content?.trim() ? `<world_setting>\n${active.content}\n</world_setting>` : null;
   const world = getGlobalRule('world_setting');
@@ -361,7 +395,11 @@ function safeActiveSlots() {
 /** 某角色该吃哪套槽位：绑定世界优先，未绑定回落激活世界（与 getWorldSetting 同口径） */
 function slotsForCharacter(characterId) {
   try {
+    const core = getCoreWorldSetting();
     const bound = resolveBoundWorld(characterId);
+    // ★ 2026-10-18：主世界 + 具体世界同时存在时，两块文本在 getWorldSetting 里**已各自按自己的槽位裁过**。
+    //   这里再拿具体世界的槽位去裁整段，会把主世界里同名章节误裁 —— 所以返回中性（=不再裁）。
+    if (core && bound && Number(core.id) !== Number(bound.id)) return neutralProject();
     return safeSlotsFor(bound || getActiveWorldSetting());
   } catch {
     return neutralProject();
@@ -557,7 +595,7 @@ export function listWorldSettings() {
            (SELECT COUNT(*) FROM characters c
              WHERE c.world_setting_id = w.id AND COALESCE(c.archived, 0) = 0) AS characterCount
       FROM world_settings w
-     ORDER BY w.sort_order, w.id
+     ORDER BY w.is_core DESC, w.sort_order, w.id
   `).all();
   if (!worlds.length) return worlds;
 
@@ -596,9 +634,33 @@ export function listWorldSettings() {
   return worlds.map(w => ({ ...w, characters: byWorld.get(Number(w.id)) || [] }));
 }
 
+/**
+ * 主世界（骨架层）—— 全局唯一，取自 `is_core = 1`。
+ *
+ * 2026-10-18 世界分层：主世界不是"某个具体世界"，而是所有角色共用的**基础规则**。
+ * 它永远叠加在 prompt 里，与角色绑定的具体世界并列（见 getWorldSetting）。
+ */
+export function getCoreWorldSetting() {
+  try {
+    return handle().prepare(`SELECT * FROM world_settings WHERE is_core = 1 ORDER BY id LIMIT 1`).get() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 「默认世界」= 主世界。
+ *
+ * ★ 2026-10-18 语义变更：这个函数以前返回 `is_active = 1` 的世界（一个具体世界），
+ *   于是把「二维市」设为激活后，所有未归属角色都去按二维市说话。
+ *   现在它返回**主世界（骨架）**：未归属角色吃骨架就够，不该被某个具体世界顶替。
+ *   老库（还没跑 011 迁移、没有主世界）继续按 is_active 回退，行为与迁移前一致。
+ */
 export function getActiveWorldSetting() {
+  const core = getCoreWorldSetting();
+  if (core) return core;
   const database = handle();
-  return database.prepare(`SELECT * FROM world_settings WHERE is_active = 1`).get() || null;
+  return database.prepare(`SELECT * FROM world_settings WHERE is_active = 1 ORDER BY id LIMIT 1`).get() || null;
 }
 
 export function getWorldSettingById(id) {
@@ -671,6 +733,15 @@ export function deleteWorldSetting(id) {
   const target = getWorldSettingById(id);
   if (!target) return { ok: false, error: '世界观不存在' };
 
+  // ★ 2026-10-18 世界分层：主世界是骨架层，删了所有角色就失去公共规则（且没有默认世界）
+  if (target.is_core) {
+    return {
+      ok: false,
+      code: 'CORE_WORLD',
+      error: '这是主世界（骨架层），不能删除。先把别的世界设为主世界，再回来删它',
+    };
+  }
+
   // ── ★ 星图 T12：引用保护 ──────────────────────────────────────────
   // 删世界会把引用留在原地：角色的 world_setting_id 指向一个不存在的世界 →
   // getWorldSetting 会当"未绑定"回落激活世界（不崩，但界面会显示一个已删的世界名），
@@ -738,13 +809,23 @@ export function deleteWorldSetting(id) {
   return { ok: true };
 }
 
+/**
+ * 设为主世界（骨架层）。全局唯一 —— 会先把其他人的 is_core 清掉。
+ *
+ * ★ 2026-10-18：这个函数现在是「设为主世界」的唯一入口。
+ *   历史上叫 activateWorldSetting（"激活"），语义已从"默认具体世界"改成"骨架层"。
+ *   保留函数名是为了不惊动既有调用点；前端文案已改为「设为主世界」。
+ */
 export function activateWorldSetting(id) {
   const database = handle();
   const target = getWorldSettingById(id);
   if (!target) return null;
-  database.prepare(`UPDATE world_settings SET is_active = 0`).run();
-  database.prepare(`UPDATE world_settings SET is_active = 1, updated_at = datetime('now') WHERE id = ?`).run(id);
-  // ★ T13：激活世界是所有"未绑定角色"的兜底世界，换它等于换一大片 prompt
-  invalidateWorldCache(`world.activate#${id}`);
+  const tx = database.transaction(() => {
+    database.prepare(`UPDATE world_settings SET is_core = 0`).run();
+    database.prepare(`UPDATE world_settings SET is_core = 1, is_active = 0, updated_at = datetime('now') WHERE id = ?`).run(id);
+  });
+  tx();
+  // 主世界是所有角色 prompt 的前半段，换它等于换所有角色 —— 缓存必须整体失效
+  invalidateWorldCache(`world.set-core#${id}`);
   return getWorldSettingById(id);
 }

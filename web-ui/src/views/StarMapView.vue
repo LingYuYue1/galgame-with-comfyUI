@@ -16,46 +16,55 @@
              做成设置页那种行式列表确实更"整齐"，但把卡片的辨识度和居民头像全丢了，
              等于把上一轮做的东西白扔。 -->
         <div v-else class="sm-stack">
-          <article
-            v-for="w in worlds"
-            :key="w.id"
-            class="sm-card"
-            :class="{
-              'is-current': w.id === selectedId,
-              'is-off': !w.is_enabled,
-              'has-cover': !!w.cover_image,
-            }"
-            :style="w.cover_image ? { backgroundImage: `url(${w.cover_image})` } : null"
-            role="button"
-            tabindex="0"
-            @click="select(w)"
-            @keydown.enter.prevent="select(w)"
-            @keydown.space.prevent="select(w)"
-          >
-            <div class="sm-card-top">
-              <span class="sm-dot" :style="{ background: dotColor(w.id) }"></span>
-              <span class="sm-name">{{ w.name }}</span>
-              <span v-if="w.is_active" class="sm-badge">激活</span>
-              <span v-if="!w.is_enabled" class="sm-badge sm-badge-off">休眠</span>
+          <!-- ★ 2026-10-18 世界分层：主世界（骨架）永恒置顶，与副世界之间用一条分隔线隔开。
+               排序由后端给（is_core DESC），这里只负责在"主世界之后"插一条分隔。 -->
+          <template v-for="(w, i) in worlds" :key="w.id">
+            <div v-if="i > 0 && !w.is_core && worlds[i - 1]?.is_core" class="sm-split">
+              <span>其他世界</span>
             </div>
-            <p class="sm-tagline">{{ w.tagline || '还没有一句话简介' }}</p>
+            <article
+              class="sm-card"
+              :class="{
+                'is-core': !!w.is_core,
+                'is-current': w.id === selectedId,
+                'is-off': !w.is_enabled,
+                'has-cover': !!w.cover_image,
+              }"
+              :style="w.cover_image ? { backgroundImage: `url(${w.cover_image})` } : null"
+              role="button"
+              tabindex="0"
+              @click="select(w)"
+              @keydown.enter.prevent="select(w)"
+              @keydown.space.prevent="select(w)"
+            >
+              <div class="sm-card-top">
+                <span class="sm-dot" :style="{ background: dotColor(w.id) }"></span>
+                <span class="sm-name">{{ w.name }}</span>
+                <span v-if="w.is_core" class="sm-badge sm-badge-core">主世界</span>
+                <span v-else-if="!w.is_enabled" class="sm-badge sm-badge-off">休眠</span>
+              </div>
+              <p class="sm-tagline">{{ w.tagline || '还没有一句话简介' }}</p>
 
-            <div class="sm-foot">
-              <div v-if="(w.characters || []).length" class="sm-avatars">
-                <span
-                  v-for="c in visibleChars(w)"
-                  :key="c.id"
-                  class="sm-ava"
-                  :title="c.display_name || c.name"
-                  :style="c.avatar_path ? { backgroundImage: `url(${c.avatar_path})` } : null"
-                >{{ c.avatar_path ? '' : (c.display_name || c.name || '?').slice(0, 1) }}</span>
-                <span v-if="(w.characterCount || 0) > visibleChars(w).length" class="sm-ava sm-ava-more">
-                  +{{ (w.characterCount || 0) - visibleChars(w).length }}
+              <div class="sm-foot">
+                <div v-if="(w.characters || []).length" class="sm-avatars">
+                  <span
+                    v-for="c in visibleChars(w)"
+                    :key="c.id"
+                    class="sm-ava"
+                    :title="c.display_name || c.name"
+                    :style="c.avatar_path ? { backgroundImage: `url(${c.avatar_path})` } : null"
+                  >{{ c.avatar_path ? '' : (c.display_name || c.name || '?').slice(0, 1) }}</span>
+                  <span v-if="(w.characterCount || 0) > visibleChars(w).length" class="sm-ava sm-ava-more">
+                    +{{ (w.characterCount || 0) - visibleChars(w).length }}
+                  </span>
+                </div>
+                <span class="sm-meta">
+                  <template v-if="w.is_core">所有角色共用 · {{ w.mapCount || 0 }} 地图</template>
+                  <template v-else>{{ w.characterCount || 0 }} 角色 · {{ w.mapCount || 0 }} 地图</template>
                 </span>
               </div>
-              <span class="sm-meta">{{ w.characterCount || 0 }} 角色 · {{ w.mapCount || 0 }} 地图</span>
-            </div>
-          </article>
+            </article>
+          </template>
 
           <button type="button" class="sm-card sm-card-add" @click="openCreate">
             <span class="sm-add-plus">+</span>
@@ -360,6 +369,36 @@ onMounted(async () => {
   color: var(--card-badge-ink);
 }
 .sm-badge-off { background: var(--card-ink-muted); color: var(--card-paper); }
+/* 主世界徽标：它是骨架不是具体世界，用强调色系区分，别和"这个世界处于启用"混在一起 */
+.sm-badge-core { background: var(--card-badge-bg); color: var(--card-badge-ink); }
+
+/* ── 主世界卡：永恒置顶，顶部一条强调色内边 ───────────────── */
+.sm-card.is-core {
+  border-color: color-mix(in srgb, var(--accent) 52%, var(--card-line));
+  /* inset 阴影不占布局、也不会被 overflow 裁掉 */
+  box-shadow: inset 0 3px 0 color-mix(in srgb, var(--accent) 85%, transparent), var(--shadow-xs);
+}
+.sm-card.is-core:hover {
+  box-shadow: inset 0 3px 0 color-mix(in srgb, var(--accent) 85%, transparent), var(--shadow-sm);
+}
+
+/* ── 主世界与副世界之间的分隔 ─────────────────────────────── */
+.sm-split {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 2px 2px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  letter-spacing: .04em;
+}
+.sm-split::before,
+.sm-split::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
 
 .sm-tagline {
   margin: 0;

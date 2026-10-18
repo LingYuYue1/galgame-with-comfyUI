@@ -340,24 +340,33 @@ function makeT07Character(database, worldSettingId) {
   return info.lastInsertRowid;
 }
 
-test('★★★ T07：角色绑定世界 → 覆盖激活世界，一个字都不拼进来', async () => {
+/**
+ * ★★ 2026-10-18 世界分层：这条已经从「覆盖语义」改成「叠加语义」。
+ *
+ * 以前：角色绑定的世界会**完全顶掉**激活世界（一个字都不拼）。
+ * 现在：主世界是**骨架层**，永远在前；角色绑定的具体世界在后，细节覆盖骨架。
+ * 断言重点因此变成「两块都在 + framework 在前」。
+ */
+test('★★★ T07（分层）：主世界骨架 + 角色绑定世界同时注入，框架在前', async () => {
   const db = await import('../src/db/index.js');
   const database = db.getDb();
-  const worldB = makeT07World(db, 'activeB', '# B世界\nB世界独有标记BETA\n');
+  const worldB = makeT07World(db, 'coreB', '# 世界框架\n框架通则BETA\n');
   const worldA = makeT07World(db, 'charA', '# A世界\nA世界独有标记ALPHA\n');
   try {
-    db.activateWorldSetting(worldB.id);
+    db.activateWorldSetting(worldB.id);           // B = 主世界（骨架层）
     const chId = makeT07Character(database, worldA.id);
 
     const out = db.getWorldSetting(chId);
-    assert.ok(out, '绑定了世界就该返回内容');
-    assert.ok(out.includes('ALPHA'), '应是角色所在的 A 世界');
-    assert.ok(!out.includes('BETA'), '覆盖语义：激活世界（B）的文本不得出现');
-    assert.match(out, /^<world_setting>/, '仍应包 world_setting 标签');
+    assert.ok(out, '应该返回内容');
+    assert.ok(out.includes('ALPHA'), '角色归属的具体世界必须在');
+    assert.ok(out.includes('BETA'), '主世界骨架必须叠加（分层后的新语义）');
+    assert.ok(out.indexOf('BETA') < out.indexOf('ALPHA'), 'framework 在前、current 在后');
+    assert.match(out, /role="framework"/, '主世界要标成 framework');
+    assert.match(out, /role="current"/, '具体世界要标成 current');
 
     // 同一个角色，逃生口也要跟随
     const raw = db.getWorldSettingRaw(chId);
-    assert.ok(raw.includes('ALPHA') && !raw.includes('BETA'), 'getWorldSettingRaw 也要跟随角色世界');
+    assert.ok(raw.includes('ALPHA') && raw.includes('BETA'), 'getWorldSettingRaw 也要叠加两块');
   } finally {
     dropT07World(worldA.name, worldA.id);
     dropT07World(worldB.name, worldB.id);
@@ -400,38 +409,39 @@ test('★★ T07：角色指向已删世界 → 回落激活世界，不抛', as
   }
 });
 
-test('★★ T07：绑定世界正文为空 → null，且**不**回退激活世界', async () => {
+test('★★ T07（分层）：归属的世界正文为空 → 只剩主世界骨架，不产出 current 块', async () => {
   const db = await import('../src/db/index.js');
   const database = db.getDb();
-  const worldB = makeT07World(db, 'emptyB', '# B世界\n不该出现的BETA\n');
+  const worldB = makeT07World(db, 'emptyB', '# 世界框架\n骨架兜底BETA\n');
   const worldEmpty = makeT07World(db, 'emptyA', '');
   try {
     db.activateWorldSetting(worldB.id);
     const chId = makeT07Character(database, worldEmpty.id);
-    assert.equal(db.getWorldSetting(chId), null,
-      '建了空世界 = 该角色主动"无世界观"，与激活世界正文为空同口径');
+    const out = db.getWorldSetting(chId);
+    // 分层后：具体世界为空 ≠ 没有世界观，骨架层仍然在
+    assert.ok(out?.includes('骨架兜底BETA'), '主世界骨架不能被空的具体世界顶掉');
+    assert.doesNotMatch(out || '', /role="current"/, '空的具体世界不该产出 current 块');
   } finally {
     dropT07World(worldEmpty.name, worldEmpty.id);
     dropT07World(worldB.name, worldB.id);
   }
 });
 
-test('★★★ T07：槽位必须跟"取到的那个世界"配对，不能拿激活世界的槽位去裁', async () => {
+test('★★★ T07（分层）：两块文本各按自己的槽位裁，不能拿主世界的声明去裁具体世界', async () => {
   const db = await import('../src/db/index.js');
   const database = db.getDb();
+  // 两块都有同名章节「世界背景」，但只有主世界 B 把它声明为氛围节
   const worldA = makeT07World(db, 'slotA', '# A世界\n## 世界背景\nA的背景要留着\n');
-  const worldB = makeT07World(db, 'slotB', '# B世界\nBETA\n');
+  const worldB = makeT07World(db, 'slotB', '# 世界框架\n## 世界背景\nB的背景该被裁\n');
   try {
     db.activateWorldSetting(worldB.id);
-    // 只给**激活世界 B** 声明「世界背景」为氛围节；A 不声明
     writeProject(slugForWorld(worldB.name, worldB.id), { ...neutralProject(), ambienceSections: ['世界背景'] });
     const chId = makeT07Character(database, worldA.id);
 
     const out = db.getSystemRulesWithWorld({ characterId: chId, roleplay: false });
-    assert.ok(out.includes('A世界'), '应吃到 A 世界');
-    assert.ok(!out.includes('BETA'), '不能混入 B 世界');
     assert.ok(out.includes('A的背景要留着'),
-      '若这里被裁掉，说明用了激活世界 B 的槽位 —— 槽位必须跟随角色所在的世界');
+      'A 没声明这个节 → 不能被主世界 B 的槽位连带裁掉（这正是 slotsForCharacter 返回中性的原因）');
+    assert.ok(!out.includes('B的背景该被裁'), 'B 自己声明了 → 它自己那节要裁掉');
   } finally {
     dropT07World(worldA.name, worldA.id);
     dropT07World(worldB.name, worldB.id);
@@ -530,13 +540,13 @@ test('★★ T12：最后一套世界观仍然不可删（既有护栏不能被�
 //   ① 接线护栏（静态）：已接线的调用点必须把 id 传下去 —— 谁把它改回 getWorldSetting() 就红
 //   ② 行为护栏（动态）：群聊整轮按「群主所在世界」解析，且只解析一次
 
-test('★★★ T08：群聊整轮按「群主所在世界」解析，且不混入激活世界', async () => {
+test('★★★ T08：群聊整轮按「群主所在世界」解析，且不混入别的副世界', async () => {
   const db = await import('../src/db/index.js');
   db.getDb();
   const worldB = makeT07World(db, 'gcB', '# B世界\n群聊不该吃到的BETA\n');
   const worldA = makeT07World(db, 'gcA', '# A世界\n群主所在ALPHA\n');
   try {
-    db.activateWorldSetting(worldB.id);
+    // ★ 分层后：B 只是"另一个没人归属的副世界"，不设为主世界（主世界是迁移建的空骨架）
     const ownerId = makeT07Character(db.getDb(), worldA.id);
     const { buildGroupContext } = await import('../src/services/groupChatEngine.js');
 
@@ -546,7 +556,7 @@ test('★★★ T08：群聊整轮按「群主所在世界」解析，且不混�
     const stage = msgs[0]?.content || '';
 
     assert.ok(stage.includes('ALPHA'), '群聊舞台应吃群主所在的 A 世界');
-    assert.ok(!stage.includes('BETA'), '激活世界 B 的内容不得混进群聊');
+    assert.ok(!stage.includes('BETA'), '别的副世界 B 的内容不得混进群聊');
 
     // 两次取到的舞台必须一致 —— 证明整轮只解析一次（不会上下半场换世界）
     const msgs2 = buildGroupContext(group, ['本轮：再聊一句']);
@@ -607,31 +617,33 @@ test('★★★ T08 第二轮：日常副线的消息构建器都吃「角色所
   const db = await import('../src/db/index.js');
   const database = db.getDb();
   const worldA = makeT07World(db, 'r2A', '# A世界\n角色所在ALPHA2\n');
-  const worldB = makeT07World(db, 'r2B', '# B世界\n激活世界不该出现BETA2\n');
+  const worldB = makeT07World(db, 'r2B', '# B世界\n别的副世界不该出现BETA2\n');
   try {
-    db.activateWorldSetting(worldB.id);
+    // ★ 分层后：B 只是"另一个副世界"，不再设为主世界
     const row = database.prepare('SELECT * FROM characters WHERE id = ?').get(makeT07Character(database, worldA.id));
 
     // ① 送礼叙事：拼进 systemBase 的世界块
     const { buildGiftMessages } = await import('../src/services/itemGiftNarrative.js');
     const gift = JSON.stringify(buildGiftMessages({ item: { name: '小石头', description: '河边捡的' }, character: row }));
     assert.ok(gift.includes('ALPHA2'), '送礼叙事应吃角色所在世界');
-    assert.ok(!gift.includes('BETA2'), '送礼叙事不得混入激活世界');
+    assert.ok(!gift.includes('BETA2'), '送礼叙事不得混入别的副世界');
 
     // ② 日记：system0（getSystemRulesWithWorld）应带角色世界
     const { buildDiaryMessages } = await import('../src/services/diaryGenerator.js');
     const diary = JSON.stringify(buildDiaryMessages({ character: row, dateKey: '2026-10-17', scheduleText: '' }));
     assert.ok(diary.includes('ALPHA2'), '日记应吃角色所在世界');
-    assert.ok(!diary.includes('BETA2'), '日记不得混入激活世界');
+    assert.ok(!diary.includes('BETA2'), '日记不得混入别的副世界');
 
     // ③ 角色反应：前缀指纹里的 system1
     const { promptPrefixFingerprint } = await import('../src/services/characterReactionService.js');
     const fp = promptPrefixFingerprint(row.id);
     assert.ok(String(fp.system1).includes('ALPHA2'), '角色反应的 system1 应吃角色所在世界');
-    assert.ok(!JSON.stringify(fp).includes('BETA2'), '角色反应不得混入激活世界');
+    assert.ok(!JSON.stringify(fp).includes('BETA2'), '角色反应不得混入别的副世界');
 
-    // ④ 对照：不传参仍走激活世界（回落没被改坏）
-    assert.ok(String(promptPrefixFingerprint().system1).includes('BETA2'), '不传参应回落激活世界');
+    // ④ 对照：不传参走**主世界**（迁移建的空骨架），既不是 A 也不是 B
+    const bare = String(promptPrefixFingerprint().system1);
+    assert.ok(!bare.includes('ALPHA2'), '不传参不该拿到某个角色的具体世界');
+    assert.ok(!bare.includes('BETA2'), '不传参也不该拿到别的副世界');
   } finally {
     dropT07World(worldA.name, worldA.id);
     dropT07World(worldB.name, worldB.id);

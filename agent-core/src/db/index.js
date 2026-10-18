@@ -302,6 +302,8 @@ function initSchema(db) {
       is_enabled INTEGER NOT NULL DEFAULT 1,
       -- 星图卡片封面图（2026-10-18）：存 /world-covers/xxx 短路径；老库由 010_world_cover 迁移补列
       cover_image TEXT NOT NULL DEFAULT '',
+      -- 主世界标记（2026-10-18）：1 = 骨架层，常驻叠加；全局唯一。老库由 011_world_core 迁移补列
+      is_core INTEGER NOT NULL DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );

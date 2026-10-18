@@ -4,16 +4,16 @@
       <button v-if="!embedded" type="button" class="smd-back" @click="router.push('/starmap')">← 星图</button>
       <div class="smd-title-wrap">
         <h1 class="smd-title">{{ world?.name || '世界' }}</h1>
-        <span v-if="world?.is_active" class="smd-badge">激活</span>
+        <span v-if="world?.is_core" class="smd-badge">主世界</span>
       </div>
       <div class="smd-head-actions">
         <linshe-button
-          v-if="world && !world.is_active"
+          v-if="world && !world.is_core"
           variant="secondary"
           size="sm"
-          title="激活后，聊天与日程按这个世界观解析"
+          title="主世界是所有角色共用的骨架规则，会和每个角色自己归属的世界一起注入"
           @click="makeActive"
-        >设为激活</linshe-button>
+        >设为主世界</linshe-button>
         <linshe-switch
           v-if="world"
           :model-value="!!world.is_enabled"
@@ -176,7 +176,7 @@
         </div>
       </div>
 
-      <!-- ★ 星图 T10：把角色放进这个世界（不指定 = 跟随激活世界） -->
+      <!-- ★ 星图 T10：把角色放进这个世界（不指定 = 只吃主世界骨架） -->
       <div class="smd-add-row">
         <linshe-select
           v-model="pickCharId"
@@ -193,7 +193,7 @@
         >放进这个世界</linshe-button>
       </div>
       <p class="smd-hint smd-hint-foot">
-        也可以点「聊天」左侧的角色卡，在「所在世界」里改；不指定时跟随激活世界。
+        也可以点「聊天」左侧的角色卡，在「所在世界」里改；不指定时只吃主世界骨架，不吃任何一个具体世界。
       </p>
     </section>
 
@@ -435,7 +435,7 @@ const tripDestOptions = computed(() =>
   worlds.value
     .filter((w) => Number(w.id) !== worldId.value)
     .map((w) => ({
-      label: `${w.name}${w.is_active ? ' · 激活' : (w.is_enabled ? '' : ' · 休眠')}`,
+      label: `${w.name}${w.is_core ? ' · 主世界' : (w.is_enabled ? '' : ' · 休眠')}`,
       value: w.id,
     }))
 )
@@ -641,7 +641,7 @@ async function bindCharacter(id, targetWorldId) {
     await load()
     pickCharId.value = ''
     emit('changed')
-    toastFn?.(targetWorldId ? '已放进这个世界' : '已移出（跟随激活世界）', 'success')
+    toastFn?.(targetWorldId ? '已放进这个世界' : '已移出（只吃主世界骨架）', 'success')
   } catch (err) {
     toastFn?.('改绑失败：' + (err?.message || ''), 'error')
   } finally {
@@ -696,7 +696,7 @@ async function makeActive() {
     await api.activateWorldSetting(worldId.value)
     await load()
     emit('changed')
-    toastFn?.('已激活这个世界', 'success')
+    toastFn?.('已设为主世界', 'success')
   } catch (err) {
     toastFn?.('激活失败：' + (err?.message || ''), 'error')
   } finally {
@@ -861,6 +861,11 @@ async function clearCover() {
 }
 
 async function removeWorld() {
+  // ★ 2026-10-18：主世界是骨架层，删了所有角色就没公共规则了（后端也拦）
+  if (world.value?.is_core) {
+    toastFn?.('这是主世界（骨架层），不能删除。先把别的世界设为主世界，再回来删它', 'error')
+    return
+  }
   // ★ 星图 T12：引用保护（后端同样会拦，这里先给出更好懂的提示）
   const charCount = world.value?.characterCount || 0
   if (charCount > 0) {
