@@ -21,6 +21,7 @@
           title="世界开关：休眠后不参与媒体抽卡与后台任务"
           @change="saveEnabled"
         />
+        <linshe-button variant="ghost" size="sm" title="卡片封面图（会铺在星图首页的这张卡上）" @click="coverOpen = true">封面</linshe-button>
         <linshe-button variant="ghost" size="sm" @click="openRename">重命名</linshe-button>
         <linshe-button variant="danger" size="sm" @click="removeWorld">删除</linshe-button>
       </div>
@@ -181,6 +182,31 @@
       </template>
     </linshe-modal>
 
+    <!-- ★ 2026-10-18：世界封面（星图卡片背景图） -->
+    <linshe-modal v-model="coverOpen" title="世界封面">
+      <div class="smd-cover-form">
+        <div
+          v-if="world?.cover_image"
+          class="smd-cover-preview"
+          :style="{ backgroundImage: `url(${world.cover_image})` }"
+        ></div>
+        <p class="smd-hint">
+          封面会铺在星图首页的这张卡上。建议横幅构图（约 16:9），上传前会自动压到 1600px 宽 / JPEG。
+        </p>
+        <input ref="coverInput" type="file" accept="image/*" class="smd-cover-file" @change="onCoverPicked" />
+        <div class="smd-cover-actions">
+          <linshe-button variant="secondary" size="sm" :loading="coverBusy" @click="pickCover">选择图片</linshe-button>
+          <linshe-button
+            v-if="world?.cover_image"
+            variant="ghost"
+            size="sm"
+            :disabled="coverBusy"
+            @click="clearCover"
+          >清除封面</linshe-button>
+        </div>
+      </div>
+    </linshe-modal>
+
     <!-- ★ 星图 T15：发起跨世界旅程 -->
     <linshe-modal v-model="tripOpen" title="前往别的世界">
       <div class="smd-trip-form">
@@ -256,6 +282,11 @@ const pickCharId = ref('')
 const busyChar = ref(false)
 const renameOpen = ref(false)
 const renameValue = ref('')
+
+// ★ 2026-10-18：世界封面
+const coverOpen = ref(false)
+const coverBusy = ref(false)
+const coverInput = ref(null)
 
 // ★ 星图 T15：旅程
 const worlds = ref([])            // 全部世界（目的地候选 + 世界名反查）
@@ -544,6 +575,67 @@ async function confirmRename() {
   }
 }
 
+// ── 世界封面 ─────────────────────────────────────────────
+function pickCover() {
+  if (coverBusy.value) return
+  coverInput.value?.click()
+}
+
+/** 读文件 → 等比压到 ≤1600px → JPEG 0.85（原图几 MB，卡面只要几百 KB） */
+function compressImage(file, maxW = 1600, quality = 0.85) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('读取图片失败'))
+    reader.onload = () => {
+      const img = new Image()
+      img.onerror = () => reject(new Error('这张图片打不开'))
+      img.onload = () => {
+        const scale = Math.min(1, maxW / (img.width || maxW))
+        const w = Math.max(1, Math.round((img.width || maxW) * scale))
+        const h = Math.max(1, Math.round((img.height || maxW) * scale))
+        const canvas = document.createElement('canvas')
+        canvas.width = w
+        canvas.height = h
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h)
+        resolve(canvas.toDataURL('image/jpeg', quality))
+      }
+      img.src = reader.result
+    }
+    reader.readAsDataURL(file)
+  })
+}
+
+async function onCoverPicked(e) {
+  const file = e?.target?.files?.[0]
+  if (e?.target) e.target.value = ''   // 允许重复选同一张
+  if (!file) return
+  coverBusy.value = true
+  try {
+    const base64 = await compressImage(file)
+    const r = await api.uploadWorldCover(worldId.value, base64)
+    if (world.value) world.value.cover_image = r?.cover_image || ''
+    coverOpen.value = false
+    toastFn?.('封面已更新', 'success')
+  } catch (err) {
+    toastFn?.('封面上传失败：' + (err?.message || ''), 'error')
+  } finally {
+    coverBusy.value = false
+  }
+}
+
+async function clearCover() {
+  coverBusy.value = true
+  try {
+    await api.updateWorldSetting(worldId.value, { cover_image: '' })
+    if (world.value) world.value.cover_image = ''
+    toastFn?.('已清除封面', 'success')
+  } catch (err) {
+    toastFn?.('清除失败：' + (err?.message || ''), 'error')
+  } finally {
+    coverBusy.value = false
+  }
+}
+
 async function removeWorld() {
   // ★ 星图 T12：引用保护（后端同样会拦，这里先给出更好懂的提示）
   const charCount = world.value?.characterCount || 0
@@ -771,6 +863,18 @@ onUnmounted(() => {
 .smd-trip-hist-route { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .smd-trip-hist-state { flex: none; font-size: 11.5px; }
 .smd-trip-hist-state.is-cancelled { color: var(--text-secondary); }
+
+/* 封面弹窗 */
+.smd-cover-form { display: flex; flex-direction: column; gap: 12px; }
+.smd-cover-preview {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 12px;
+  background: var(--bg-secondary) center/cover no-repeat;
+  border: 1px solid var(--border);
+}
+.smd-cover-file { display: none; }
+.smd-cover-actions { display: flex; gap: 10px; }
 
 /* 发起旅程弹窗 */
 .smd-trip-form { display: flex; flex-direction: column; gap: 12px; }

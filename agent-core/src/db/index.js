@@ -300,6 +300,8 @@ function initSchema(db) {
       tagline TEXT NOT NULL DEFAULT '',
       visual_tone TEXT NOT NULL DEFAULT '',
       is_enabled INTEGER NOT NULL DEFAULT 1,
+      -- 星图卡片封面图（2026-10-18）：存 /world-covers/xxx 短路径；老库由 010_world_cover 迁移补列
+      cover_image TEXT NOT NULL DEFAULT '',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );

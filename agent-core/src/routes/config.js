@@ -889,7 +889,7 @@ router.post('/world-settings', (req, res) => {
 router.put('/world-settings/:id', (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id || !getWorldSettingById(id)) return res.status(404).json({ error: 'not found' });
-  const { name, content, tagline, visual_tone, is_enabled } = req.body;
+  const { name, content, tagline, visual_tone, is_enabled, cover_image } = req.body;
   // 注：name/content 用 typeof 判定而非 !== undefined —— 老前端可能传 null，
   // 原实现 `name?.trim()` 能容忍 null，这里保持同等宽容度（null 视作"不改"）。
   const item = updateWorldSetting(id, {
@@ -898,8 +898,54 @@ router.put('/world-settings/:id', (req, res) => {
     tagline: typeof tagline === 'string' ? tagline.trim() : undefined,
     visual_tone: typeof visual_tone === 'string' ? visual_tone.trim() : undefined,
     is_enabled: is_enabled === undefined ? undefined : !!is_enabled,
+    // 空串 = 清除封面（与 tagline 同口径：字符串才认，null/缺省 = 不改）
+    cover_image: typeof cover_image === 'string' ? cover_image.trim() : undefined,
   });
   res.json({ ok: true, item });
+});
+
+// POST /api/world-settings/:id/cover — 上传星图卡片封面（base64 → 落盘 → 存短路径）
+//
+// 为什么走"落盘 + 存 URL"而不是把 base64 塞进 DB：
+//   `listWorldSettings` 是星图首页每次打开都要调的接口，几十 KB 的 base64 会让列表膨胀；
+//   而且换封面时能顺手删掉旧文件。
+// 尺寸由前端先压到 ≤1600px / JPEG 0.85 —— 后端只做兜底校验（≤8MB 的 base64）。
+router.post('/world-settings/:id/cover', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!id || !getWorldSettingById(id)) return res.status(404).json({ error: '世界不存在' });
+  const base64 = req.body?.base64;
+  if (!base64 || typeof base64 !== 'string') return res.status(400).json({ error: '缺少图片数据' });
+  if (base64.length > 12 * 1024 * 1024) return res.status(400).json({ error: '图片过大，请先压缩再上传' });
+
+  try {
+    // 本文件没有模块级 __dirname（ESM）→ 就地算一次
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const projectRoot = path.resolve(here, '../..');
+    const coversDir = path.join(projectRoot, 'data', 'world-covers');
+    fs.mkdirSync(coversDir, { recursive: true });
+
+    const m = /^data:image\/(\w+);base64,/.exec(base64);
+    const ext = m && ['png', 'jpg', 'jpeg', 'webp'].includes(m[1].toLowerCase()) ? (m[1].toLowerCase() === 'jpeg' ? 'jpg' : m[1].toLowerCase()) : 'jpg';
+    const filename = `world_${id}_${Date.now()}.${ext}`;
+    const payload = base64.replace(/^data:image\/\w+;base64,/, '');
+    fs.writeFileSync(path.join(coversDir, filename), Buffer.from(payload, 'base64'));
+
+    // 删旧文件（只删本目录下、本世界前缀的，别越界）
+    const old = String(getWorldSettingById(id)?.cover_image || '');
+    if (old) {
+      const oldName = path.basename(old);
+      if (oldName.startsWith(`world_${id}_`)) {
+        try { fs.unlinkSync(path.join(coversDir, oldName)); } catch { /* 旧文件不在就算了 */ }
+      }
+    }
+
+    const coverUrl = `/world-covers/${filename}`;
+    updateWorldSetting(id, { cover_image: coverUrl });
+    res.json({ ok: true, cover_image: coverUrl });
+  } catch (err) {
+    console.error('[world] cover upload failed:', err.message);
+    res.status(500).json({ error: `封面上传失败：${err.message}` });
+  }
 });
 
 // DELETE /api/world-settings/:id — 删除某个世界观

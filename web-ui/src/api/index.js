@@ -938,6 +938,11 @@ export async function deleteWorldSetting(id) {
   return request(`/config/world-settings/${id}`, { method: 'DELETE' })
 }
 
+/** 星图卡片封面：上传 base64（前端已压到 ≤1600px / JPEG），后端落盘后存短路径 */
+export async function uploadWorldCover(id, base64) {
+  return request(`/config/world-settings/${id}/cover`, { method: 'POST', body: { base64 } })
+}
+
 export async function getSystemRules() {
   return request(`/config/system-rules`)
 }

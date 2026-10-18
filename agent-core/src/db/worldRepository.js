@@ -549,13 +549,51 @@ export function listWorldSettings() {
   const database = handle();
   // 星图（2026-10-17 T01）：补两个聚合字段供卡片墙显示；原有字段全部保留（w.*），旧弹窗零影响。
   // characterCount 只数「已归属」的（world_setting_id = 本世界）；NULL 归属是「未归属」，不进任何世界计数。
-  return database.prepare(`
+  const worlds = database.prepare(`
     SELECT w.*,
            (SELECT COUNT(*) FROM world_maps m WHERE m.world_setting_id = w.id) AS mapCount,
-           (SELECT COUNT(*) FROM characters c WHERE c.world_setting_id = w.id) AS characterCount
+           -- 2026-10-18：与卡片头像同口径 —— **归档角色不算居民**，否则卡片会
+           -- 显示「2 个头像 · 3 角色」并多算一个 "+1"（那一个是被归档的，看不见也点不到）。
+           (SELECT COUNT(*) FROM characters c
+             WHERE c.world_setting_id = w.id AND COALESCE(c.archived, 0) = 0) AS characterCount
       FROM world_settings w
      ORDER BY w.sort_order, w.id
   `).all();
+  if (!worlds.length) return worlds;
+
+  // ★ 2026-10-18：卡片左下角要显示居民头像。**一次查全表再分组**，不要按世界循环查
+  //   （世界一多就是 N+1）。只取卡片要用的三列，每个世界最多带 8 个（够叠一行头像）。
+  //   取不到（老库没这几列/表异常）就退化成空数组 —— 卡片照常渲染，不许因头像挂掉。
+  const AVATAR_LIMIT = 8;
+  let byWorld = new Map();
+  try {
+    const ids = worlds.map(w => w.id);
+    const rows = database.prepare(`
+      SELECT id, world_setting_id, display_name, name, avatar_path
+        FROM characters
+       WHERE world_setting_id IN (${ids.map(() => '?').join(',')})
+         AND COALESCE(archived, 0) = 0
+       ORDER BY id
+    `).all(...ids);
+    for (const r of rows) {
+      const key = Number(r.world_setting_id);
+      const list = byWorld.get(key) || [];
+      if (list.length < AVATAR_LIMIT) {
+        list.push({
+          id: r.id,
+          display_name: r.display_name || r.name || '',
+          name: r.name || '',
+          avatar_path: r.avatar_path || '',
+        });
+      }
+      byWorld.set(key, list);
+    }
+  } catch (err) {
+    console.warn(`[worldRepository] 世界居民头像聚合失败（卡片退回无头像）: ${err.message}`);
+    byWorld = new Map();
+  }
+
+  return worlds.map(w => ({ ...w, characters: byWorld.get(Number(w.id)) || [] }));
 }
 
 export function getActiveWorldSetting() {
@@ -591,7 +629,7 @@ export function createWorldSetting({ name, content, tagline = '' }) {
   return created;
 }
 
-export function updateWorldSetting(id, { name, content, tagline, visual_tone, is_enabled } = {}) {
+export function updateWorldSetting(id, { name, content, tagline, visual_tone, is_enabled, cover_image } = {}) {
   const database = handle();
   const sets = [];
   const params = [];
@@ -601,6 +639,8 @@ export function updateWorldSetting(id, { name, content, tagline, visual_tone, is
   if (tagline !== undefined) { sets.push('tagline = ?'); params.push(tagline); }
   if (visual_tone !== undefined) { sets.push('visual_tone = ?'); params.push(visual_tone); }
   if (is_enabled !== undefined) { sets.push('is_enabled = ?'); params.push(is_enabled ? 1 : 0); }
+  // ★ 2026-10-18：卡片封面图（存 /world-covers/xxx 短路径，不存 base64）
+  if (cover_image !== undefined) { sets.push('cover_image = ?'); params.push(String(cover_image || '')); }
   if (sets.length === 0) return null;
   sets.push("updated_at = datetime('now')");
   params.push(id);

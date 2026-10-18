@@ -21,7 +21,8 @@
         v-for="w in worlds"
         :key="w.id"
         class="sm-card"
-        :class="{ 'is-active': w.is_active, 'is-off': !w.is_enabled }"
+        :class="{ 'is-active': w.is_active, 'is-off': !w.is_enabled, 'has-cover': !!w.cover_image }"
+        :style="w.cover_image ? { backgroundImage: `url(${w.cover_image})` } : null"
         role="button"
         tabindex="0"
         @click="openDetail(w)"
@@ -35,8 +36,23 @@
           <span v-if="!w.is_enabled" class="sm-badge sm-badge-off">休眠</span>
         </div>
         <p class="sm-tagline">{{ w.tagline || '还没有一句话简介' }}</p>
-        <div class="sm-meta">
-          <span>{{ w.characterCount || 0 }} 角色 · {{ w.mapCount || 0 }} 地图</span>
+
+        <!-- ★ 2026-10-18：底部一行 = 居民头像（左）+ 计数（右）。
+             头像是"这里住着谁"的第一眼信息；没有头像的角色用首字占位，不空着。 -->
+        <div class="sm-foot">
+          <div v-if="(w.characters || []).length" class="sm-avatars">
+            <span
+              v-for="c in visibleChars(w)"
+              :key="c.id"
+              class="sm-ava"
+              :title="c.display_name || c.name"
+              :style="c.avatar_path ? { backgroundImage: `url(${c.avatar_path})` } : null"
+            >{{ c.avatar_path ? '' : (c.display_name || c.name || '?').slice(0, 1) }}</span>
+            <span v-if="(w.characterCount || 0) > visibleChars(w).length" class="sm-ava sm-ava-more">
+              +{{ (w.characterCount || 0) - visibleChars(w).length }}
+            </span>
+          </div>
+          <span class="sm-meta">{{ w.characterCount || 0 }} 角色 · {{ w.mapCount || 0 }} 地图</span>
         </div>
       </article>
 
@@ -75,6 +91,12 @@ import LinsheModal from '../components/ui/LinsheModal.vue'
 
 const router = useRouter()
 const toastFn = inject('toast')
+
+/** 卡片最多叠 5 个头像，多的用 +N（后端最多给 8 个，够算差值） */
+const AVATAR_SHOW = 5
+function visibleChars(w) {
+  return (w.characters || []).slice(0, AVATAR_SHOW)
+}
 
 const worlds = ref([])
 const loading = ref(true)
@@ -170,6 +192,8 @@ onMounted(loadWorlds)
 }
 
 .sm-card {
+  position: relative;          /* 封面图的遮罩层要靠它定位 */
+  overflow: hidden;            /* 圆角裁掉背景图与遮罩的直角 */
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -183,7 +207,30 @@ onMounted(loadWorlds)
   text-align: left;
   transition: transform var(--dur-base) var(--ease-standard),
     box-shadow var(--dur-base) var(--ease-standard);
+  background-size: cover;
+  background-position: center;
+  min-height: 132px;           /* 有封面时高度更稳，不会因为简介两行/一行跳动 */
 }
+
+/* ★ 封面图上的可读性保险：压一层自上而下加深的暗色渐变。
+   不做这层，任何浅色照片都会让纸色文字直接消失（亮/暗主题都一样）。 */
+.sm-card.has-cover::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(24, 18, 14, 0.18) 0%, rgba(24, 18, 14, 0.62) 62%, rgba(24, 18, 14, 0.78) 100%);
+  pointer-events: none;
+}
+.sm-card.has-cover > * { position: relative; z-index: 1; }
+.sm-card.has-cover {
+  border-color: rgba(255, 255, 255, 0.28);
+  color: #fff;
+}
+.sm-card.has-cover .sm-name { color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45); }
+/* 白字压在 ≥62% 的暗色渐变上：对任意照片的最坏情况仍 ≥4.5（渐变底色亮度足够低） */
+.sm-card.has-cover .sm-tagline { color: rgba(255, 255, 255, 0.9); }
+.sm-card.has-cover .sm-meta { color: rgba(255, 255, 255, 0.82); }
+.sm-card.has-cover .sm-ava { border-color: rgba(255, 255, 255, 0.7); }
 .sm-card:hover {
   transform: translateY(-2px);
   box-shadow: 0 8px 20px rgba(53, 42, 35, 0.14);
@@ -235,6 +282,38 @@ onMounted(loadWorlds)
   font-size: 11.5px;
   /* 亮纸上的次要文字：#9b8c80 实测仅 2.89 → 压到 #746759 得 4.57 */
   color: #746759;
+}
+
+/* ── 卡片底部：居民头像（左）+ 计数（右）────────────────────
+   头像叠放（负 margin），每个 24px；没有头像的角色用首字占位 —— 空圆比首字更像"坏图"。 */
+.sm-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: auto;            /* 贴底：简介短的世界不会让底行浮在中间 */
+}
+.sm-foot .sm-meta { margin-left: auto; }
+.sm-avatars { display: flex; align-items: center; min-width: 0; }
+.sm-ava {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: #fff;
+  background: #a8826a center/cover no-repeat;
+  border: 2px solid #f4f1ee;   /* 与纸面同色，叠起来才有"叠"的层次 */
+  box-sizing: content-box;
+  overflow: hidden;
+}
+.sm-ava + .sm-ava { margin-left: -7px; }
+.sm-ava-more {
+  background: #d9cfc3;
+  color: #5c4d42;
+  font-size: 10px;
 }
 
 .sm-card-add {

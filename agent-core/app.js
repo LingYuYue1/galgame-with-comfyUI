@@ -115,6 +115,8 @@ app.use('/images/.pending', express.static(path.join(DATA_DIR, 'images', '.pendi
 app.use('/images', imageAvifFallback(path.join(DATA_DIR, 'images')));
 app.use('/images', express.static(path.join(DATA_DIR, 'images'), { maxAge: '7d' }));
 app.use('/avatars', express.static(path.join(DATA_DIR, 'avatars'), { maxAge: '30d' }));
+// 星图卡片封面（2026-10-18）：文件名带时间戳 → 可长缓存；换封面会换文件名，不会读到旧图
+app.use('/world-covers', express.static(path.join(DATA_DIR, 'world-covers'), { maxAge: '30d' }));
 
 // 小镇像素素材（独立于 data/images，不进图库/压缩扫描；不带强缓存，素材重生成后刷新即生效）
 app.use('/town-assets', express.static('data/town/assets'));
