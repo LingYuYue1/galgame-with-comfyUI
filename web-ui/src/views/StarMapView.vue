@@ -206,7 +206,7 @@ onMounted(async () => {
 }
 .sm-layout {
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
+  grid-template-columns: 340px minmax(0, 1fr);
   gap: 20px;
   align-items: start;
 }
@@ -288,13 +288,35 @@ onMounted(async () => {
   z-index: 2;          /* 压在封面遮罩与内容之上 */
 }
 
-/* 封面图上的可读性保险：压一层自上而下加深的暗色渐变。
-   顶部 30% 起手就要够重 —— 天空、雪景这类高亮区域在 18% 遮罩下会把白字吃掉。 */
+/* ── 封面卡：让图片当主角 ─────────────────────────────────
+   ★ 2026-10-18 用户反馈：「有一层蒙蔽……感觉有一层黑色半透明的东西盖住了」。
+   上一版为了压白字，整张卡从顶 .34 压到底 .88，等于给照片罩了层灰玻璃。
+   正确做法不是"全压"，是**只压文字所在的下半部分**：
+     · 内容整体沉底（justify-content: flex-end），上半 40% 完全留给画面
+     · 遮罩只在 40% 之后起手，中段才到 .52
+     · 白字额外加投影兜底（极亮的天空/雪景也不会糊）
+   顺带把封面卡抬到 168 高 —— 卡片只有 100px 时，1216×832 的图被裁成一条，
+   再清晰的图也看不出画的是什么。 */
+.sm-card.has-cover {
+  justify-content: flex-end;
+  min-height: 208px;
+}
+.sm-card.has-cover .sm-foot { margin-top: 0; }
 .sm-card.has-cover::before {
   content: '';
   position: absolute;
-  inset: 0;
-  background: linear-gradient(180deg, rgba(18, 14, 12, 0.34) 0%, rgba(18, 14, 12, 0.62) 46%, rgba(18, 14, 12, 0.88) 100%);
+  /* ★ 只从底部往上盖 68%（卡片 208 高：上 66px 是**完全原色**的画面）。
+     整张铺一层渐变，哪怕顶部只有 .04，观感也是"蒙了层灰"——用户就是这么看的。
+     压暗区从"内容带上沿再往上 20px"开始，到标题时刚好 .5。 */
+  inset: auto 0 0 0;
+  height: 68%;
+  background: linear-gradient(180deg,
+    rgba(14, 11, 10, 0) 0%,
+    rgba(14, 11, 10, 0.18) 8%,
+    rgba(14, 11, 10, 0.52) 16%,
+    rgba(14, 11, 10, 0.68) 30%,
+    rgba(14, 11, 10, 0.84) 60%,
+    rgba(14, 11, 10, 0.90) 100%);
   pointer-events: none;
 }
 .sm-card.has-cover > * { position: relative; z-index: 1; }
@@ -302,11 +324,20 @@ onMounted(async () => {
   border-color: rgba(255, 255, 255, 0.22);
   color: #fff;
 }
-.sm-card.has-cover .sm-name { color: #fff; text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6); }
-.sm-card.has-cover .sm-tagline { color: rgba(255, 255, 255, 0.92); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5); }
-.sm-card.has-cover .sm-meta { color: rgba(255, 255, 255, 0.86); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5); }
-.sm-card.has-cover .sm-ava { border-color: rgba(255, 255, 255, 0.75); }
-.sm-card.has-cover .sm-dot { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.55); }
+.sm-card.has-cover .sm-name {
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8), 0 0 12px rgba(0, 0, 0, 0.45);
+}
+.sm-card.has-cover .sm-tagline {
+  color: rgba(255, 255, 255, 0.94);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85), 0 0 10px rgba(0, 0, 0, 0.5);
+}
+.sm-card.has-cover .sm-meta {
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+.sm-card.has-cover .sm-ava { border-color: rgba(255, 255, 255, 0.55); }
+.sm-card.has-cover .sm-dot { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.45); }
 .sm-card.has-cover.is-current { border-color: #fff; }
 
 .sm-card-top { display: flex; align-items: center; gap: 7px; min-width: 0; }
@@ -445,6 +476,7 @@ onMounted(async () => {
   .sm-mobile-back:hover { color: var(--accent); }
   /* 手机上卡片可以矮一点，纵向空间更值钱 */
   .sm-card { min-height: 112px; }
+  .sm-card.has-cover { min-height: 172px; }
   .sm-card-add { min-height: 48px; }
   .sm-title { font-size: 19px; }
 }
