@@ -4,7 +4,7 @@
     </div>
 
     <template v-else>
-      <div v-show="!immersive" class="chat-standard" :inert="immersive || undefined">
+      <div v-show="!immersive || galgameEntering" class="chat-standard" :inert="immersive || undefined">
       <!-- 角色自定义聊天背景（未设置时透出全局柔光背景） -->
       <div v-if="chatBgUrl" class="chat-bg" :style="{ backgroundImage: `url(${chatBgUrl})` }"></div>
       <div v-if="chatBgUrl" class="chat-bg-veil"></div>
@@ -56,7 +56,7 @@
             <gear-icon :size="16" />
           </div>
         </div>
-        <ChatModeSwitch :active="!immersive" @switch="chatMode = 'galgame'" />
+        <ChatModeSwitch :active="!immersive" :busy="preparingGalgame" @switch="enterGalgame" />
       </div>
 
       <!--
@@ -240,7 +240,7 @@
       </div>
     </template>
 
-    <Transition name="chat-mode">
+    <Transition name="chat-mode" @after-enter="galgameEntering = false" @enter-cancelled="galgameEntering = false">
       <GalgameDialogue v-if="galgameVisited && chat.activeChar" v-show="immersive" :active="immersive" :character="chat.activeChar" v-model:draft="inputText" :image-mode="imageGenMode" :deep-think="deepThinkMode" :sleeping="isCharSleeping" :wake-busy="wakeBusy" @wake="onWakeChar" @exit="chatMode = 'chat'" @open-standing="openStandingDisplayPage" />
     </Transition>
 
@@ -638,6 +638,8 @@ const route = useRoute()
 const router = useRouter()
 const immersive = computed(() => route.query.mode === 'galgame')
 const galgameVisited = ref(immersive.value)
+const galgameEntering = ref(false)
+const preparingGalgame = ref(false)
 const chatMode = computed({
   get: () => immersive.value ? 'galgame' : 'chat',
   set: value => {
@@ -648,10 +650,36 @@ const chatMode = computed({
   },
 })
 watch(immersive, async value => {
-  if (value) { galgameVisited.value = true; closeSettings() }
-  else { await nextTick(); if (!isMobile?.value) inputEl.value?.focus({ preventScroll: true }) }
+  if (value) { galgameEntering.value = true; galgameVisited.value = true; closeSettings() }
+  else { galgameEntering.value = false; await nextTick(); if (!isMobile?.value) inputEl.value?.focus({ preventScroll: true }) }
 })
 const chat = useChatStore()
+let galgameBackgroundImage = null
+let galgameBackgroundReady = Promise.resolve()
+let modeRequest = 0
+watch(() => [chat.activeChar?.id, chat.activeChar?.galgame_bg_path || chat.activeChar?.chat_bg_path || ''], ([, url]) => {
+  modeRequest++
+  preparingGalgame.value = false
+  galgameBackgroundImage = url ? new Image() : null
+  if (galgameBackgroundImage) {
+    galgameBackgroundImage.src = url
+    // Keep the decoded image alive until the stage can paint it, including cold-cache entry.
+    galgameBackgroundReady = galgameBackgroundImage.decode().catch(() => {})
+  } else galgameBackgroundReady = Promise.resolve()
+}, { immediate: true })
+async function enterGalgame() {
+  if (preparingGalgame.value || immersive.value) return
+  const request = ++modeRequest
+  const path = route.path
+  preparingGalgame.value = true
+  try {
+    await galgameBackgroundReady
+    if (request === modeRequest && route.path === path) chatMode.value = 'galgame'
+  } finally {
+    if (request === modeRequest) preparingGalgame.value = false
+  }
+}
+onUnmounted(() => { modeRequest++ })
 const eventsStore = useEventsStore()
 const confirmFn = inject('confirm')
 const toastFn = inject('toast')

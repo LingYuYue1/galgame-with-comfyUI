@@ -347,13 +347,14 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .gal-stage { --gal-dialogue-height: clamp(200px, calc(var(--gal-stage-height) * .28), 290px); --gal-bottom: max(24px, env(safe-area-inset-bottom)); position: absolute; inset: 0; overflow: clip; isolation: isolate; container-type: inline-size; background: var(--bg-primary); color: var(--dialogue-ink); outline: none; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+.gal-stage { will-change: opacity; }
 .gal-backdrop { position: absolute; inset: 0; background-size: cover; background-position: center; background-color: var(--bg-sunken); }
 .gal-actor { position: absolute; left: 50%; bottom: -3%; transform: translateX(-50%); z-index: 1; pointer-events: auto; }
 .gal-breath { width: 100%; height: 100%; transform-origin: center bottom; animation: gal-breath 4.5s ease-in-out infinite; }
 .gal-portrait { position: absolute; inset: 0; overflow: hidden; }
 .gal-portrait img { position: absolute; max-width: none; user-select: none; }
 .gal-toolbar { position: absolute; top: max(20px, env(safe-area-inset-top)); left: max(28px, env(safe-area-inset-left)); right: max(28px, env(safe-area-inset-right)); display: flex; justify-content: space-between; align-items: center; gap: 12px; z-index: 5; }
-.gal-toolbar-right { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; margin-right: 12px; }
+.gal-toolbar-right { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
 .gal-tool > :not(.gal-menu-frame), .gal-composer > :not(.gal-menu-frame), .gal-wake > :not(.gal-menu-frame) { position: relative; z-index: 1; }
 .gal-tool { position: relative; isolation: isolate; display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 8px 18px; border-radius: 2px; color: var(--dialogue-menu-text); font-size: var(--fs-md); font-weight: 800; letter-spacing: .08em; text-align: center; white-space: nowrap; cursor: pointer; user-select: none; transition: color var(--dur-interaction) var(--ease-standard), transform var(--dur-interaction) var(--ease-standard), opacity var(--dur-interaction) var(--ease-standard); }
 .gal-tool > svg:not(.gal-menu-frame), .gal-composer svg { width: 22px; height: 22px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
@@ -473,8 +474,12 @@ onBeforeUnmount(() => {
 .is-compact .gal-tool > svg:not(.gal-menu-frame) { width: 17px; height: 17px; }
 .is-compact .gal-tool::after { left: 32px; right: 12px; }
 .is-compact .gal-standing-entry { display: none; }
+@media (orientation: landscape) and (min-width: 481px) and (pointer: coarse) {
+  .gal-toolbar-right { margin-right: 12px; }
+}
 @media (max-width: 480px) {
   /* A portrait keyboard also makes the stage short; keep its full reply width. */
+  .is-compact .gal-toolbar { left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); }
   .is-compact .gal-choices { width: 76%; right: 4%; }
   .is-compact.has-photos .gal-choices { width: 49%; right: 3%; }
   .is-compact .gal-dialogue { padding-left: 25px; padding-right: 25px; }
