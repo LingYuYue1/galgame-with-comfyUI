@@ -1501,6 +1501,38 @@ const AUTO_MAX_SCENES_PER_AREA = 12;
  *
  * @returns {null|{areas:string[], autoAreas:true, mapId:number, mapName:string, ...}}
  */
+/**
+ * 移动型世界（载具）这一次"停在哪儿"。
+ *
+ * 一半概率用自己的图（在车上的一天），一半概率随机停靠到一个有地点的星球。
+ * 某一边为空就退到另一边；两边都空 → null（调用方会退回"没有地图"的老行为）。
+ *
+ * 为什么不在同一次编排里同时给"车上 + 星球"：日程是一天的，两份地点会让她
+ * 一天之内在两个星球之间来回，物理上讲不通。一次只停一处。
+ */
+function pickVehicleScheduleMap(ownWorldId) {
+  const db = getDb();
+  let maps = [];
+  try {
+    maps = db.prepare(`
+      SELECT m.id, m.name, w.id AS world_id, w.name AS world_name, w.is_vehicle AS vehicle
+      FROM world_maps m
+      JOIN world_settings w ON w.id = m.world_setting_id
+      WHERE w.is_core = 0
+        AND EXISTS (SELECT 1 FROM world_map_places p WHERE p.map_id = m.id)
+    `).all();
+  } catch { return null; }
+  if (!maps.length) return null;
+
+  const onBoard = maps.filter(m => Number(m.vehicle) === 1);
+  const docked = maps.filter(m => Number(m.vehicle) !== 1);
+  const useOnBoard = onBoard.length > 0 && (docked.length === 0 || Math.random() < 0.5);
+  const pool = useOnBoard ? onBoard : (docked.length ? docked : maps);
+  const pick = pool[Math.floor(Math.random() * pool.length)] || null;
+  if (!pick) return null;
+  return { id: pick.id, name: pick.name, world_id: pick.world_id, world_name: pick.world_name };
+}
+
 export function buildAutoScheduleAreas(characterId = null) {
   let db;
   try { db = getDb(); } catch { return null; }
@@ -1517,13 +1549,26 @@ export function buildAutoScheduleAreas(characterId = null) {
   }
   if (!wid) return null;
 
-  // ③ **只认这个世界自己的图**。⚠ 这里刻意不走 resolveDefaultMapId 的降级链：
-  //   那条链会落到"玩家所在地图/最新图"——对别的地方是合理兜底，对**自动注入**却是串味
-  //   （角色在 C 世界，日程里却出现 A 世界的街名）。自动注入的准则是：宁可没有，也不借。
-  const row = (() => {
-    try { return db.prepare('SELECT id, name FROM world_maps WHERE world_setting_id = ? ORDER BY id DESC LIMIT 1').get(wid); }
+  // ③ 选哪张图。
+  //
+  //    · **固定世界**：只认这个世界自己的图。⚠ 刻意不走 resolveDefaultMapId 的降级链 ——
+  //      那条链会落到"玩家所在地图/最新图"，对别处是合理兜底，对**自动注入**却是串味
+  //      （角色在 C 世界，日程里却出现 A 世界的街名）。自动注入的准则：宁可没有，也不借。
+  //
+  //    · **移动型世界（载具，如星穹列车）**：她本来就"在外面跑" —— 车是家，但今天可能停在
+  //      罗浮，明天停在二维市。把她锁死在"吧台 / 客房 / 走廊"里等于把她关在车上。
+  //      所以这类世界改为：一半概率用自己的图（在车上的一天），一半概率随机停靠到别的星球。
+  //      见 012_world_vehicle 迁移。
+  const worldRow = (() => {
+    try { return db.prepare('SELECT id, name, is_vehicle FROM world_settings WHERE id = ?').get(wid); }
     catch { return null; }
   })();
+  const row = Number(worldRow?.is_vehicle) === 1
+    ? pickVehicleScheduleMap(wid)
+    : (() => {
+        try { return db.prepare('SELECT id, name FROM world_maps WHERE world_setting_id = ? ORDER BY id DESC LIMIT 1').get(wid); }
+        catch { return null; }
+      })();
   if (!row) return null;
 
   const { mapId, mapName, areas } = listAreasForSchedule(row.id, null);

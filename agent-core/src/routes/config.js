@@ -892,7 +892,7 @@ router.post('/world-settings', (req, res) => {
 router.put('/world-settings/:id', (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id || !getWorldSettingById(id)) return res.status(404).json({ error: 'not found' });
-  const { name, content, tagline, visual_tone, is_enabled, cover_image } = req.body;
+  const { name, content, tagline, visual_tone, is_enabled, cover_image, is_vehicle } = req.body;
   // 注：name/content 用 typeof 判定而非 !== undefined —— 老前端可能传 null，
   // 原实现 `name?.trim()` 能容忍 null，这里保持同等宽容度（null 视作"不改"）。
   const item = updateWorldSetting(id, {
@@ -903,6 +903,8 @@ router.put('/world-settings/:id', (req, res) => {
     is_enabled: is_enabled === undefined ? undefined : !!is_enabled,
     // 空串 = 清除封面（与 tagline 同口径：字符串才认，null/缺省 = 不改）
     cover_image: typeof cover_image === 'string' ? cover_image.trim() : undefined,
+    // 移动型世界（载具）：缺省 = 不改
+    is_vehicle: is_vehicle === undefined ? undefined : !!is_vehicle,
   });
   res.json({ ok: true, item });
 });

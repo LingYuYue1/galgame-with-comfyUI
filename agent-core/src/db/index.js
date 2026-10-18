@@ -304,6 +304,9 @@ function initSchema(db) {
       cover_image TEXT NOT NULL DEFAULT '',
       -- 主世界标记（2026-10-18）：1 = 骨架层，常驻叠加；全局唯一。老库由 011_world_core 迁移补列
       is_core INTEGER NOT NULL DEFAULT 0,
+      -- 移动型世界（2026-10-18）：1 = 载具（如星穹列车），其角色的日程可落在任何星球的地图上。
+      -- 老库由 012_world_vehicle 迁移补列
+      is_vehicle INTEGER NOT NULL DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );

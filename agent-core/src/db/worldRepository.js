@@ -749,7 +749,7 @@ export function createWorldSetting({ name, content, tagline = '' }) {
   return created;
 }
 
-export function updateWorldSetting(id, { name, content, tagline, visual_tone, is_enabled, cover_image } = {}) {
+export function updateWorldSetting(id, { name, content, tagline, visual_tone, is_enabled, cover_image, is_vehicle } = {}) {
   const database = handle();
   const sets = [];
   const params = [];
@@ -761,6 +761,8 @@ export function updateWorldSetting(id, { name, content, tagline, visual_tone, is
   if (is_enabled !== undefined) { sets.push('is_enabled = ?'); params.push(is_enabled ? 1 : 0); }
   // ★ 2026-10-18：卡片封面图（存 /world-covers/xxx 短路径，不存 base64）
   if (cover_image !== undefined) { sets.push('cover_image = ?'); params.push(String(cover_image || '')); }
+  // ★ 2026-10-18：移动型世界（载具）。改它会影响"日程从哪儿取地点" → 下面统一失效缓存
+  if (is_vehicle !== undefined) { sets.push('is_vehicle = ?'); params.push(is_vehicle ? 1 : 0); }
   if (sets.length === 0) return null;
   sets.push("updated_at = datetime('now')");
   params.push(id);

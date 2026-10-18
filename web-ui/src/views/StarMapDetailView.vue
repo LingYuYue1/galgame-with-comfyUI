@@ -75,12 +75,30 @@
       <div class="smd-fields">
         <label class="smd-field">
           <span class="smd-field-label">一句话简介<span class="smd-optional">（星图卡片上的一句话）</span></span>
-          <linshe-input v-model="tagline" placeholder="一句话说清这个世界的样子" @blur="saveMeta" />
+          <linshe-input v-model="tagline" placeholder="一句话说清这个世界的样子" @blur="saveTagline" />
         </label>
         <label class="smd-field">
           <span class="smd-field-label">视觉基调<span class="smd-optional">（≤60 字，会拼入生图环境）</span></span>
-          <linshe-input v-model="visualTone" maxlength="60" placeholder="色调、光线、材质…例如：湿冷的青灰石巷，暖黄灯火" @blur="saveMeta" />
+          <linshe-input v-model="visualTone" maxlength="60" placeholder="色调、光线、材质…例如：湿冷的青灰石巷，暖黄灯火" @blur="saveTone" />
         </label>
+
+        <!-- ★ 2026-10-18：移动型世界（载具）。
+             星穹列车这类世界没有固定地理，角色今天停罗浮、明天停二维市。
+             勾上之后，一键编排日程会让她落在**任意世界**的地图上，而不是锁死在车厢里。 -->
+        <div class="smd-vehicle-row">
+          <linshe-switch
+            :model-value="!!world?.is_vehicle"
+            size="sm"
+            @change="saveVehicle"
+          />
+          <div class="smd-vehicle-text">
+            <span class="smd-vehicle-title">移动型世界（载具）</span>
+            <span class="smd-vehicle-sub">
+              这个世界的角色可以停在任何世界的地图上 —— 适合星穹列车这类会跑的地方。
+              不勾 = 地点只从本世界的地图取。
+            </span>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -805,13 +823,40 @@ async function saveWorld() {
   }
 }
 
-async function saveMeta() {
+/**
+ * 简介 / 视觉基调：**各自只提交自己那一栏**。
+ *
+ * ★ 2026-10-18 实锤 bug：这两栏原来共用 `saveMeta()`，一次提交两个字段。
+ *   于是任意一个输入框失焦，都会把**另一个字段的当前页面值**一起写回数据库 ——
+ *   页面状态一旦是旧的/空的（例如刚打开还没渲染完就点了一下别处），
+ *   就会把库里本来有值的那一栏清空。罗浮的 visual_tone 就是这样被清掉的。
+ *   拆成两个函数后，谁失焦只保存谁。
+ */
+async function saveTagline() {
   try {
-    await api.updateWorldSetting(worldId.value, {
-      tagline: tagline.value,
-      visual_tone: visualTone.value,
-    })
+    await api.updateWorldSetting(worldId.value, { tagline: tagline.value })
     emit('changed')
+  } catch (err) {
+    toastFn?.('保存失败：' + (err?.message || ''), 'error')
+  }
+}
+
+async function saveTone() {
+  try {
+    await api.updateWorldSetting(worldId.value, { visual_tone: visualTone.value })
+    emit('changed')
+  } catch (err) {
+    toastFn?.('保存失败：' + (err?.message || ''), 'error')
+  }
+}
+
+/** 移动型世界（载具）：勾上/取消后立刻生效，下次编排日程就会按新规则取地点 */
+async function saveVehicle(val) {
+  try {
+    await api.updateWorldSetting(worldId.value, { is_vehicle: !!val })
+    if (world.value) world.value.is_vehicle = val ? 1 : 0
+    emit('changed')
+    toastFn?.(val ? '已设为移动型世界 —— 角色会出现在任何星球的地图上' : '已改回固定世界', 'success')
   } catch (err) {
     toastFn?.('保存失败：' + (err?.message || ''), 'error')
   }
@@ -1323,6 +1368,19 @@ watch(worldId, (id, prev) => {
   border: 1px solid var(--border);
 }
 .smd-hint { font-size: 12.5px; color: var(--text-secondary); padding: 8px 2px; }
+/* 移动型世界（载具）开关：它改的是"日程从哪取地点"，值得单独占一行讲清楚 */
+.smd-vehicle-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+}
+.smd-vehicle-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.smd-vehicle-title { font-size: 12.5px; font-weight: 500; color: var(--text-primary); }
+.smd-vehicle-sub { font-size: 11.5px; line-height: 1.6; color: var(--text-secondary); }
 /* 主世界（骨架）的说明条：告诉使用者"这里不是地方，是通则"，顺便解释为什么只有一个页签 */
 .smd-core-note {
   margin: 2px 2px 12px;
