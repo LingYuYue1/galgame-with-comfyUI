@@ -551,7 +551,7 @@ ${characterName}: "${cleanAssistant.slice(0, 500)}"
   try {
     const { content, finishReason } = await chatSync(
       [{ role: 'user', content: prompt }],
-      { temperature: 0.5, max_tokens: EVALUATION_MAX_TOKENS, response_format: { type: 'json_object' }, label: '情绪判断', returnMeta: true }
+      { temperature: 0.5, maxTokens: EVALUATION_MAX_TOKENS, response_format: { type: 'json_object' }, label: '情绪判断', returnMeta: true }
     );
     // 截断时正文为空，显式识别，避免与「JSON 格式错误」混成同一条日志
     if (finishReason === 'length') {
@@ -971,7 +971,7 @@ ${imageRulesText}
   try {
     const result = await chatSync(
       [{ role: 'user', content: reactionPrompt }],
-      { temperature: 0.7, max_tokens: 400, thinking: { type: 'disabled' }, response_format: { type: 'json_object' }, label: '送礼反应' }
+      { temperature: 0.7, thinking: { type: 'disabled' }, response_format: { type: 'json_object' }, label: '送礼反应' }
     );
     let raw = result.trim();
     if (raw.startsWith('```')) raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
@@ -1114,7 +1114,7 @@ ${basePrompt}`;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     const result = await chatSync(
       [{ role: 'user', content: prompt }],
-      { temperature: attempt === 0 ? 0.3 : 0.5, max_tokens: 512, thinking: { type: 'disabled' }, label: '浓缩short_prompt' }
+      { temperature: attempt === 0 ? 0.3 : 0.5, thinking: { type: 'disabled' }, label: '浓缩short_prompt' }
     );
 
     let condensed = result.trim();

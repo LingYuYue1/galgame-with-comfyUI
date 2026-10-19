@@ -79,7 +79,7 @@ router.post('/clothing-appearance-draft', async (req, res) => {
       persona: buildCharacterPersona({ ...character, base_prompt: basePrompt }, { variant: 'full', outfits: null }),
       scene, entries, brief: brief.trim(),
     });
-    const raw = await chatSync(messages, { model: config.llm.model || 'deepseek-chat', temperature: 0.6, max_tokens: 1800, label: '衣服库外观生成' });
+    const raw = await chatSync(messages, { model: config.llm.model || 'deepseek-chat', temperature: 0.6, label: '衣服库外观生成' });
     res.json({ appearance: parseClothingAppearance(raw, entries, scene), tags: entries.map(entry => entry.tag) });
   } catch (error) {
     res.status(502).json({ error: `生成服装提示词失败：${error.message}` });
@@ -618,7 +618,7 @@ router.post('/:id/forum-alias', async (req, res) => {
       { role: 'system', content: system },
       { role: 'user', content: user },
     ], {
-      temperature: 1.0, max_tokens: 400, thinking: { type: 'disabled' }, 
+      temperature: 1.0, thinking: { type: 'disabled' }, 
       response_format: { type: 'json_object' }, label: 'forum-alias',
     });
 
@@ -940,7 +940,7 @@ async function runPersonaGeneration({
   msgs.push({ role: 'system', content: systemPrompt });
   msgs.push({ role: 'user', content: description.trim() });
 
-  const result = await chatSync(msgs, { model, temperature, max_tokens: 4096, label: '创造角色' });
+  const result = await chatSync(msgs, { model, temperature, label: '创造角色' });
 
   // 解析输出：第1行 display_name，第2行 name，第3行起 base_prompt
   const lines = result.split('\n');
@@ -1408,7 +1408,7 @@ ${buildCharacterPersona(char, { variant: 'full', outfits: avatarOutfits })}
     const llmResult = await chatSync([
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userMsg },
-    ], { model, temperature: 0.6, max_tokens: 1024, thinking: { type: 'disabled' }, label: '生成头像提示词' });
+    ], { model, temperature: 0.6, thinking: { type: 'disabled' }, label: '生成头像提示词' });
 
     // 提取 prompt：纯文本优先，JSON 格式向后兼容
     let promptText;
@@ -1574,7 +1574,6 @@ router.post('/:id/generate-standing', async (req, res) => {
     const llmResult = await chatSync(buildStandingMessages(char, requirement, mode), {
       model,
       temperature: 0.7,
-      max_tokens: 1024,
       thinking: { type: 'disabled' },
       label: '生成立绘提示词',
     });
@@ -1732,7 +1731,6 @@ router.post('/:id/generate-standing-task', async (req, res) => {
       const llmResult = await chatSync(buildStandingMessages(char, requirement, mode), {
         model,
         temperature: 0.7,
-        max_tokens: 1024,
         thinking: { type: 'disabled' },
         label: '生成立绘提示词',
       });
@@ -1884,7 +1882,6 @@ router.post('/:id/standings/generate', async (req, res) => {
       const llmResult = await chatSync(buildStandingMessages(char, requirement, mode, scene), {
         model,
         temperature: 0.7,
-        max_tokens: 1024,
         thinking: { type: 'disabled' },
         label: '生成场景立绘提示词',
       });
@@ -2018,7 +2015,7 @@ router.post('/refine-appearance-draft', async (req, res) => {
           { type: 'image_url', image_url: { url: image } },
         ],
       },
-    ], { model, temperature: 0.3, max_tokens: 1024, label: '修正外观' });
+    ], { model, temperature: 0.3, label: '修正外观' });
 
     // 剥掉代码围栏与引号包装，压成单段
     let appearance = llmResult.trim()
@@ -2181,7 +2178,7 @@ router.post('/expand-appearance-draft', async (req, res) => {
         role: 'user',
         content: `用户想要的外观要点：\n${brief}\n\n请按规定格式输出一段完整外观描述。`,
       },
-    ], { model, temperature: 0.75, max_tokens: 1024, label: '外观扩写' });
+    ], { model, temperature: 0.75, label: '外观扩写' });
 
     // 与图片模式同一套清洗：剥代码围栏与引号，压成单段
     const appearance = String(llmResult || '').trim()
@@ -2253,7 +2250,7 @@ router.post('/refine-persona-draft', async (req, res) => {
         role: 'user',
         content: `角色名：${displayName}\n${modeLine}\n\n以下是该角色的人设正文（已排除外观段），请输出润色结果：\n\n${target}${instrBlock}`,
       },
-    ], { model, temperature: 0.7, max_tokens: 4096, label: '人设润色' });
+    ], { model, temperature: 0.7, label: '人设润色' });
 
     let polished = String(llmResult || '').trim()
       .replace(/^```(?:markdown|md)?\s*/i, '')   // 去掉可能的代码围栏

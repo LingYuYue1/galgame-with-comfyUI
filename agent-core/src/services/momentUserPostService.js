@@ -85,7 +85,7 @@ export async function describeUserMomentImages(images = [], deps = {}) {
         ...imageParts,
       ],
     },
-  ], { temperature: 0.2, max_tokens: 256, label: '用户朋友圈图片识别' });
+  ], { temperature: 0.2, label: '用户朋友圈图片识别' });
 
   return String(result || '').trim().replace(/^["']|["']$/g, '').slice(0, 300);
 }
@@ -231,7 +231,7 @@ export async function generateUserPostComment(character, post, historyComments, 
   msgs.push({ role: 'user', content: task });
 
   const chat = deps.chatSync || chatSync;
-  const result = await chat(msgs, { temperature: 0.7, max_tokens: 128, label: '用户朋友圈评论' });
+  const result = await chat(msgs, { temperature: 0.7, maxTokens: 128, label: '用户朋友圈评论' });
   return String(result || '').trim().replace(/^["']|["']$/g, '').slice(0, 200);
 }
 

@@ -912,7 +912,6 @@ router.post('/:characterId/peek', async (req, res) => {
       try {
         const rawResult = await chatSync(llmMsgs, {
           temperature: 0.7,
-          max_tokens: 1024,
           label: '瞄一眼人像prompt生成',
           // ★ F-60（2026-10-16，环境适配）：与 F-58 同构 —— 本机通道（thinking=enabled）下
           //   推理 token 计入 max_tokens。peek 输入≈6900 token，实测思考长度在 637~1024

@@ -1087,7 +1087,6 @@ async function buildWorldCoverPrompt(world, extra) {
     const raw = await chatSync(msgs, {
       model: config.llm.model || 'deepseek-chat',
       temperature: 0.85,
-      max_tokens: 320,
       // 320 是"一段画面描述"的正文预算，思考会把预算吃光 → 空返回（F-58/F-60/F-62 同构缺口）
       thinking: { type: 'disabled' },
       label: '世界封面提示词',

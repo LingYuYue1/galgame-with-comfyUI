@@ -135,7 +135,7 @@ ${MOMENT_COMMENT_RULES}
     : '';
   msgs.push({ role: 'user', content: worldRulePrefix + '去评论区留个言吧：' });
 
-  const result = await (deps.chatSync || chatSync)(msgs, { temperature: 0.7, max_tokens: 128, label: '朋友首评' });
+  const result = await (deps.chatSync || chatSync)(msgs, { temperature: 0.7, maxTokens: 128, label: '朋友首评' });
   return result.trim().replace(/^["']|["']$/g, '').slice(0, 200);
 }
 
@@ -196,7 +196,7 @@ ${MOMENT_COMMENT_RULES}
     : '';
   msgs.push({ role: 'user', content: worldRulePrefix + `回复${friendName}的最后一条评论：` });
 
-  const result = await (deps.chatSync || chatSync)(msgs, { temperature: 0.7, max_tokens: 128, label: '发帖人回朋友' });
+  const result = await (deps.chatSync || chatSync)(msgs, { temperature: 0.7, maxTokens: 128, label: '发帖人回朋友' });
   return result.trim().replace(/^["']|["']$/g, '').slice(0, 200);
 }
 
@@ -259,7 +259,7 @@ ${MOMENT_COMMENT_RULES}
     : '';
   msgs.push({ role: 'user', content: worldRulePrefix + '继续聊天：' });
 
-  const result = await (deps.chatSync || chatSync)(msgs, { temperature: 0.7, max_tokens: 128, label: '朋友续评' });
+  const result = await (deps.chatSync || chatSync)(msgs, { temperature: 0.7, maxTokens: 128, label: '朋友续评' });
   return result.trim().replace(/^["']|["']$/g, '').slice(0, 200);
 }
 

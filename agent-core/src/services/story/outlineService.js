@@ -690,7 +690,7 @@ export async function generateOutlineDraft(input = {}) {
         + '严格按上面的机器结构输出。',
     },
   ], {
-    temperature: 0.8, max_tokens: 2400, label: 'story:outline-gen',
+    temperature: 0.8, label: 'story:outline-gen',
     // ★ F-04 附带（2026-10-12）：story 域三处 LLM 调用统一禁用「思考模式」——
     //   推理 token 计入 max_tokens，本机通道（thinking=enabled）下会把预算吃光、正文为空
     //   （同 F-58 机制：实测短请求即可吃掉绝大部分输出预算）。三处产出的都是**机器结构**
@@ -762,7 +762,7 @@ export async function refineOutlineBeat(input = {}) {
         + '只输出**一个**节点的机器结构（一对 <outline_widget> 里只放一组 Beat/Scene/Subtext/Think）。',
     },
   ], {
-    temperature: 0.8, max_tokens: 900, label: 'story:outline-refine',
+    temperature: 0.8, label: 'story:outline-refine',
     thinking: { type: 'disabled' },   // F-04 附带：同 story:outline-gen 的说明
   });
 
@@ -839,7 +839,7 @@ export async function judgeOutlineAdvance(input = {}) {
     },
     { role: 'user', content: recentText.slice(0, 3000) },
   ], {
-    temperature: 0.1, max_tokens: 60, response_format: { type: 'json_object' }, label: 'story:outline-judge',
+    temperature: 0.1, maxTokens: 60, response_format: { type: 'json_object' }, label: 'story:outline-judge',
     thinking: { type: 'disabled' },   // F-04 附带：60 的预算被思考吃光后判定会恒为"未推进"
   });
 

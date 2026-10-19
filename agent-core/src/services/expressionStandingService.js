@@ -123,7 +123,7 @@ export async function generateStandingPrompts(char, slots, requirement, persona,
     worldRule: worldSetting ? getWorldIntegrationRule('interaction') : '',
     slots, persona: persona ?? buildStandingPersona(char, outfitScene), requirement, outfitScene,
   });
-  const raw = await chatSync(messages, { temperature: 0.7, max_tokens: Math.min(8192, Math.max(2048, slots.length * 512 + 512)), response_format: { type: 'json_object' }, label: '批量立绘提示词' });
+  const raw = await chatSync(messages, { temperature: 0.7, response_format: { type: 'json_object' }, label: '批量立绘提示词' });
   return parseStandingPrompts(raw, slots);
 }
 
@@ -194,7 +194,7 @@ export function generateStandingTouchLines(char) {
     systemRules:getSystemRulesWithWorld({roleplay:false, characterId: char?.id}),
     worldRule:getWorldSetting(char?.id)?getWorldIntegrationRule('interaction'):'当前未启用世界观，按角色资料与本次任务创作，不补造世界设定。',
   });
-  return chatSync(messages, { temperature: 0.8, max_tokens: 3000, response_format: { type: 'json_object' }, label: '立绘触摸台词', signal: AbortSignal.timeout(90000), timeout: 90000, retries: 0, maxRetries: 0, freeEggFailover: false });
+  return chatSync(messages, { temperature: 0.8, response_format: { type: 'json_object' }, label: '立绘触摸台词', signal: AbortSignal.timeout(90000), timeout: 90000, retries: 0, maxRetries: 0, freeEggFailover: false });
 }
 
 export function regenerateStandingTouchLines(id, expectedVersion) {

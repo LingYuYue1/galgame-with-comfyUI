@@ -894,7 +894,9 @@ test('runBackfillTask：一次最多补 5 条并放宽输出预算', async () =>
   }
   assert.ok(!prompt.includes('mem_batch_6'));
   assert.ok(!prompt.includes('mem_batch_7'));
-  assert.equal(options.max_tokens, 3000);
+  // v3.10 起额度统一走 config.llm.maxTokens（applyOutputTokenLimit），
+  // 调用点不再自带 max_tokens —— 这里断言"没有逐处预算"，防止有人又写回去。
+  assert.equal(options.max_tokens, undefined);
   assert.equal(result.done, true);
   db.close();
 });

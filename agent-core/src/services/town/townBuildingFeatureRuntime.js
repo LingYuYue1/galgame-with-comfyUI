@@ -520,7 +520,7 @@ async function runGenerativeOperationInner(context, operation, { chat } = {}) {
         userNote: selection.userNote || '', personas: buildPersonaBlocks(targets),
         buildingName: execution.building.name });
       const raw = await useChat(messages,
-        { label: '建筑图文生成', temperature: 0.7, max_tokens: 1200 });
+        { label: '建筑图文生成', temperature: 0.7 });
       const parsed = parseMediaOutput(raw);
       media = { caption: parsed.caption, imagePrompt: parsed.imagePrompt, themeKey: theme.key,
         themeLabel: theme.label, targets: targets.map(t => ({ id: t.id, displayName: t.display_name })) };

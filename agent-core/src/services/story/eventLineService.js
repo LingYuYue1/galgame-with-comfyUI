@@ -457,7 +457,7 @@ export async function generateEventLineDraft(input = {}) {
       content: `【这条线想讲什么（用户要点，必须全部体现）】
 ${brief}${peopleBlock}${placeBlock}${existingBlock}${placeHint}${hints ? `\n\n【用户特别要求】${hints}` : ''}`,
     },
-  ], { temperature: 0.8, max_tokens: 600, thinking: { type: 'disabled' }, response_format: { type: 'json_object' }, label: 'story:gen-line' });
+  ], { temperature: 0.8, maxTokens: 600, thinking: { type: 'disabled' }, response_format: { type: 'json_object' }, label: 'story:gen-line' });
 
   return absorbLineDraft(res);
 }

@@ -500,7 +500,7 @@ export async function generateSceneOutfits(character, opts = {}) {
 
   const model = config.llm.model || 'deepseek-chat';
   const raw = await chatSync(msgs, {
-    model, temperature: 0.8, max_tokens: 3072,
+    model, temperature: 0.8,
     response_format: { type: 'json_object' }, label: '场景服装生成',
   });
 
@@ -937,7 +937,7 @@ ${list}
   let fixed = null;
   try {
     const raw = await chatSync(msgs, {
-      temperature: 0.2, max_tokens: 900,
+      temperature: 0.2,
       response_format: { type: 'json_object' }, label: 'schedule-gen:着装校对',
       // ★ F-58（2026-10-12，环境适配）：同 scheduleGenerator —— thinking 模型的推理 token
       // 计入 max_tokens，900 的预算会被思考吃光导致正文为空；着装校对是结构化输出任务，禁思考。

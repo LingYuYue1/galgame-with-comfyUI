@@ -33,7 +33,7 @@ export async function generateDialogueBackground(character, requirement) {
     persona: buildCharacterPersona(character, { variant: 'full', person: character.display_name, outfits: null }),
     requirement,
   });
-  const response = await chatSync(messages, { temperature: 0.7, max_tokens: 700, thinking: { type: 'disabled' }, label: '沉浸背景设计' });
+  const response = await chatSync(messages, { temperature: 0.7, thinking: { type: 'disabled' }, label: '沉浸背景设计' });
   const prompt = String(response || '').trim().replace(/^```(?:\w+)?\s*|\s*```$/g, '').trim();
   if (prompt.length < 20) throw new Error('背景提示词不完整，请重试');
   const result = await generateImageRaw(`scenery, no humans, visual novel background, wide shot, ${prompt}`, {

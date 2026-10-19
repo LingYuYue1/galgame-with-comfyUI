@@ -612,7 +612,6 @@ E. 尊重给定设定 —— 给了「一句话人设」时，职业背景、性
   const msgs = personaMsgs;
   const out = await chatSync(msgs, {
     temperature: 0.5, // 有明确设定（名字/职业/世界观）→ 低温稳定特征
-    max_tokens: 3000,
     label: '小镇居民人格卡',
   });
 
@@ -722,7 +721,6 @@ export async function generateRoutine(npc, locationKeys) {
     content: `请执行：为「${npc.displayName}」生成作息 JSON。`,
   });
   const content = await chatSync(routineMsgs, {
-    max_tokens: 900,
     thinking: { type: 'disabled' },
     temperature: 0.8,
     response_format: { type: 'json_object' },
@@ -793,7 +791,6 @@ export async function rerollNpc(npcId) {
     content: `请执行：为小镇重新设计一位居民（原名字：${row.display_name}，可以保留或换新）。`,
   });
   const content = await chatSync(rerollMsgs, {
-    max_tokens: 300,
     thinking: { type: 'disabled' },
     temperature: 0.95,
     response_format: { type: 'json_object' },
@@ -922,7 +919,6 @@ export async function chatWithNpc(npcId, message, opts = {}) {
       },
       { role: 'user', content },
     ], {
-      max_tokens: 300,
       temperature: 0.9,
       label: '小镇就地聊天',
     }) : `（点点头）你好呀，${config.user.nickname || '邻居'}。我${scene}，见到你很高兴。`;

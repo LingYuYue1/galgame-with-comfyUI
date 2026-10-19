@@ -335,7 +335,6 @@ async function runPipeline(context, { npc, offer, kind, session, prior, options 
     try {
       text = await llm(messages, {
         temperature: 0.9,
-        max_tokens: 1800,
         label: kind === 'work' ? '小镇打工趣事生成' : '小镇服务趣事生成',
         response_format: { type: 'json_object' },
       });
@@ -349,7 +348,6 @@ async function runPipeline(context, { npc, offer, kind, session, prior, options 
     } catch {
       text = await llm(messages, {
         temperature: 0.7,
-        max_tokens: 1800,
         label: kind === 'work' ? '小镇打工趣事生成（重试）' : '小镇服务趣事生成（重试）',
       });
       payload = parseServicePayload(text);

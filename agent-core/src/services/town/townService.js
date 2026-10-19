@@ -1810,7 +1810,6 @@ async function runEncounterDialogue(enc) {
 
   try {
     const content = await chatSync(messages, {
-      max_tokens: 1200,
       thinking: { type: 'disabled' },
       temperature: 0.9,
       response_format: { type: 'json_object' },
@@ -1883,7 +1882,6 @@ async function runEncounterSummary(enc) {
       },
       { role: 'user', content: `【地点】${enc.location.name}\n【对话】\n${transcript}` },
     ], {
-      max_tokens: 300,
       thinking: { type: 'disabled' },
       temperature: 0.5,
       response_format: { type: 'json_object' },
@@ -2031,7 +2029,6 @@ function maybeStatusBubbles(now) {
         ].filter(Boolean).join('\n'),
       },
     ], {
-      max_tokens: 900,
       thinking: { type: 'disabled' },
       temperature: 0.95,
       response_format: { type: 'json_object' },

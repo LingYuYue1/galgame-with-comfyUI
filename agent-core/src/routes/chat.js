@@ -1853,7 +1853,7 @@ async function judgeImageNeed(conversationId) {
     const result = await chatSync([
       { role: 'system', content: JUDGE_PROMPT },
       { role: 'user', content: ctx },
-    ], { temperature: 0, max_tokens: 5, thinking: { type: 'disabled' }, label: '判断需要图片' });
+    ], { temperature: 0, maxTokens: 5, thinking: { type: 'disabled' }, label: '判断需要图片' });
 
     const verdict = result.trim().startsWith('是');
     console.log(`[chat] judgeImageNeed: ${verdict ? 'YES' : 'no'} (response: "${result.trim().slice(0, 20)}")`);
@@ -2201,7 +2201,7 @@ ${contextBlock.content}`;
 async function requestImagePromptContent(conversationId, character, planSceneHint = '') {
   const { msgs } = buildImagePromptMessages(conversationId, character, planSceneHint);
   return requestNonEmptyImagePrompt(
-    () => chatSync(msgs, { temperature: 0.7, max_tokens: 1024, thinking: { type: 'disabled' }, label: '生图' }),
+    () => chatSync(msgs, { temperature: 0.7, thinking: { type: 'disabled' }, label: '生图' }),
     {
       emptyRetries: 1,
       onEmpty: () => console.warn('[chat] image prompt returned empty content, retrying once...'),
@@ -2225,7 +2225,7 @@ async function handleNeedImageFlow(conversationId, character, send, preExistingT
       console.log(`[chat] planned image prompt (pre-generated): ${fullContent.slice(0, 80)}...`);
     } else {
       fullContent = await requestNonEmptyImagePrompt(
-        () => chatSync(msgs, { temperature: 0.7, max_tokens: 1024, thinking: { type: 'disabled' }, label: '生图' }),
+        () => chatSync(msgs, { temperature: 0.7, thinking: { type: 'disabled' }, label: '生图' }),
         {
           emptyRetries: 1,
           onEmpty: () => console.warn('[chat] needImage follow-up returned empty content, retrying once...'),
@@ -2444,7 +2444,7 @@ async function generateReplyGuessesUncached(conversationId, character) {
   msgs.push({ role: 'user', content: '请根据以上对话，预测user接下来最可能回复的两句话。只输出 JSON：' });
 
   try {
-    const result = await chatSync(msgs, { temperature: 0.7, max_tokens: 128, thinking: { type: 'disabled' }, response_format: { type: 'json_object' }, label: '预测' });
+    const result = await chatSync(msgs, { temperature: 0.7, maxTokens: 128, thinking: { type: 'disabled' }, response_format: { type: 'json_object' }, label: '预测' });
     console.log(`[chat] generateReplyGuesses raw response: ${result.slice(0, 120)}`);
 
     // 尝试提取 JSON 对象

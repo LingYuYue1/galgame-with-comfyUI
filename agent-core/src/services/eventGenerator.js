@@ -506,7 +506,7 @@ ${customKeyUnderstanding}
     }
   }
   try {
-    rawResult = await (options.llm?.chatSync || chatSync)(msgs, { temperature: 0.7, max_tokens: 4096, response_format: { type: 'json_object' }, label: '奇遇生成' });
+    rawResult = await (options.llm?.chatSync || chatSync)(msgs, { temperature: 0.7, response_format: { type: 'json_object' }, label: '奇遇生成' });
     const jsonStr = extractFirstJson(rawResult);
     if (!jsonStr) throw new Error('No JSON found in LLM response');
     eventData = JSON.parse(repairJson(jsonStr));
@@ -866,7 +866,7 @@ ${timeTag2}${weatherHint}${multiPersonImageNote2}
   for (let attempt = 1; attempt <= MAX_BRANCH_ATTEMPTS; attempt++) {
     rawBranchResult = '';
     try {
-      rawBranchResult = await (deps.llm?.chatSync || chatSync)(msgs, { temperature: 0.7, max_tokens: 4096, response_format: { type: 'json_object' }, label: '事件分支' });
+      rawBranchResult = await (deps.llm?.chatSync || chatSync)(msgs, { temperature: 0.7, response_format: { type: 'json_object' }, label: '事件分支' });
       const jsonStr = extractFirstJson(rawBranchResult);
       if (!jsonStr) throw new Error('No JSON found in LLM response');
       const parsed = JSON.parse(repairJson(jsonStr));
@@ -1090,7 +1090,7 @@ ${historyText}
 
   let conclusionData;
   try {
-    const result = await chatSync(msgs, { temperature: 0.7, max_tokens: 1024, thinking: { type: 'disabled' }, response_format: { type: 'json_object' }, label: '事件结局' });
+    const result = await chatSync(msgs, { temperature: 0.7, thinking: { type: 'disabled' }, response_format: { type: 'json_object' }, label: '事件结局' });
     const jsonStr = extractFirstJson(result);
     if (!jsonStr) throw new Error('No JSON found');
     conclusionData = JSON.parse(repairJson(jsonStr));

@@ -176,7 +176,7 @@ export function createTownNarrativeService({ narrativeConfig }) {
       try {
         const content = await input.chatSync([
           { role: 'system', content: buildPrompt({ sourceEventId, facts, allowedSpeakers, choices }) },
-        ], { max_tokens: 700, temperature: 0.8, label: '小镇关键叙事' });
+        ], { temperature: 0.8, label: '小镇关键叙事' });
         const parsed = JSON.parse(String(content ?? '').trim());
         const valid = validateModelOutput(parsed, { sourceEventId, allowedSpeakers, choices });
         if (valid) {

@@ -345,7 +345,7 @@ export async function generateReactionPack({
   try {
     const raw = await callLlm(buildPackMessages({ character, eventTypes: wanted }), {
       temperature: 0.9,
-      max_tokens: PACK_MAX_TOKENS,
+      maxTokens: PACK_MAX_TOKENS,
       response_format: { type: 'json_object' },
       label: '角色短句包',
       retries: 0,

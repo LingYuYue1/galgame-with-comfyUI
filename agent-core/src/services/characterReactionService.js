@@ -602,7 +602,6 @@ export async function generateInstantReaction({
     try {
       raw = await callLlm(messages, {
         temperature: 0.9,
-        max_tokens: 160,
         response_format: { type: 'json_object' },
         label: '角色即时反应',
         retries: 0,

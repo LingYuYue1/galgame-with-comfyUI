@@ -205,7 +205,6 @@ async function processReplyQueue() {
     // 调用 LLM 生成回复
     const fullReply = await chatSync(msgs, {
       temperature: 0.72,
-      max_tokens: 512,
       thinking: { type: 'disabled' },
       label: `delayed-reply:${entry.display_name}`,
     });

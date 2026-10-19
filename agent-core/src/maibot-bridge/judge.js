@@ -20,7 +20,7 @@ export async function judgeImageNeed({ user_message = '', reply_text = '', conte
         { role: 'system', content: JUDGE_PROMPT },
         { role: 'user', content: ctxText },
       ],
-      { temperature: 0, max_tokens: 5, thinking: { type: 'disabled' }, label: 'maibot-judge-image' }
+      { temperature: 0, maxTokens: 5, thinking: { type: 'disabled' }, label: 'maibot-judge-image' }
     );
     const verdict = String(result || '').trim().startsWith('是');
     console.log(`[maibot-bridge] judgeImageNeed: ${verdict ? 'YES' : 'no'} (response: "${String(result).trim().slice(0, 20)}")`);

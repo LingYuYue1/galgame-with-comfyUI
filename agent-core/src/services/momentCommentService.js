@@ -267,7 +267,7 @@ ${commentHistory ? `\n\n评论区目前的对话：\n---\n${commentHistory}\n---
   msgs.push({ role: 'user', content: userMsg });
 
   const chat = opts.deps?.chatSync || chatSync;
-  const result = await chat(msgs, { temperature: 0.7, max_tokens: 128, label: '回评' });
+  const result = await chat(msgs, { temperature: 0.7, maxTokens: 128, label: '回评' });
   return String(result || '').trim().replace(/^["']|["']$/g, '').slice(0, 200);
 }
 

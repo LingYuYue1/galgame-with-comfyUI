@@ -503,7 +503,7 @@ ${context ? `所属：${context}\n` : ''}${world ? `\n参考世界观（摘录�
   ];
 
   const raw = await chatSync(msgs, {
-    temperature: 0.8, max_tokens: 300, thinking: { type: 'disabled' }, 
+    temperature: 0.8, thinking: { type: 'disabled' }, 
     response_format: { type: 'json_object' }, label: `worldmap:scene:${nm}`,
   });
   const jsonStr = extractFirstJson(raw);
@@ -582,7 +582,7 @@ ${place.kind ? `类型：${place.kind}\n` : ''}${place.summary ? `它是什么�
   ];
 
   const raw = await chatSync(msgs, {
-    temperature: 0.9, max_tokens: 900, thinking: { type: 'disabled' }, 
+    temperature: 0.9, thinking: { type: 'disabled' }, 
     response_format: { type: 'json_object' }, label: `worldmap:poi:${place.name}`,
   });
   const jsonStr = extractFirstJson(raw);
@@ -758,7 +758,7 @@ export async function refinePlaceFromImage({ placeId, image = '', hints = '' } =
           { type: 'image_url', image_url: { url: image } },
         ],
       },
-    ], { temperature: 0.3, max_tokens: 700, response_format: { type: 'json_object' }, label: `worldmap:refine-img:${place.name}` });
+    ], { temperature: 0.3, response_format: { type: 'json_object' }, label: `worldmap:refine-img:${place.name}` });
     return { ok: true, ...absorbPlaceRefine(res) };
   } catch (err) {
     throw translateVisionError(err);
@@ -792,7 +792,7 @@ ${corpus}
 ${b}
 ${hints.trim() ? `\n【用户特别要求】${hints.trim()}` : ''}`,
     },
-  ], { temperature: 0.7, max_tokens: 700, response_format: { type: 'json_object' }, label: `worldmap:refine-txt:${place.name}` });
+  ], { temperature: 0.7, response_format: { type: 'json_object' }, label: `worldmap:refine-txt:${place.name}` });
   return { ok: true, ...absorbPlaceRefine(res) };
 }
 
@@ -991,7 +991,7 @@ export async function generateSkeleton(mapId, { brief = '', regionCount = 2, dis
   ];
 
   const raw = await chatSync(msgs, {
-    temperature: 0.9, max_tokens: 1600,
+    temperature: 0.9,
     response_format: { type: 'json_object' }, label: 'worldmap:骨架',
   });
   const jsonStr = extractFirstJson(raw);
@@ -1109,7 +1109,7 @@ ${parent ? `它属于「${parent.name}」。` : ''}${place.summary ? `它的定�
   ];
 
   const raw = await chatSync(msgs, {
-    temperature: 0.9, max_tokens: 2600,
+    temperature: 0.9,
     response_format: { type: 'json_object' }, label: `worldmap:${place.name}`,
   });
   const jsonStr = extractFirstJson(raw);

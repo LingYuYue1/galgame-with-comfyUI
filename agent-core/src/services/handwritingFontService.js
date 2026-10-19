@@ -80,7 +80,6 @@ async function selectFontForCharacter(basePrompt) {
   try {
     const raw = await chatSync(msgs, {
       temperature: 0.5,
-      max_tokens: 100,
       thinking: { type: 'disabled' },
       response_format: { type: 'json_object' },
       label: '手写字体选择',

@@ -176,7 +176,7 @@ test('generation stores one pack per character and reads it back with overrides'
     callLlm: async (messages, options) => {
       calls += 1;
       assert.deepEqual(messages.map(m => m.role), ['system', 'system', 'system', 'user']);
-      assert.equal(options.max_tokens, PACK_MAX_TOKENS);
+      assert.equal(options.maxTokens, PACK_MAX_TOKENS);
       assert.equal(options.retries, 0);
       assert.deepEqual(options.response_format, { type: 'json_object' });
       return packJson();

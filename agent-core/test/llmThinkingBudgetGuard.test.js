@@ -1,27 +1,23 @@
 /**
- * 静态护栏（F-62）：短预算的 `chatSync` 调用必须显式声明 `thinking`。
+ * LLM 额度策略护栏（2026-10-19 改写；原 F-62「短预算必须声明 thinking」已退役）
  *
- * ── 为什么要立这条规矩 ──────────────────────────────────────────────
- * 本机通道（opencode + deepseek-v4.1-flash）在 `LLM_THINKING_MODE=enabled` 下
- * **推理 token 计入 max_tokens**。调用方凡是按「正文长度」设预算的（≤ 1536 这批），
- * 思考一顶满就返回空正文 + `finish_reason='length'` —— 对调用方等同「模型没说话」：
- *   · wakeService / replyQueueScheduler：`throw new Error('Empty reply from LLM')`
- *   · peek 配图：落中文模板兜底 → 角色画成随机路人（F-60）
- *   · 日程生成：9400 token 的提示词思考吃满 2048 预算，必失败（F-58）
- * 上游默认注入的是 `disabled`，即这些调用点的**设计前提就是「预算全部归正文」**；
- * 本地把全局拨到 enabled 之后，需要逐个调用点显式找回原语义。
+ * ── 为什么改 ────────────────────────────────────────────────
+ * 旧判据是「`max_tokens` 字面量 ≤1536 的调用块里必须出现 `thinking:`」——
+ * 它成立的前提是**预算由调用点决定**。v3.10 起上游把额度统一收口到
+ * `config.llm.maxTokens`（`applyOutputTokenLimit`），`_chatSyncInner` 的入参里
+ * 已经没有 `max_tokens` 了：写它不报错、不警告、直接被丢弃。
+ * 前提消失，旧判据就变成空过（源码里一个 max_tokens 都没有，它自然通过）。
  *
- * ── 规矩（本测试钉住的不变量）────────────────────────────────────
- * `chatSync` 调用块内出现 `max_tokens` **字面量且 ≤ 1536** 时，必须同时出现 `thinking:`。
- * 新增这类调用时写 `thinking: { type: 'disabled' },` 即可；确实需要开思考的，
- * 请把预算抬到 1536 以上（思考 + 正文都要装得下）或显式写 `thinking: { type: 'enabled' }`。
+ * ── 现在的两条不变量 ───────────────────────────────────────
+ * ① 源码里**不许再出现 `max_tokens:`**（死参数，写了也不生效，只会误导下一个读代码的人）；
+ *    要覆盖额度请用 `maxTokens:`——它走 llm-client 的例外通道。
+ * ② `maxTokens:` 只允许出现在**例外清单**里（合并方案 §5-1）：
+ *    「短预算本身就是业务语义」的少数调用点。清单外的写法一律要论证后加进来，
+ *    不允许悄悄多出一个。
  *
- * ── 已知边界（别把这条测试当成万能）──────────────────────────────
- * ① 只认**字面量**预算：`max_tokens: someVar` 不在覆盖范围（这类靠 llm-client 的
- *    F-62 降级重发兜底）；
- * ② 未显式写 `max_tokens` 的调用走 `_chatSyncInner` 默认 2048，不在本判据内；
- * ③ 扫描是正则近似（与 `scripts/f62-add-thinking-disabled.mjs` 同源），
- *    注释里的 `chatSync(` 用「本行之前有 // 或 *」的启发式排除。
+ * ── 这测不到什么（别当成万能）────────────────────────────────
+ * · 它不判断额度取值合不合理（那是人的判断，记在方案 §5-1）；
+ * · 它不检查全局额度 `config.llm.maxTokens` 的配置（见 config.js / settings）。
  */
 
 import test from 'node:test';
@@ -31,8 +27,28 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SRC_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../src');
-/** 预算 ≤ 此值视为「按正文长度设的预算」，必须显式声明思考开关 */
-const THRESHOLD = 1536;
+
+/** 例外清单（与 docs/上游合并-v3.10-施工方案.md §5-1 一一对应） */
+const ALLOWED_LABELS = [
+  'maibot-judge-image',   // 图像判定，只要 yes/no
+  '判断需要图片',          // 同上
+  '预测',                 // 结构化 JSON 短输出
+  '奇遇紧急联络',          // 短联络
+  '回评', '朋友首评', '发帖人回朋友', '朋友续评', '用户朋友圈评论', // 高频社交短文本
+  '主动聊天',              // 高频
+  'story:gen-line',       // 结构化短输出
+  'story:outline-judge',  // 判定
+  '网络搜索',              // 短查询
+];
+
+/** 按文件放行的「管道」位置（不是调用点预算，是机制本身） */
+const ALLOWED_FILES = [
+  'llm/llm-client.js',                    // applyOutputTokenLimit 内部实现
+  'routes/config.js',                     // 设置接口转发字段
+  'services/characterReactionPackService.js',
+  'services/emotionEngine.js',
+  'services/memoryExtractor.js',
+];
 
 function walk(dir, out = []) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -44,52 +60,34 @@ function walk(dir, out = []) {
   return out;
 }
 
-/** 简单启发式：匹配点所在行、其之前出现 // 或 * → 认为在注释里 */
-function looksCommented(s, idx) {
-  const lineStart = s.lastIndexOf('\n', idx) + 1;
-  return /\/\/|\*/.test(s.slice(lineStart, idx));
-}
+const files = walk(SRC_DIR).map(abs => ({
+  abs,
+  rel: path.relative(SRC_DIR, abs).split(path.sep).join('/'),
+  text: fs.readFileSync(abs, 'utf8'),
+}));
 
-function scanChatSyncCalls() {
-  const calls = [];
-  for (const file of walk(SRC_DIR)) {
-    const s = fs.readFileSync(file, 'utf8');
-    const re = /chatSync\(/g;
-    let m;
-    while ((m = re.exec(s))) {
-      if (looksCommented(s, m.index)) continue;
-      const seg = s.slice(m.index, m.index + 1500);
-      const end = seg.search(/\}\s*\)/);
-      const block = end > 0 ? seg.slice(0, end) : seg;
-      const mt = block.match(/max_tokens\s*:\s*(\d+)/);
-      calls.push({
-        file: path.relative(SRC_DIR, file),
-        line: s.slice(0, m.index).split('\n').length,
-        hasThinking: /thinking\s*:/.test(block),
-        maxTokens: mt ? Number(mt[1]) : null,
-      });
-    }
+test('★ 源码里不许再出现死参数 max_tokens（写它也不生效）', () => {
+  const hits = [];
+  for (const f of files) {
+    f.text.split(/\r?\n/).forEach((line, i) => {
+      if (/max_tokens\s*:/.test(line) && !/maxTokens/.test(line)) hits.push(`${f.rel}:${i + 1}  ${line.trim()}`);
+    });
   }
-  return calls;
-}
+  assert.deepEqual(hits, [], `发现 ${hits.length} 处失效的 max_tokens，请改成 maxTokens 或删除：\n${hits.join('\n')}`);
+});
 
-test('短预算 chatSync 调用必须显式声明 thinking（F-58/F-60/F-62 同构缺口护栏）', () => {
-  const calls = scanChatSyncCalls();
-
-  // 非空性/非空转自检：扫描本身失效时必须报错，而不是「0 违规」地静默通过
-  assert.ok(calls.length >= 80, `应扫描到 ≥80 个 chatSync 调用点（实际 ${calls.length}）—— 检查扫描逻辑是否被改坏`);
-  const disabledCount = calls.filter(c => c.hasThinking).length;
-  assert.ok(disabledCount >= 40, `显式声明 thinking 的调用点应 ≥40（实际 ${disabledCount}）—— 检查扫描逻辑是否被改坏`);
-
-  const violations = calls
-    .filter(c => !c.hasThinking && c.maxTokens !== null && c.maxTokens <= THRESHOLD)
-    .map(c => `${c.file}:${c.line}（max_tokens=${c.maxTokens}）`);
-
-  assert.deepEqual(
-    violations,
-    [],
-    '这些调用点的预算按「正文长度」设置，思考会把预算吃光导致空返回。'
-    + '请补 `thinking: { type: \'disabled\' },`（或把预算抬到 1536 以上）：\n  '
-    + violations.join('\n  '),
-  );
+test('★ maxTokens 只允许出现在例外清单（§5-1）', () => {
+  const violations = [];
+  const allowed = [];
+  for (const f of files) {
+    if (f.rel === 'config.js') continue;            // getter / setter 自身
+    f.text.split(/\r?\n/).forEach((line, i) => {
+      if (!/maxTokens\s*:/.test(line)) return;
+      const byFile = ALLOWED_FILES.includes(f.rel);
+      const byLabel = ALLOWED_LABELS.some(l => line.includes(`'${l}'`));
+      (byFile || byLabel ? allowed : violations).push(`${f.rel}:${i + 1}  ${line.trim()}`);
+    });
+  }
+  assert.deepEqual(violations, [], `以下 maxTokens 不在例外清单里，先论证再登记到 §5-1：\n${violations.join('\n')}`);
+  assert.ok(allowed.length > 0, '例外清单一个都没命中 —— 要么清单过时，要么扫描坏了');
 });

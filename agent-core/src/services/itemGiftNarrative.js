@@ -100,7 +100,7 @@ async function runGiftPipeline(id, { item, characterId, options }) {
     const messages = buildGiftMessages({ item, character });
     let text = '';
     try {
-      text = await llm(messages, { temperature: 0.9, max_tokens: 1400, label: '礼物叙事生成', response_format: { type: 'json_object' } });
+      text = await llm(messages, { temperature: 0.9, label: '礼物叙事生成', response_format: { type: 'json_object' } });
     } catch {
       text = '';
     }
@@ -108,7 +108,7 @@ async function runGiftPipeline(id, { item, characterId, options }) {
     try {
       payload = parseGiftPayload(text);
     } catch {
-      text = await llm(messages, { temperature: 0.7, max_tokens: 1400, label: '礼物叙事生成（重试）' });
+      text = await llm(messages, { temperature: 0.7, label: '礼物叙事生成（重试）' });
       payload = parseGiftPayload(text);
     }
 

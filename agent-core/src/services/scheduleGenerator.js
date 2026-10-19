@@ -963,7 +963,6 @@ ${directionMsg}`;
     try {
       rawResult = await chatSync(msgs, {
         temperature: 0.5,
-        max_tokens: 2048,
         response_format: { type: 'json_object' },
         label: `schedule-gen:${character.display_name}`,
         // ★ F-58（2026-10-12，环境适配）：日程生成按调用禁用「思考模式」。

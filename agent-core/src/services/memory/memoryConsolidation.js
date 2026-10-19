@@ -431,7 +431,7 @@ export function normalizeSuggestionText(text) {
   return String(text || '').replace(/[\s\p{P}\p{S}]/gu, '');
 }
 
-const LLM_OPTS = { temperature: 0.2, max_tokens: 1500, response_format: { type: 'json_object' }, label: '记忆整理' };
+const LLM_OPTS = { temperature: 0.2, response_format: { type: 'json_object' }, label: '记忆整理' };
 
 // ── T1：冲突消解 runner ──
 
@@ -689,7 +689,7 @@ ${pendingLines}
  */
 const BACKFILL_BATCH_SIZE = 5;
 // T5 的旧记忆正文很长；10 条曾实测在 1500 tokens 处截断，导致整批 JSON 解析失败。
-const BACKFILL_LLM_OPTS = { ...LLM_OPTS, max_tokens: 3000 };
+const BACKFILL_LLM_OPTS = { ...LLM_OPTS };
 
 export async function runBackfillTask({ candidates, llmBudgetRemaining = 0, deps = {} } = {}) {
   const chatSync = deps.chatSync;
