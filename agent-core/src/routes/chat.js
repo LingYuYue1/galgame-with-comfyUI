@@ -1,6 +1,10 @@
 import { Router } from 'express';
 import { getDb, getGlobalRule, getSystemRules, getWorldSetting, repairFtsIndex } from '../db/index.js';
 import { chatStream, chatSync } from '../llm/llm-client.js';
+import { chatSync as chatWithLorebook } from '../services/lorebook/runtime.js';
+import { prepareNarrativePrompt } from '../services/presets/narrative.js';
+import { createLorebookRepository } from '../db/lorebookRepository.js';
+import { buildConversationLorebookContext } from '../services/lorebook/conversationContext.js';
 import { config } from '../config.js';
 import { recallChatMemories, CHAT_RAG_TIMEOUT_MS } from '../services/memory/chatMemoryRecall.js';
 import {
@@ -183,6 +187,7 @@ router.delete('/characters/:id/messages', (req, res, next) => {
     // 主表
     db.prepare('DELETE FROM messages WHERE conversation_id = ?').run(conversationId);
     db.prepare('DELETE FROM raw_messages WHERE conversation_id = ?').run(conversationId);
+    createLorebookRepository(db).rewind(conversationId);
     // 清理 ChromaDB 中该 conversation 的向量
     deleteByConversation(conversationId).then(
       n => { if (n > 0) console.log(`[chat] chroma deleted ${n} vectors for ${conversationId}`); },
@@ -280,6 +285,7 @@ router.delete('/characters/:id/messages/last-round', (req, res, next) => {
     }
 
     console.log(`[chat] undo last round: ${rawCount} raw + ${msgCount} msgs deleted for ${conversationId}`);
+    createLorebookRepository(db).rewind(conversationId, db.prepare('SELECT COUNT(*) AS n FROM raw_messages WHERE conversation_id=?').get(conversationId).n + 1);
     res.json({ ok: true, deleted: rawCount + msgCount });
   };
 
@@ -813,7 +819,7 @@ ${coreRules}
       : null;
 
     // ── checkpoint 历史 + 活跃聊天历史（滑动窗口） ──
-    const { checkpoint, checkpointHistory, activeText: activeChatText, activeRounds } = getSplitHistory(db, conversationId, 10, 10, { userName: chatUserName, characterName: character.display_name });
+    const { checkpoint, checkpointHistory, activeText: activeChatText, activeRounds, activeSegments } = getSplitHistory(db, conversationId, 10, 10, { userName: chatUserName, characterName: character.display_name });
     // [DEBUG] 上下文拆分
     console.log('[DEBUG] afterId:', checkpoint?.end_msg_id || 0, '| checkpoint助手数: 10(固定) | active助手数:', activeRounds);
     if (checkpointHistory.length > 0) {
@@ -1130,7 +1136,7 @@ ${coreRules}
     // 深度思考时 planner 与主回复共用这一完全相同的消息结构（稳定块+摘要+历史+含全部动态块的用户消息），
     // 任务块合并到 user 消息头部（末尾另附触发提醒），盘算结果追加到 user 消息末尾，不新增独立 user 消息
     // 摘要之上另有一条独立 system：静态活人感规则 + <emoji_stickers> 清单（跨轮不变；长度条已降为动态块）
-    const { messages: baseMsgs, metadata } = buildChatContext({
+    const { messages: originalBaseMsgs, metadata } = buildChatContext({
       stableBlocks,
       preSummarySystem,
       summaryBlock,
@@ -1138,6 +1144,15 @@ ${coreRules}
       history: checkpointHistory,
       dynamicBlocks: budgetedBlocks,
     });
+    const lorebookTurn = await prepareNarrativePrompt(originalBaseMsgs, {
+      ...buildConversationLorebookContext(db, {conversationId, character, kind:'chat', userName:chatUserName, throughId:userRawMsgId, turnKey:String(userRawMsgId)}),
+      protectedPrefix:stableBlocks.length, maxOutputTokens:4096,
+      personaTexts:[character?.base_prompt || getDefaultPrompt()],
+      cacheBoundary:{index:stageContent ? 1 : 0,offset:(character?.base_prompt || getDefaultPrompt()).length},
+      activeSegments, historyStart:originalBaseMsgs.length-checkpointHistory.length, historyEnd:originalBaseMsgs.length,
+    });
+    const baseMsgs = lorebookTurn.messages;
+    if (lorebookTurn.report) send('lorebook',lorebookTurn.report);
 
     // ── 深度思考 Planner：先以角色视角盘算回复的媒介组合（text/sticker/image），再据此自然回复 ──
     // 任何失败（超时/解析失败/清洗后无有效块）都静默回退到原有五路生图决策流程
@@ -1152,7 +1167,7 @@ ${coreRules}
         const plannerResult = await runPlanner({
           // 任务块合并进 user 消息头部；触发提醒贴在消息末尾（生成点前最后一次强化输出契约）
           messages: appendToLastUserMessage(
-            prependToLastUserMessage(baseMsgs, buildPlannerTaskBlock({
+            prependToLastUserMessage(lorebookTurn.lorebookMessages, buildPlannerTaskBlock({
               characterName: character.display_name,
               userName: chatUserName,
               stickerKeys: [...emojiMap.keys()],
@@ -1357,7 +1372,7 @@ ${coreRules}
 
       // 二次组装：dynamicBlocks 追加 <memory_recall_result>（含现行/历史徽标与防呆收尾语）
       dynamicBlocks.push(formatMemoryRecallBlock(recallQuery, recallResults, { failed: recallFailed }));
-      const { messages: recallMsgs } = buildChatContext({
+      const { messages: originalRecallMsgs } = buildChatContext({
         stableBlocks,
         preSummarySystem,
         summaryBlock,
@@ -1365,6 +1380,7 @@ ${coreRules}
         history: checkpointHistory,
         dynamicBlocks: budgetConfig.enabled ? applyBudgetToBlocks(dynamicBlocks, budgetConfig.dynamicTokens) : dynamicBlocks,
       });
+      const recallMsgs = lorebookTurn.reapply ? await lorebookTurn.reapply(originalRecallMsgs) : originalRecallMsgs;
 
       // 重置流状态：指令行不进气泡不落库；闸门前已发出的零散片段用 context_update 清空
       if (streamState.collectedSegments.length > 0) {
@@ -1466,6 +1482,7 @@ ${coreRules}
 
     const rawResult = insertRawStmt.run(conversationId, 'assistant', rawContent, tags.prompt || null, thinkingPayload);
     const rawMsgId = rawResult.lastInsertRowid;
+    lorebookTurn.commit();
     send('dialogue_saved', { raw_id: rawMsgId });
 
     const savedIds = [];
@@ -1586,7 +1603,8 @@ ${coreRules}
         .run(conversationId, tags.prompt, tags.prompt);
       const genTaskId = taskResult.lastInsertRowid;
       send('generate_start', { taskId: genTaskId, prompt: tags.prompt });
-      imageGenPromise = triggerImageGeneration(conversationId, tags.prompt, lastInsertRowid, genTaskId, send, allRefIds);
+      const ragQuery = `${chatUserName}: ${extractRealContent(message)}\n${character?.display_name || '角色'}: ${stripTags(fullContent)}`;
+      imageGenPromise = triggerImageGeneration(conversationId, tags.prompt, lastInsertRowid, genTaskId, send, allRefIds, ragQuery);
     } else if (hasNeedImageTag) {
       // 路径 B: 模型追加了 <needImage>，需要二次请求获取 prompt
       // 提前创建 task + 发送 generate_start，前端立即显示遮罩层
@@ -1864,7 +1882,7 @@ async function judgeImageNeed(conversationId) {
   }
 }
 
-async function triggerImageGeneration(conversationId, prompt, assistantMsgId, taskId, send, crossRefCharIds = []) {
+async function triggerImageGeneration(conversationId, prompt, assistantMsgId, taskId, send, crossRefCharIds = [], ragQuery = '') {
   const db = getDb();
 
   // 查找角色 lora 设置
@@ -1914,6 +1932,7 @@ async function triggerImageGeneration(conversationId, prompt, assistantMsgId, ta
   try {
     const result = await generateImage(prompt, {
       scene: 'chat',
+      ragQuery,
       // ★ 时段锚点（F-15）：聊天配图是「此刻」的场景（环境参考/光照均按当前时间），
       //   把光照钉在当前时段 —— 凌晨聊天不再画出白天光。
       timeOfDay: new Date(),
@@ -2194,14 +2213,14 @@ ${contextBlock.content}`;
     }` },
   ];
 
-  return { msgs, crossRefCharIdsForImage };
+  return { msgs, crossRefCharIdsForImage, personalityPrompt, lastTurnDialogue };
 }
 
 /** 请求生图描述 LLM，返回原始输出（planner 并行预生成也走这里） */
 async function requestImagePromptContent(conversationId, character, planSceneHint = '') {
-  const { msgs } = buildImagePromptMessages(conversationId, character, planSceneHint);
+  const { msgs, personalityPrompt } = buildImagePromptMessages(conversationId, character, planSceneHint);
   return requestNonEmptyImagePrompt(
-    () => chatSync(msgs, { temperature: 0.7, thinking: { type: 'disabled' }, label: '生图' }),
+    () => chatWithLorebook(msgs, { temperature: 0.7, thinking: { type: 'disabled' }, label: '生图', lorebook:{personaTexts:[personalityPrompt],characterName:character.display_name} }),
     {
       emptyRetries: 1,
       onEmpty: () => console.warn('[chat] image prompt returned empty content, retrying once...'),
@@ -2214,7 +2233,7 @@ async function handleNeedImageFlow(conversationId, character, send, preExistingT
   console.log('[chat] needImage detected, requesting prompt from model (compact)...');
   const emojiMap = getCharacterEmojiMap(character.id, db);
 
-  const { msgs, crossRefCharIdsForImage } = buildImagePromptMessages(conversationId, character, planSceneHint);
+  const { msgs, crossRefCharIdsForImage, personalityPrompt, lastTurnDialogue } = buildImagePromptMessages(conversationId, character, planSceneHint);
 
   // 3. 静默请求模型生成 prompt（不流式，避免前端气泡混乱）
   //    presetContentPromise：planner 阶段已与回复流并行预生成的结果，直接取用，省去回复完成后的串行等待
@@ -2225,7 +2244,7 @@ async function handleNeedImageFlow(conversationId, character, send, preExistingT
       console.log(`[chat] planned image prompt (pre-generated): ${fullContent.slice(0, 80)}...`);
     } else {
       fullContent = await requestNonEmptyImagePrompt(
-        () => chatSync(msgs, { temperature: 0.7, thinking: { type: 'disabled' }, label: '生图' }),
+        () => chatWithLorebook(msgs, { temperature: 0.7, thinking: { type: 'disabled' }, label: '生图', lorebook:{personaTexts:[personalityPrompt],characterName:character.display_name} }),
         {
           emptyRetries: 1,
           onEmpty: () => console.warn('[chat] needImage follow-up returned empty content, retrying once...'),
@@ -2352,7 +2371,8 @@ async function handleNeedImageFlow(conversationId, character, send, preExistingT
       genTaskId = taskResult.lastInsertRowid;
       send('generate_start', { taskId: genTaskId, prompt: tags.prompt });
     }
-    await triggerImageGeneration(conversationId, tags.prompt, assistantMsgId, genTaskId, send, crossRefCharIdsForImage);
+    // 使用请求生图助手时捕获的最后一轮对话，避免下方生图时读到已拼入的英文 prompt。
+    await triggerImageGeneration(conversationId, tags.prompt, assistantMsgId, genTaskId, send, crossRefCharIdsForImage, lastTurnDialogue);
   } else {
     console.log('[chat] needImage follow-up: no prompt tags found, falling back');
     send('generate_error', { taskId: preExistingTaskId, error: '模型未返回图像描述' });
@@ -2548,6 +2568,7 @@ async function handleDreamTalkReply(res, characterId, conversationId, userMsgId,
 
       const result = await generateImage(finalPrompt, {
         scene: 'chat',
+        ragQuery: `${config.user.nickname || '用户'}: ${userMessage}\n${character.display_name || '角色'}: ${talk}`,
         ragTimeoutMs: RAG_TIMEOUT_FAST_MS,
         onProgress: (p) => {
           if (p.stage === 'retrying') {
