@@ -2,7 +2,8 @@
 //
 // world_settings（世界）加三列：
 //   · tagline      星图卡片一句话气质
-//   · visual_tone  视觉基调 ≤60 字（拼入生图环境层）
+//   · visual_tone  视觉基调 ≤60 字（**只进世界封面提示词**，不进角色/场景生图 ——
+//                  角色用的地点级锚点是 world_map_places.scene_prompt；2026-10-19 订正）
 //   · is_enabled   世界开关（1 启用 / 0 休眠；休眠不参与媒体抽卡与后台任务）
 // characters（角色）加一列：
 //   · world_setting_id  角色「所在/归属世界」（可空 = 未归属，读取回落激活世界）

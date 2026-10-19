@@ -78,7 +78,7 @@
           <linshe-input v-model="tagline" placeholder="一句话说清这个世界的样子" @blur="saveTagline" />
         </label>
         <label class="smd-field">
-          <span class="smd-field-label">视觉基调<span class="smd-optional">（≤60 字，会拼入生图环境）</span></span>
+          <span class="smd-field-label">视觉基调<span class="smd-optional">（≤60 字，用于 AI 生成封面大景）</span></span>
           <linshe-input v-model="visualTone" maxlength="60" placeholder="色调、光线、材质…例如：湿冷的青灰石巷，暖黄灯火" @blur="saveTone" />
         </label>
 
