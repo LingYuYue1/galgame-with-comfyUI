@@ -12,7 +12,7 @@
 
 import { getDb, getWorldSetting, getSystemRules, listTransitEdges, getTripStatusFor, formatRemain } from '../db/index.js';
 import { buildAutoScheduleAreas } from './worldMapService.js';
-import { chatSync } from '../llm/llm-client.js';
+import { chatSync } from './lorebook/runtime.js';
 import { config } from '../config.js';
 import { getLocalDateKey, shiftDateKey } from '../utils/localDate.js';
 import { normalizeActivityTitle } from '../utils/activityTitle.js';
@@ -965,12 +965,7 @@ ${directionMsg}`;
         temperature: 0.5,
         response_format: { type: 'json_object' },
         label: `schedule-gen:${character.display_name}`,
-        // ★ F-58（2026-10-12，环境适配）：日程生成按调用禁用「思考模式」。
-        // 本机通道（opencode + deepseek-v4.1-flash、thinking=enabled）下，推理 token 计入
-        // max_tokens —— 9400 token 的日程 prompt 思考直接吃满 2048 预算、正文为空，必然失败。
-        // 实测诊断（同一句短请求）：enabled 输出 64 token / 13.9s，disabled 输出 2 token / 0.8s。
-        // 日程是结构化 JSON 任务、提示词已含全部编排规则，禁思考既保输出预算又省额度；
-        // 对非思考模型无副作用（等价上游「默认注入 disabled」的既有行为，见 llm-client）。
+        lorebook:{personaTexts:[personaMsg],staticTexts:[scheduleInst],characterName:character.display_name},
         thinking: { type: 'disabled' },
       });
 

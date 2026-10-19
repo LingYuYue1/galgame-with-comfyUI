@@ -16,7 +16,10 @@ import { invalidateGalleryCache } from './galleryCache.js';
 import { getDb, getSystemRulesWithWorld, getGlobalRule, getWorldSetting } from '../db/index.js';
 import { appendOathRing } from './oathUtils.js';
 import { buildCharacterAppearanceSection } from './characterPersona.js';
-import { chatSync } from '../llm/llm-client.js';
+import { chatSync } from './lorebook/runtime.js';
+import { prepareNarrativePrompt } from './presets/narrative.js';
+import { chatSync as chatWithoutLorebook } from '../llm/llm-client.js';
+import { buildConversationLorebookContext } from './lorebook/conversationContext.js';
 import { config } from '../config.js';
 import {
   loadEmotionState, getCompositeEmotion, loadAffinity, loadOath,
@@ -374,7 +377,7 @@ const NIGHT_FALLBACKS = [
  * @param {{ name: string, desc: string }} motive - 随机选取的聊天动机
  * @param {string} relationshipContext - 人际关系描述文本（可选）
  * @param {string} userProfile - 用户画像描述文本（可选）
- * @returns {Promise<string>} 生成的文本
+ * @returns {Promise<{greeting:string,lorebookTurn?:object}>} 文本及落库后才提交的世界书状态
  */
 async function generateGreeting(character, affinity, compositeVad, lastMessageAt, recentSummary, motive, relationshipContext, userProfile, streak = 0) {
   const conversationId = `char_${character.id}`;
@@ -480,8 +483,11 @@ ${proactiveRules}
       : '';
     msgs.push({ role: 'user', content: worldRulePrefix + msgTask });
 
-    const result = await chatSync(
-      msgs,
+    const lorebookTurn = await prepareNarrativePrompt(msgs, {
+      ...buildConversationLorebookContext(getDb(), {conversationId, character, kind:'proactive', userName:config.user.nickname || '用户'}), maxOutputTokens:128,
+    });
+    const result = await chatWithoutLorebook(
+      lorebookTurn.messages,
       { temperature: 0.7, maxTokens: 128, thinking: { type: 'disabled' }, label: '主动聊天' }
     );
 
@@ -496,12 +502,12 @@ ${proactiveRules}
       else greeting = greeting.slice(0, maxLen) + '…';
     }
     if (greeting.length < 5) {
-      return pickFallbackGreeting(userName);
+      return {greeting:pickFallbackGreeting(userName)};
     }
-    return greeting;
+    return {greeting, lorebookTurn};
   } catch (err) {
     console.error(`⚡ generateGreeting failed for ${character.display_name}:`, err.message);
-    return pickFallbackGreeting(userName);
+    return {greeting:pickFallbackGreeting(userName)};
   }
 }
 
@@ -869,11 +875,12 @@ async function tick() {
     }
 
     // 6. 生成开场白
-    const greeting = await generateGreeting(candidate, affinity, compositeVad, lastMessageAt, recentSummary, motive, relationshipContext, userProfile, streak);
+    const {greeting, lorebookTurn} = await generateGreeting(candidate, affinity, compositeVad, lastMessageAt, recentSummary, motive, relationshipContext, userProfile, streak);
     console.log(`⚡ ${candidate.display_name} greeting (motive: ${motive.name}): "${greeting}"`);
 
     // 7. 写入消息到 DB
     const { rawId, firstMsgId, lastMsgId, msgIds, segments } = writeProactiveMessage(candidate, greeting);
+    lorebookTurn?.commit();
 
     // 7.5 如果该动机需要配图，先生成图片再一起推送；否则直接推送
     // 梦境动机同样走标准配图管线——现场生成全新配图，绝不复用睡中应答时用户已看过的图（防重复配图）
@@ -1164,9 +1171,10 @@ export async function forceProactiveNow(targetCharacterId) {
       sharedDream = freshDream;
     }
   }
-  const greeting = await generateGreeting(candidate, affinity, compositeVad, lastMessageAt, recentSummary, motive, relationshipContext, userProfile, streak);
+  const {greeting, lorebookTurn} = await generateGreeting(candidate, affinity, compositeVad, lastMessageAt, recentSummary, motive, relationshipContext, userProfile, streak);
 
   const { rawId, firstMsgId, lastMsgId, msgIds, segments } = writeProactiveMessage(candidate, greeting);
+  lorebookTurn?.commit();
 
   db.prepare('UPDATE characters SET proactive_streak = ? WHERE id = ?')
     .run(streak + 1, candidate.id);
