@@ -257,10 +257,24 @@ export function detectImageIntent(message) {
 
 // ═══════════════════════════════════════════════════════════
 // 7. 世界观强化规则 — 各流程的世界观穿透说明（集中管理）
-//    公共开头统一注入最高优先级声明，各作用域文案保持原文
+//    两套口径（2026-10-19 起）：
+//      · native（默认）—— 角色**属于**这个世界：世界决定环境、社会规则与常识，
+//        她的原设身份/职业/组织/经历**不冲突就照旧**。多世界结构下的常态。
+//      · reset（显式启用）—— 把角色**扔进一个不属于她的世界**并重造身份（AU / 重置型世界）。
+//        这是上游原本的唯一口径，保留为可选入口，不再默认。
+//    起因：上游 `fbf7f29`（2026-08-05「修正世界观强化问题」）写的是单世界假设
+//    （一个世界 + 一堆外来角色），于是要求"原设身份一律作废"来防串味；
+//    本地是多世界结构（角色归属自己的世界，罗浮/列车/二维市都是真实世界），
+//    照抄那条会把角色的履历清空 → 角色越来越不像她自己。详见二创更新日志 2026-10-19。
 // ═══════════════════════════════════════════════════════════
 
-const WORLD_INTEGRATION_CORE = `<world_setting>是最高优先级的基本法则，优先于角色的一切人设设定。角色人格仅用于辨认性格、说话习惯与气质；人格中的原设身份、职业、组织、地点、经历一律作废，必须按当前<world_setting>重新定义后才允许进入世界，原 IP 的身份、职业、地点或组织如果和<world_setting>有冲突，就以<world_setting>为准。`;
+/** reset 口径：上游原文逐字保留（含"一律作废"），只在显式 `mode:'reset'` 时注入 */
+const WORLD_INTEGRATION_CORE_RESET = `<world_setting>是最高优先级的基本法则，优先于角色的一切人设设定。角色人格仅用于辨认性格、说话习惯与气质；人格中的原设身份、职业、组织、地点、经历一律作废，必须按当前<world_setting>重新定义后才允许进入世界，原 IP 的身份、职业、地点或组织如果和<world_setting>有冲突，就以<world_setting>为准。`;
+
+/** native 口径：世界管环境与常识，身份只要不冲突就保留（多世界常态） */
+const WORLD_INTEGRATION_CORE_NATIVE = `<world_setting>是这个角色所在世界的基本法则：自然环境、社会规则、常识与日常节奏都由它决定，角色的言行必须在这个框架内成立。
+角色的性格、说话方式与气质来自她本人；她的原设身份、职业、组织、地点与经历，凡与<world_setting>相容的照旧成立，不冲突的部分不需要重新解释。只有与<world_setting>明确冲突的部分，才按这个世界改写。
+<world_setting>没有写到的细节，按角色原本的来历补齐，不要凭空发明一个替代身份。不要解释她如何来到这里，也不要提及"原作""穿越""异世界"或设定冲突——她在这个世界里的处境是既成事实。`;
 
 // 公共开场白（各作用域尾句略有差异，如"创作/日程创作/推演"）
 const WORLD_INTEGRATION_PREAMBLE = `<world_setting>不是可有可无的背景说明——它是这个虚构世界的基本法则，定义了这个世界里什么是正常的、人与人之间如何互动、社会如何运转。`;
@@ -299,7 +313,7 @@ const WORLD_INTEGRATION_TASK_RULES = Object.freeze({
 1. 日程中的活动类型、地点、行为模式必须反映<world_setting>下的真实生活。角色的一天应该自然地带出这个世界特有的元素——街头景象、社交方式、工作内容、生活节奏。
 2. 角色的职业、作息、行为习惯的"正常"与"异常"，由<world_setting>定义。在这个世界里理所当然的事情，在现实世界可能不可思议——角色的日程应该自信地反映这种理所当然，不需要向读者解释。
 3. 不要把<world_setting>当成一段可以忽略的"前置说明"。它必须穿透到日程的每一个活动条目中。<world_setting>不是背景，是地基。
-4. 角色的职业、身份、组织、地点与经历全部由<world_setting>重新定义。`,
+4. 日程要落在她在这个世界的真实处境上：她的职业、常去的地方、与人的往来，按<world_setting>给出的社会规则安排；她原有的身份与经历就是这些安排的来由——不冲突时别另造一个身份。`,
 
   event: `${WORLD_INTEGRATION_PREAMBLE}以下所有创作必须在<world_setting>的框架内展开：
 
@@ -326,16 +340,21 @@ const WORLD_INTEGRATION_TASK_RULES = Object.freeze({
 });
 
 /**
- * 构建世界观最高优先级注入。
+ * 构建世界观注入块。
  * @param {'interaction'|'moments'|'momentReply'|'relationships'|'photo'|'schedule'|'event'|'eventConclusion'|'world_outfit'|'town_asset'} scope
+ * @param {{ mode?: 'native'|'reset' }} [opts]
+ *   `mode` 缺省 = `native`（多世界常态：身份不冲突就保留）。
+ *   只有「把角色扔进不属于她的世界并重造身份」时才传 `reset`（上游原口径）。
  * @returns {string}
  */
-export function getWorldIntegrationRule(scope = 'interaction') {
+export function getWorldIntegrationRule(scope = 'interaction', opts = {}) {
   const taskRule = WORLD_INTEGRATION_TASK_RULES[scope];
   if (!taskRule) throw new Error(`Unknown world integration scope: ${scope}`);
 
+  const core = opts && opts.mode === 'reset' ? WORLD_INTEGRATION_CORE_RESET : WORLD_INTEGRATION_CORE_NATIVE;
+
   return `<world_integration priority="highest">
-${WORLD_INTEGRATION_CORE}
+${core}
 
 ${taskRule}
 </world_integration>`;

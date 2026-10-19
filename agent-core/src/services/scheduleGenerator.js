@@ -644,8 +644,9 @@ async function generateScheduleImpl(character, direction, options = {}) {
     } catch { /* 取不到就不加这一段 */ }
   }
   // ★ 星图 T08：日程必须按**这个角色所在的世界**编排 ——
-  //   下面的人格段明说「职业/地点/组织一律作废，由 <world_setting> 重新定义」，
+  //   人格段与 worldview 规则都要求"身份与所在世界对齐"，
   //   若这里仍吃激活世界，角色被移到 B 世界后职业骨架会按 A 世界重写。
+  //   （2026-10-19 起口径改为 native：不冲突就照旧，只有世界明确不成立的部分才改写）
   const worldSetting = getWorldSetting(character?.id);
   const persona = cropPersonaForSchedule(character.base_prompt);
 
@@ -661,7 +662,7 @@ async function generateScheduleImpl(character, direction, options = {}) {
   // ── 角色人格（裁剪到外观之前）──
   const personaMsg = `${persona}
 
-以上人格只用于辨认角色的性格、说话习惯与气质。<world_setting>是最高优先级：人格中的身份、职业、组织、地点与经历属于角色原设，一律作废，不得沿用进日程；日程中的职业、地点、活动与作息必须由当前<world_setting>重新定义，日程编排必须和<world_setting>有强相关。`;
+以上人格用来确认她是谁：性格、说话习惯、气质，以及她的身份、职业、经历与人际关系。这些只要和<world_setting>相容，就照旧沿用——日程要长在她原本的处境上；只有<world_setting>里明确不成立的部分（这个世界没有的职业、组织或地点），才改写成这个世界里对应的存在。日程与<world_setting>的关联要落在具体的地点、作息和日常细节上。`;
 
   // ── 日程生成指令 ──
   const scheduleInst = `你是一个日程编排助手。在<world_setting>的影响下生成职业，基于角色的职业和人格，生成该角色典型一天的完整日程。
@@ -675,7 +676,7 @@ async function generateScheduleImpl(character, direction, options = {}) {
 - 赌场/博弈娱乐→坐庄、押注、追直播、结算
 - 学院行政/公司职员→通勤、工单、巡查、会议、归档
 - 其他谋生方式同理类推
-角色的原设职业若在<world_setting>里不存在（现实白领、古代武将等），改写成这个世界里对应的谋生方式。
+角色的原设职业若在<world_setting>里成立，就照原样落成日程；只有这个世界里根本没有对应物时（现实白领、古代武将等），才改写成这个世界里相近的谋生方式。
 
 ## 性是这个世界的日常（核心要求，必须执行）
 <world_setting>里，当众做爱、露出、手活、口活在街上、酒馆、广场、河堤、车里都是日常，跟吃饭一样平常。
