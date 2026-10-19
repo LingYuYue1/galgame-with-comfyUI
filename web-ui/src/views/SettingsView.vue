@@ -3635,7 +3635,7 @@ function resetTestPrompts() {
 .profile-delete-btn { padding: 4px 8px; min-width: unset; border: none; background: transparent; }
 .profile-delete-btn:hover { background: rgba(255, 77, 79, 0.08); }
 .profile-x { font-size: 14px; line-height: 1; color: var(--danger); }
-.profile-add { border-radius: 20px; border-style: dashed; color: var(--text-muted); }
+.profile-add { border-radius: 20px; border-style: dashed; color: var(--text-tertiary); }
 .profile-add:hover { border-color: var(--accent); color: var(--accent); }
 
 /* ── 测试画风 ── */

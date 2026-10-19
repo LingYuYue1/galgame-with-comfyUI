@@ -99,7 +99,7 @@ const emit = defineEmits(['close', 'retry', 'zoom', 'favorite'])
 .section-content { padding: 28px 32px; background: var(--media-paper); }
 .section-image { cursor: zoom-in; margin-bottom: 28px; }
 .section-image img { display: block; width: 100%; max-height: 440px; object-fit: contain; border: 2px solid var(--media-rule); }
-.section-image span { display: block; margin-top: 8px; color: var(--text-muted); font-size: 12px; }
+.section-image span { display: block; margin-top: 8px; color: var(--text-tertiary); font-size: 12px; }
 .section-status { padding: 32px 0; text-align: center; line-height: 1.8; }
 .section-status .cel-spin { display: inline-block; margin-right: 12px; }
 .section-status p { color: var(--text-secondary); }

@@ -260,7 +260,7 @@ async function removeImage() {
 .es-slot > .es-error { position:absolute; left:8px; right:8px; bottom:36px; max-height:40%; overflow:auto; margin:0; padding:8px; background:var(--modal-bg); border-radius:var(--radius-sm); }
 .es-name { font-weight:600; color:var(--text-primary); font-size:var(--fs-sm); }
 .es-status { color:var(--text-secondary); font-size:var(--fs-xs); }
-.es-empty { display:grid; gap:8px; justify-items:center; color:var(--text-muted); font-size:var(--fs-xs); }
+.es-empty { display:grid; gap:8px; justify-items:center; color:var(--text-tertiary); font-size:var(--fs-xs); }
 .es-empty > span { font-size:28px; font-weight:300; }
 .es-progress { margin:0; flex:1; min-width:120px; }
 .es-detail { flex:1; min-height:0; display:flex; flex-direction:column; gap:8px; }
