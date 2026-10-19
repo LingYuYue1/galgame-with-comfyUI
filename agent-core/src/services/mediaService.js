@@ -27,6 +27,7 @@ import { getDb, getSystemRules, getWorldSettingSample, sampleWorldSettings, getG
 // 媒体删除墓碑要落库（补种逻辑据此跳过"用户删过的"媒体）
 import { getSetting, setSetting } from '../db/settings.js';
 import { chatSync } from '../llm/llm-client.js';
+import { chatWithPreset } from './presets/narrative.js';
 import { generateImageRaw } from './imageSkill.js';
 import { saveBase64Image, deleteImageFileByUrl, getImageDir } from './imagePaths.js';
 import { invalidateGalleryCache } from './galleryCache.js';
@@ -759,7 +760,7 @@ export function listPostsNeedingImage(limit = 8, postIds = null) {
   //     否则媒体从 feed 改成 portal 后，它名下的**普通帖**也会被一并排除，永远配不上图。
   //     （回归测试 mediaOutletLayout.test.js「changing type moves old posts」钉住此行为。）
   return getDb().prepare(`
-    SELECT p.id, p.image_prompt, p.character_id, p.payload_json FROM media_posts p
+    SELECT p.id, p.image_prompt, p.character_id, p.payload_json, p.title, p.content FROM media_posts p
     LEFT JOIN media_outlets o ON o.id = p.outlet_id
     WHERE (p.image_status = 'pending' OR (p.published_seq IS NULL AND p.image_status = 'failed'))
       AND p.image_prompt IS NOT NULL AND p.image_prompt != ''
@@ -2234,7 +2235,7 @@ async function generateWeeklyIssue(outlet, manual = false) {
     { role: 'user', content: `请出《狸狸周刊》新的一期。上一期是 Vol.${prevVolume || '（尚无，本期为 Vol.1）'}，本期卷号用 ${prevVolume + 1}。\n\n必须是全新一期，不得重复往期的头条与栏目内容。` },
   ];
 
-  const raw = await chatSync(msgs, {
+  const raw = await chatWithPreset(msgs, {
     temperature: 0.9,
     response_format: { type: 'json_object' }, label: `media:${outlet.name}`,
   });
@@ -2395,7 +2396,7 @@ async function generatePosterIssue(outlet, manual = false) {
     { role: 'user', content: `请出《${outlet.name}》新的一期海报。上一期编号是 ${prevNo || '（尚无，本期为 01）'}，本期编号用 ${prevNo + 1}。\n\n必须是全新的瓜，不得重复往期。` },
   ];
 
-  const raw = await chatSync(msgs, {
+  const raw = await chatWithPreset(msgs, {
     temperature: 0.95,
     response_format: { type: 'json_object' }, label: `media:${outlet.name}`,
   });
@@ -2617,7 +2618,7 @@ async function generatePortalIssue(outlet, manual = false) {
     { role: 'user', content: `请出《${outlet.name}》新的一期。上一期是第 ${prevIssue || '（尚无，本期为第 1 期）'} 期，本期编号用 ${prevIssue + 1}。\n\n只出骨架，不要写正文。必须是全新一期。` },
   ];
 
-  const raw = await chatSync(msgs, {
+  const raw = await chatWithPreset(msgs, {
     // 只产骨架 → max_tokens 压到海报同档，出刊速度是本设计的核心收益，别给大预算
     temperature: 0.9,
     response_format: { type: 'json_object' }, label: `media:${outlet.name}`,
@@ -2692,7 +2693,7 @@ async function fillPortalImagesNow(limit, postIds = null, priority = 'low') {
       if (section.image || !section.image_prompt) continue;
       attempted++;
       try {
-        const result = await generateMediaImage(section.image_prompt, null, priority);
+        const result = await generateMediaImage(section.image_prompt, null, { priority, ragQuery: [section.name, section.lead].filter(Boolean).join('\n') });
         if (!result) continue;
         // 重新读一次 payload：生成期间可能有别的写入（如用户点了某块生成正文）
         const fresh = safeParse(db.prepare('SELECT payload_json FROM media_posts WHERE id = ?').get(row.id)?.payload_json, null);
@@ -2751,7 +2752,7 @@ export async function generatePortalSection(postId, sectionKey) {
   const outlet = db.prepare('SELECT * FROM media_outlets WHERE id = ?').get(row.outlet_id);
   const worldSetting = getWorldSettingSample();
 
-  const raw = await chatSync([
+  const raw = await chatWithPreset([
     { role: 'system', content: [getSystemRules({ roleplay: false }), worldSetting].filter(Boolean).join('\n\n') },
     { role: 'system', content: outlet?.prompt || '' },
     { role: 'system', content: buildSectionBodyPrompt(section.name, section.lead) },
@@ -3019,7 +3020,7 @@ export async function generateMediaBatch({ outletId = null, count = DEFAULT_BATC
       { role: 'user', content: buildMaterialsPrompt(outlet, boards, authors, n) },
     ];
 
-    const raw = await chatSync(msgs, {
+    const raw = await chatWithPreset(msgs, {
       temperature: 0.9,
       response_format: { type: 'json_object' },
       label: `media:${outlet.name}`,
@@ -3101,7 +3102,7 @@ async function generateMediaImage(prompt, character = null, opts = {}) {
   const h = Number(opts.height) > 0 ? Number(opts.height) : config.comfyui.momentsHeight;
   const neg = typeof opts.negative === 'string' && opts.negative.trim() ? opts.negative.trim() : null;
   const result = await generateImageRaw(prompt, {
-    ragQuery: prompt,
+    ragQuery: (typeof opts.ragQuery === 'string' && opts.ragQuery.trim()) ? opts.ragQuery : prompt,
     artist: finalArtist,
     width: w,
     height: h,
