@@ -280,10 +280,9 @@ ${eventRules}`;
         const userInfoMsg = `你正在和${userName}聊天，以下是${userName}的相关信息：\n${userInfoParts.filter(Boolean).join('，')}`;
 
         // 生成主动消息内容
-        const { chatSync } = await import('../llm/llm-client.js');
-        // ★ 星图 T08：奇遇紧急联络按该角色所在世界
+        const { chatWithPreset } = await import('./presets/narrative.js');
         const jailbreak = getSystemRulesWithWorld({ roleplay: true, characterId: event.character_id });
-        const greeting = await chatSync([
+        const greeting = await chatWithPreset([
           { role: 'system', content: jailbreak },
           { role: 'system', content: event.base_prompt },
           { role: 'system', content: userInfoMsg },

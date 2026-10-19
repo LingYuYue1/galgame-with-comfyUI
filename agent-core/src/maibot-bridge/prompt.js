@@ -2,7 +2,7 @@
  * maibot-bridge/prompt.js
  * 从上下文与 MaiBot 回复中提取生图 prompt（复用主聊天流 needImage 二次请求的思路）。
  */
-import { chatSync } from '../llm/llm-client.js';
+import { chatSync } from '../services/lorebook/runtime.js';
 import { IMAGE_PROMPT_RULE } from '../builtinRules.js';
 import { getTimeLightInline } from '../services/timeLight.js';
 import { buildCharacterPersona } from '../services/characterPersona.js';

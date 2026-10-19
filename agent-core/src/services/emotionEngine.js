@@ -28,9 +28,6 @@ const DECAY_MOOD = 0.98;
 const MOOD_WEIGHT = 0.4;
 const INSTANT_WEIGHT = 0.6;
 const MAX_INSTANT_SHIFT = 0.3;       // 单轮 VAD 最大偏移
-// 情绪评估的输出预算：该端点默认开思考，推理长度波动很大（实测 1.1k~5k tokens）。
-// 原值 200 必然被截断、正文为空，导致每轮都静默降级为零 delta。
-const EVALUATION_MAX_TOKENS = 8000;
 
 const DEFAULT_STATE = {
   valence: 0.5,
@@ -551,11 +548,11 @@ ${characterName}: "${cleanAssistant.slice(0, 500)}"
   try {
     const { content, finishReason } = await chatSync(
       [{ role: 'user', content: prompt }],
-      { temperature: 0.5, maxTokens: EVALUATION_MAX_TOKENS, response_format: { type: 'json_object' }, label: '情绪判断', returnMeta: true }
+      { temperature: 0.5, response_format: { type: 'json_object' }, maxTokens: EVALUATION_MAX_TOKENS, label: '情绪判断', returnMeta: true }
     );
     // 截断时正文为空，显式识别，避免与「JSON 格式错误」混成同一条日志
     if (finishReason === 'length') {
-      console.warn(`[emotionEngine] 情绪评估被 max_tokens(${EVALUATION_MAX_TOKENS}) 截断，本轮降级为零 delta`);
+      console.warn(`[emotionEngine] 情绪评估被服务端长度限制截断，本轮降级为零 delta`);
     }
     let raw = content.trim();
     if (raw.startsWith('```')) {
@@ -971,7 +968,7 @@ ${imageRulesText}
   try {
     const result = await chatSync(
       [{ role: 'user', content: reactionPrompt }],
-      { temperature: 0.7, thinking: { type: 'disabled' }, response_format: { type: 'json_object' }, label: '送礼反应' }
+      { temperature: 0.7, response_format: { type: 'json_object' }, thinking: { type: 'disabled' }, label: '送礼反应' }
     );
     let raw = result.trim();
     if (raw.startsWith('```')) raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
