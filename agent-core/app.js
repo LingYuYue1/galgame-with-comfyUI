@@ -112,8 +112,14 @@ app.use(express.static(PUBLIC_DIR, {
 app.use('/images/.pending', express.static(path.join(DATA_DIR, 'images', '.pending'), { dotfiles: 'allow', index: false, maxAge: '5m' }));
 
 // 图片存储目录（AVIF 自适应：请求 .png 时若同名 .avif 存在则返回 AVIF）
+// 图片可在原路径被覆盖：允许缓存内容，但复用前必须校验，避免前端切页/刷新丢失版本参数后显示旧图。
+// 放在 AVIF 回退之前，使 sendFile 和 static 共用策略；保留 ETag / Last-Modified，未变化时返回 304。
+app.use('/images', (_req, res, next) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  next();
+});
 app.use('/images', imageAvifFallback(path.join(DATA_DIR, 'images')));
-app.use('/images', express.static(path.join(DATA_DIR, 'images'), { maxAge: '7d' }));
+app.use('/images', express.static(path.join(DATA_DIR, 'images')));
 app.use('/avatars', express.static(path.join(DATA_DIR, 'avatars'), { maxAge: '30d' }));
 // 星图卡片封面（2026-10-18）：文件名带时间戳 → 可长缓存；换封面会换文件名，不会读到旧图
 app.use('/world-covers', express.static(path.join(DATA_DIR, 'world-covers'), { maxAge: '30d' }));
