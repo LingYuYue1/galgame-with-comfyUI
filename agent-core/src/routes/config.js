@@ -1,3 +1,4 @@
+import { validateNovelaiUrl } from '../services/novelaiClient.js';
 import { Router } from 'express';
 import fs from 'fs';
 import path from 'path';
@@ -5,6 +6,8 @@ import { fileURLToPath } from 'url';
 import { load as yamlLoad } from 'js-yaml';
 import { config, updateComfyConfig, getNovelaiApiKey, updateFeatureFlag, getLlmConfig, getLlmApiKey, updateLlmConfig, updateFreeEggEnabled, updateUserConfig, getUserConfig, updateProactiveFreq, updateEventFreq, updateMomentFreq, updateBackgroundConcurrency, updateDisturbMode, updateDisturbSettings, updateWorkflowMode, updateWorkflowScene, updateWorkflowCustomTemplate, getWorkflowConfig, getLlmProfiles, getActiveProfileId, addLlmProfile, deleteLlmProfile, activateLlmProfile, syncActiveLlmProfile, updateWeatherConfig, updateGlobalLora, updateHiresSettings, updateHiresLora, updateGroupSummaryInterval, updateGroupTemperature, updateGroupActivity, updateScheduleRefreshDays } from '../config.js';
 import { resetClient, chatSync, resetFreeEggFailureCount, testLlmConnection } from '../llm/llm-client.js';
+import { normalizeModelCapabilities } from '../llm/modelCapabilities.js';
+import { parseServiceAccount, getVertexAccessToken, listVertexModels } from '../llm/vertex-client.js';
 import { getDb, getSystemRules } from '../db/index.js';
 import { listWorldSettings, getActiveWorldSetting, getWorldSettingById, createWorldSetting, updateWorldSetting, deleteWorldSetting, activateWorldSetting, getWorldCacheStats } from '../db/index.js';
 import { DEFAULT_GLOBAL_RULES } from '../db/seedData.js';
@@ -83,6 +86,7 @@ router.get('/', (req, res) => {
       novelaiApiFormat: config.comfyui.novelaiApiFormat || 'relay',
       url: config.comfyui.url,
       novelaiUrl: config.comfyui.novelaiUrl,
+      novelaiProxyUrl: config.comfyui.novelaiProxyUrl,
       novelaiModel: config.comfyui.novelaiModel,
       novelaiArtist: config.comfyui.novelaiArtist ?? '',
       novelaiWidth: config.comfyui.novelaiWidth,
@@ -172,21 +176,18 @@ router.put('/group-summary-interval', (req, res) => {
 
 // PUT /api/config/comfy — 更新 ComfyUI 参数
 router.put('/comfy', (req, res) => {
-  const { artist, width, height, url, momentsArtist, momentsWidth, momentsHeight, eventArtist, eventWidth, eventHeight, tlsVerify, qualityPrompt, negativePrompt, imageProvider, novelaiApiFormat, novelaiUrl, novelaiModel, novelaiArtist, novelaiWidth, novelaiHeight, novelaiSteps, novelaiSampler, novelaiNoiseSchedule, novelaiGuidance, novelaiQualityPrompt, novelaiNegativePrompt, novelaiApiKey, clearNovelaiApiKey } = req.body;
-  if (novelaiApiFormat !== 'official' && novelaiUrl !== undefined && String(novelaiUrl).trim()) {
-    try {
-      const parsed = new URL(String(novelaiUrl));
-      if (!['https:', 'http:'].includes(parsed.protocol)) throw new Error('invalid protocol');
-    } catch {
-      return res.status(400).json({ error: 'NovelAI 地址必须是有效的 HTTP 或 HTTPS URL' });
-    }
-  }
-  updateComfyConfig({ artist, width, height, url, momentsArtist, momentsWidth, momentsHeight, eventArtist, eventWidth, eventHeight, tlsVerify, qualityPrompt, negativePrompt, imageProvider, novelaiApiFormat, novelaiUrl, novelaiModel, novelaiArtist, novelaiWidth, novelaiHeight, novelaiSteps, novelaiSampler, novelaiNoiseSchedule, novelaiGuidance, novelaiQualityPrompt, novelaiNegativePrompt, novelaiApiKey, clearNovelaiApiKey });
+  const { artist, width, height, url, momentsArtist, momentsWidth, momentsHeight, eventArtist, eventWidth, eventHeight, tlsVerify, qualityPrompt, negativePrompt, imageProvider, novelaiApiFormat, novelaiUrl, novelaiProxyUrl, novelaiModel, novelaiArtist, novelaiWidth, novelaiHeight, novelaiSteps, novelaiSampler, novelaiNoiseSchedule, novelaiGuidance, novelaiQualityPrompt, novelaiNegativePrompt, novelaiApiKey, clearNovelaiApiKey } = req.body;
+  try {
+    if (novelaiApiFormat !== undefined && !['official', 'native', 'relay'].includes(novelaiApiFormat)) throw new Error('NovelAI 接口协议无效');
+    if (novelaiUrl !== undefined && String(novelaiUrl).trim()) validateNovelaiUrl(novelaiUrl);
+    if (novelaiProxyUrl !== undefined && String(novelaiProxyUrl).trim()) validateNovelaiUrl(novelaiProxyUrl, '代理地址');
+  } catch (error) { return res.status(400).json({ error: error.message }); }
+  updateComfyConfig({ artist, width, height, url, momentsArtist, momentsWidth, momentsHeight, eventArtist, eventWidth, eventHeight, tlsVerify, qualityPrompt, negativePrompt, imageProvider, novelaiApiFormat, novelaiUrl, novelaiProxyUrl, novelaiModel, novelaiArtist, novelaiWidth, novelaiHeight, novelaiSteps, novelaiSampler, novelaiNoiseSchedule, novelaiGuidance, novelaiQualityPrompt, novelaiNegativePrompt, novelaiApiKey, clearNovelaiApiKey });
   // URL 或 TLS 设置变更后立即重启 ComfyUI 客户端连接（使新地址/证书策略立即生效）
   if (url !== undefined || tlsVerify !== undefined) {
     restartComfyClient();
   }
-  res.json({ ok: true, imageProvider: config.comfyui.imageProvider, novelaiApiFormat: config.comfyui.novelaiApiFormat, url: config.comfyui.url, novelaiUrl: config.comfyui.novelaiUrl, novelaiModel: config.comfyui.novelaiModel, novelaiArtist: config.comfyui.novelaiArtist, novelaiWidth: config.comfyui.novelaiWidth, novelaiHeight: config.comfyui.novelaiHeight, novelaiSteps: config.comfyui.novelaiSteps, novelaiSampler: config.comfyui.novelaiSampler, novelaiNoiseSchedule: config.comfyui.novelaiNoiseSchedule, novelaiGuidance: config.comfyui.novelaiGuidance, novelaiQualityPrompt: config.comfyui.novelaiQualityPrompt, novelaiNegativePrompt: config.comfyui.novelaiNegativePrompt, novelaiApiKeySet: Boolean(getNovelaiApiKey()) });
+  res.json({ ok: true, imageProvider: config.comfyui.imageProvider, novelaiApiFormat: config.comfyui.novelaiApiFormat, url: config.comfyui.url, novelaiUrl: config.comfyui.novelaiUrl, novelaiProxyUrl: config.comfyui.novelaiProxyUrl, novelaiModel: config.comfyui.novelaiModel, novelaiArtist: config.comfyui.novelaiArtist, novelaiWidth: config.comfyui.novelaiWidth, novelaiHeight: config.comfyui.novelaiHeight, novelaiSteps: config.comfyui.novelaiSteps, novelaiSampler: config.comfyui.novelaiSampler, novelaiNoiseSchedule: config.comfyui.novelaiNoiseSchedule, novelaiGuidance: config.comfyui.novelaiGuidance, novelaiQualityPrompt: config.comfyui.novelaiQualityPrompt, novelaiNegativePrompt: config.comfyui.novelaiNegativePrompt, novelaiApiKeySet: Boolean(getNovelaiApiKey()) });
 });
 
 // PUT /api/config/global-lora — 更新全局 LoRA
@@ -309,14 +310,13 @@ router.put('/background-llm-concurrency', (req, res) => {
 
 // PUT /api/config/llm — 更新 LLM 配置
 router.put('/llm', (req, res) => {
-  const { apiKey, baseURL, model, thinkingMode, headers, extraBody } = req.body;
-  const result = updateLlmConfig({ apiKey, baseURL, model, thinkingMode, headers, extraBody });
+  const result = updateLlmConfig(req.body);
   if (!result.ok) {
     return res.status(400).json(result);
   }
   resetClient();
 
-  const effectiveUrl = baseURL || config.llm.baseURL;
+  const effectiveUrl = config.llm.baseURL;
   if (effectiveUrl && PRESET_LLM_URLS.includes(effectiveUrl) && config.features.serializeBackgroundLLM) {
     updateFeatureFlag('serializeBackgroundLLM', false);
     console.log('[config] serializeBackgroundLLM auto-disabled (preset LLM selected)');
@@ -356,12 +356,27 @@ router.get('/llm/key', (req, res) => {
 
 // POST /api/config/llm/models — 从 OpenAI-compatible 接口获取可用模型
 // POST /api/config/llm/test — 使用当前或表单 LLM 配置测试一次最小对话请求
+router.post('/llm/vertex/validate', async (req, res) => {
+  try {
+    const account = parseServiceAccount(req.body?.vertexServiceAccount || config.llm.vertexServiceAccount);
+    await getVertexAccessToken(account, { signal: AbortSignal.timeout(15000) });
+    res.json({ ok: true, projectId: account.project_id, clientEmail: account.client_email });
+  } catch (error) {
+    res.status(error.status === 400 ? 400 : 502).json({ ok: false, error: error.message });
+  }
+});
+
 router.post('/llm/test', async (req, res) => {
   try {
     const result = await testLlmConnection({
+      connectionType: req.body?.connectionType ?? config.llm.connectionType,
+      vertexRegion: req.body?.vertexRegion ?? config.llm.vertexRegion,
+      vertexServiceAccount: req.body?.vertexServiceAccount || config.llm.vertexServiceAccount,
       baseURL: req.body?.baseURL || config.llm.baseURL,
       apiKey: req.body?.apiKey || config.llm.apiKey,
       model: req.body?.model || config.llm.model,
+      maxTokens: req.body?.maxTokens ?? config.llm.maxTokens,
+      thinkingMode: req.body?.thinkingMode ?? config.llm.thinkingMode,
       headers: req.body?.headers || config.llm.headers,
       extraBody: req.body?.extraBody || config.llm.extraBody,
     });
@@ -378,6 +393,14 @@ router.post('/llm/test', async (req, res) => {
 });
 
 router.post('/llm/models', async (req, res) => {
+  if ((req.body?.connectionType ?? config.llm.connectionType) === 'vertexai') {
+    try {
+      return res.json(await listVertexModels({
+        vertexServiceAccount: req.body?.vertexServiceAccount || config.llm.vertexServiceAccount,
+        vertexRegion: req.body?.vertexRegion ?? config.llm.vertexRegion,
+      }));
+    } catch (error) { return res.status(error.status === 400 ? 400 : 502).json({ error: error.message }); }
+  }
   const baseURL = String(req.body?.baseURL || config.llm.baseURL || '').trim().replace(/\/+$/, '');
   if (!baseURL) return res.status(400).json({ error: '请先填写 API 地址' });
 
@@ -427,7 +450,7 @@ router.post('/llm/models', async (req, res) => {
     if (!models.length) {
       return res.status(502).json({ error: '接口未返回可识别的模型列表' });
     }
-    res.json({ ok: true, models, endpoint: modelsURL.toString() });
+    res.json({ ok: true, models, capabilities: normalizeModelCapabilities(rows), endpoint: modelsURL.toString() });
   } catch (error) {
     const message = error?.name === 'TimeoutError' ? '请求超时' : error.message;
     res.status(502).json({ error: `获取模型失败：${message}` });
@@ -1272,7 +1295,7 @@ const systemPrompt = `你是一名资深的世界观设定师，擅长撰写「�
     msgs.push({ role: 'system', content: systemPrompt });
     msgs.push({ role: 'user', content: userPrompt });
 
-    const result = await chatSync(msgs, { model, temperature: 0.7, max_tokens: 4096, label: '世界观润色' });
+    const result = await chatSync(msgs, { model, temperature: 0.7, label: '世界观润色' });
 
     // 防御：剥离可能包裹输出的 Markdown 代码块
     let polished = (result || '').trim();

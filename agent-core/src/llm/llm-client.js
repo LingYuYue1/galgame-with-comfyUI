@@ -1,17 +1,20 @@
 import OpenAI from 'openai';
+import { createVertexClient, clearVertexTokenCache, vertexBaseURL } from './vertex-client.js';
 import { randomUUID } from 'node:crypto';
 import { config, updateFreeEggEnabled, FREE_EGG_MODELS } from '../config.js';
 import { compressLlmImageInputs } from '../services/llmImageInput.js';
 import { acquireSlot, releaseSlot } from '../services/llmConcurrency.js';
 import { recordLlmCall } from '../services/llmTelemetry.js';
+import { defaultMaxTokens, isValidMaxTokens } from './modelCapabilities.js';
 
 const _limitEnabled = () => config.features.serializeBackgroundLLM;
 
 function isDeepseek() {
-  return (config.llm.baseURL || '').includes('deepseek.com');
+  return config.llm.connectionType !== 'vertexai' && (config.llm.baseURL || '').includes('deepseek.com');
 }
 
 function providerLabel() {
+  if (config.llm.connectionType === 'vertexai') return 'Google Vertex AI';
   const url = config.llm.baseURL || '';
   try {
     return new URL(url).hostname;
@@ -25,6 +28,16 @@ function configuredThinking() {
   return { type: config.llm.thinkingMode === 'enabled' ? 'enabled' : 'disabled' };
 }
 
+// 统一使用设置页的输出额度，旧业务参数不再单独限制输出。
+// extraBody 可选择协议字段，但数值始终以 MAX_tokens 设置为准。
+function applyOutputTokenLimit(params, maxTokens = config.llm.maxTokens, baseURL = config.llm.baseURL) {
+  const field = Object.hasOwn(params, 'max_completion_tokens') ? 'max_completion_tokens' : 'max_tokens';
+  delete params.max_tokens;
+  delete params.max_completion_tokens;
+  delete params.max_output_tokens;
+  params[field] = isValidMaxTokens(maxTokens) ? maxTokens : defaultMaxTokens(baseURL, params.model);
+}
+
 // 模型输出日志上限：小镇相关日志（label 以「小镇」开头）完全输出，不截断
 function outputLogLimit(label) {
   const name = String(label || '');
@@ -32,10 +45,29 @@ function outputLogLimit(label) {
   return name.startsWith('schedule-gen:') ? 300 : 2000;
 }
 
+// 思考内容仅进入日志，不混入业务正文；完整打印，便于检查服务商实际返回的内容。
+function logReasoning(label, reasoning) {
+  console.log(`[${providerLabel()} ← ${label} 思考链]`);
+  console.log(reasoning || '(服务商未返回思考内容)');
+}
+
+function logResponse(label, content, reasoning) {
+  logReasoning(label, reasoning);
+  console.log(`[${providerLabel()} ← ${label} 正文]`);
+  const outputText = content || '';
+  const outputLimit = outputLogLimit(label);
+  console.log(outputLimit === Infinity ? outputText : outputText.slice(0, outputLimit));
+  if (outputLimit !== Infinity && outputText.length > outputLimit) console.log(`... (${outputText.length} chars total, truncated)`);
+}
+
 // 复用单个 OpenAI 客户端实例，避免每次调用都创建新的 HTTP Agent
 // 频繁创建 client 会实例化底层 undici 连接池，在高并发场景下浪费 FD 和内存
 let _client = null;
 function getClient() {
+  if (config.llm.connectionType === 'vertexai') {
+    if (!_client) _client = createVertexClient(config.llm);
+    return _client;
+  }
   if (!_client) {
     const opts = {
       baseURL: config.llm.baseURL,
@@ -61,6 +93,7 @@ function getClient() {
 
 export function resetClient() {
   _client = null;
+  clearVertexTokenCache();
 }
 
 // ── 免费鸡蛋模型轮换：按 deepseek → MiMo → Hy3 依次请求，每个模型只请求一次；
@@ -197,9 +230,10 @@ async function _chatSyncFreeEgg(messages, opts) {
  * @param {AbortSignal} opts.signal - 覆盖排队、退避、请求与免费模型切换；取消后不再重发
  * @param {number} opts.timeout - SDK 单次请求超时 ms（不含排队）；缺省沿用 SDK 默认
  * @param {number} opts.maxRetries - SDK 内部重试次数；与外层 retries 独立，缺省不变
- * @param {boolean} opts.returnMeta - true 时返回 { content, finishReason }（判断是否被 max_tokens 截断）；缺省仍只返回 content 字符串
+ * @param {boolean} opts.returnMeta - true 时返回 { content, finishReason }（判断是否被服务端长度限制截断）；缺省仍只返回 content 字符串
  * @param {boolean} opts.freeEggFailover - false 禁止免费模型轮换/回退自有端点，缺省保持旧行为
  * @param {boolean} opts.degradeRetry - false 关掉「空正文 + finish_reason=length」的降级重发（见 degradeEmptyLengthRetry），缺省开启
+ * @param {number}  opts.maxTokens    - 例外通道：覆盖全局额度（合并方案 §5-1 的白名单调用点用）
  * 单次请求用 { signal, timeout: 10000, retries: 0, maxRetries: 0, freeEggFailover: false }。
  */
 export async function chatSync(messages, opts = {}) {
@@ -229,21 +263,16 @@ export async function chatSync(messages, opts = {}) {
 }
 
 /**
- * ★ F-62（2026-10-16）：「空正文 + finish_reason=length」降级重发（全链路保险网）。
+ * ★ F-62（2026-10-16，本地保留）：「空正文 + finish_reason=length」降级重发（全链路保险网）。
  *
  * 病根：本机通道（opencode + deepseek-v4.1-flash、`LLM_THINKING_MODE=enabled`）下**推理 token
- * 计入 max_tokens**。调用方按「正文长度」设的 max_tokens（≤1536 的那批尤其）会被思考吃光，
- * 返回 `content=''` 且 `finish_reason='length'` —— 对调用方等同「模型没说话」：wakeService /
- * replyQueueScheduler 都直接 `throw new Error('Empty reply from LLM')`，peek 落到模板兜底
- * （F-60），日程生成被 F-58 单点修掉。
+ * 计入 max_tokens**。调用方按「正文长度」设的预算会被思考吃光，返回 `content=''` 且
+ * `finish_reason='length'` —— 对调用方等同「模型没说话」。
  *
- * 本函数给全链路兜一层网：既然明知病因是「推理吃光预算」、也明知解法是「关思考」，就自动
- * 关掉重发**一次**。只作用于「确实空正文」的响应 —— 正常返回零影响；重发失败则原样交回空
- * 结果，调用方既有兜底与错误语义完全不变。逃生阀：`opts.degradeRetry === false`。
- *
- * 与各调用点显式 `thinking: { type: 'disabled' }` 的关系：显式声明是**主修**（省掉这次白烧的
- * 调用与等待，短预算调用应一律显式声明），本函数是**保险**（覆盖 max_tokens 取自变量、
- * 未来新增调用点、以及临时把预算是高的情况）。
+ * v3.10 起上游把预算统一收到 `config.llm.maxTokens`（deepseek 档 32768），病根已结构性缓解；
+ * 但账不能只算在预算上：只要还开着思考、还可能被服务端截断，这层网就留着。
+ * 只作用于「确实空正文」的响应 —— 正常返回零影响；重发失败则原样交回空结果。
+ * 逃生阀：`opts.degradeRetry === false`。
  */
 async function degradeEmptyLengthRetry(messages, opts, result) {
   const empty = !String(result?.content ?? '').trim();
@@ -307,8 +336,9 @@ async function syncRetryDelay(ms, signal) {
  * 用当前或表单中的 LLM 配置发一次最小对话请求，用于设置页的连接测试。
  * 不修改全局 config，也不走免费鸡蛋/并发队列，避免影响真实聊天请求。
  */
-export async function testLlmConnection({ baseURL, apiKey, model, headers = {}, extraBody = {} } = {}) {
-  const effectiveBaseURL = String(baseURL || config.llm.baseURL || '').trim().replace(/\/+$/, '');
+export async function testLlmConnection({ baseURL, apiKey, model, maxTokens = config.llm.maxTokens, thinkingMode = config.llm.thinkingMode, headers = {}, extraBody = {}, connectionType = config.llm.connectionType, vertexServiceAccount = config.llm.vertexServiceAccount, vertexRegion = config.llm.vertexRegion } = {}) {
+  if (maxTokens !== undefined && !isValidMaxTokens(maxTokens)) throw Object.assign(new Error('MAX_tokens 必须为正整数'), { status: 400 });
+  const effectiveBaseURL = connectionType === 'vertexai' ? vertexBaseURL(vertexRegion) : String(baseURL || config.llm.baseURL || '').trim().replace(/\/+$/, '');
   if (!effectiveBaseURL) throw new Error('API 地址未配置');
   try {
     const parsed = new URL(effectiveBaseURL);
@@ -332,14 +362,17 @@ export async function testLlmConnection({ baseURL, apiKey, model, headers = {}, 
   if (!effectiveApiKey) {
     clientOptions.defaultHeaders = { Authorization: null, ...(clientOptions.defaultHeaders || {}) };
   }
-  const client = new OpenAI(clientOptions);
+  const client = connectionType === 'vertexai'
+    ? createVertexClient({ vertexServiceAccount, vertexRegion, headers: effectiveHeaders, timeout: 15000 })
+    : new OpenAI(clientOptions);
 
   const params = {
     model: effectiveModel,
     messages: [{ role: 'user', content: 'ping' }],
-    max_tokens: 8,
   };
+  if (thinkingMode !== 'omit') params.thinking = { type: thinkingMode === 'enabled' ? 'enabled' : 'disabled' };
   Object.assign(params, effectiveExtraBody);
+  applyOutputTokenLimit(params, maxTokens, effectiveBaseURL);
 
   const startedAt = Date.now();
   const response = await client.chat.completions.create(params);
@@ -372,7 +405,7 @@ function compressLogMessages(messages) {
   });
 }
 
-async function _chatSyncInner(messages, { model = config.llm.model || 'deepseek-flash', max_tokens = 2048, temperature = 0.7, response_format, thinking, label = 'sync', retries = 2, retryDelay = 1000, signal, timeout, maxRetries } = {}) {
+async function _chatSyncInner(messages, { model = config.llm.model || 'deepseek-flash', temperature = 0.7, maxTokens = config.llm.maxTokens, response_format, thinking, label = 'sync', retries = 2, retryDelay = 1000, signal, timeout, maxRetries } = {}) {
   throwIfSyncAborted(signal);
   if (config.features.mergeMessages) messages = mergeConsecutiveRoles(messages);
   const limited = _limitEnabled();
@@ -386,7 +419,6 @@ async function _chatSyncInner(messages, { model = config.llm.model || 'deepseek-
   const params = {
     model,
     messages,
-    max_tokens,
   };
   // temperature 为 null 时不发送（deepseek-reasoner 不支持此参数）
   if (temperature != null) {
@@ -406,6 +438,9 @@ async function _chatSyncInner(messages, { model = config.llm.model || 'deepseek-
   if (extraBody && Object.keys(extraBody).length > 0) {
     Object.assign(params, extraBody);
   }
+  // ★ 本地例外通道（合并方案 §5-1）：默认走全局额度，只有「短预算本身是业务语义」的
+  //   少数调用点才传 maxTokens 覆盖（额度判定见 applyOutputTokenLimit）。
+  applyOutputTokenLimit(params, maxTokens);
 
   // 日志打印时压缩 ANIMA3 模板内容，避免刷屏
   const logMsgs = compressLogMessages(messages);
@@ -434,15 +469,13 @@ async function _chatSyncInner(messages, { model = config.llm.model || 'deepseek-
       // 请求+响应一起输出，保证每次调用的日志是完整的原子块
       console.log(requestLog);
       console.log(`[${providerLabel()} ← ${label}]`);
-      const outputLimit = outputLogLimit(label);
-      const outputText = content || '';
-      console.log(outputLimit === Infinity ? outputText : outputText.slice(0, outputLimit));
+      logResponse(label, content, choice.message.reasoning_content);
       logUsage(label, res.usage);
       recordLlmCall(label, res.usage);
       console.log('═════════════════════════════════════════════\n');
 
-      // finish_reason 只在 opts.returnMeta 时回传：调用方用它判断输出是不是被 max_tokens 砍断
-      return { content, finishReason: choice.finish_reason ?? null };
+      // finish_reason 只在 opts.returnMeta 时回传：调用方用它判断输出是否被服务端长度限制截断
+      return { content, finishReason: choice.finish_reason ?? null, usage: res.usage ?? null, model: res.model ?? model };
     } catch (err) {
       throwIfSyncAborted(signal, err);
       lastError = err;
@@ -548,8 +581,8 @@ export async function* chatStream(messages, opts = {}) {
 
 async function* _chatStreamInner(messages, {
   model = config.llm.model || 'deepseek-flash',
-  max_tokens = 4096,
   temperature = 0.7,
+  maxTokens = config.llm.maxTokens,
   thinking,
   label = 'stream',
   signal, // AbortSignal：客户端断开时中止上游请求，避免空烧 token
@@ -557,6 +590,7 @@ async function* _chatStreamInner(messages, {
   if (config.features.mergeMessages) messages = mergeConsecutiveRoles(messages);
   if (_limitEnabled()) await acquireSlot();
   let total = '';
+  let reasoning = '';
 
   try {
     console.log(`\n══════════ [${providerLabel()} → ${label}] ══════════`);
@@ -568,7 +602,6 @@ async function* _chatStreamInner(messages, {
     const params = {
       model,
       messages,
-      max_tokens,
       temperature,
       stream: true,
     };
@@ -589,6 +622,7 @@ async function* _chatStreamInner(messages, {
     if (extraBody && Object.keys(extraBody).length > 0) {
       Object.assign(params, extraBody);
     }
+    applyOutputTokenLimit(params, maxTokens);
 
     const stream = await getClient().chat.completions.create(params, { signal });
 
@@ -602,7 +636,9 @@ async function* _chatStreamInner(messages, {
         break;
       }
       if (chunk.usage) usage = chunk.usage;
-      const delta = chunk.choices?.[0]?.delta?.content;
+      const messageDelta = chunk.choices?.[0]?.delta;
+      if (typeof messageDelta?.reasoning_content === 'string') reasoning += messageDelta.reasoning_content;
+      const delta = messageDelta?.content;
       if (delta) {
         total += delta;
         yield delta;
@@ -610,14 +646,12 @@ async function* _chatStreamInner(messages, {
     }
 
     console.log(`[${providerLabel()} ← ${label} end]`);
-    const outputText = total || '(empty)';
-    const outputLimit = outputLogLimit(label);
-    console.log(outputLimit === Infinity ? outputText : outputText.slice(0, outputLimit));
-    if (outputLimit !== Infinity && outputText.length > outputLimit) console.log(`... (${outputText.length} chars total, truncated)`);
+    logResponse(label, total || '(empty)', reasoning);
     logUsage(label, usage);
     recordLlmCall(label, usage);
     console.log('═══════════════════════════════════════════════\n');
   } catch (err) {
+    if (reasoning) logReasoning(`${label}（流中断，已收到的部分）`, reasoning);
     // 客户端主动中断不是错误，静默返回
     if (signal?.aborted || err.name === 'AbortError') {
       console.log(`[${providerLabel()} ← ${label}] aborted by client`);

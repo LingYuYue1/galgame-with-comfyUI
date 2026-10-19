@@ -1,10 +1,13 @@
 import dotenv from 'dotenv';
+import { normalizeNovelaiFormat, normalizeNovelaiKey } from './services/novelaiClient.js';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 // 设置读写走独立的 db/settings 模块（不经过 db/index.js，避免形成 config ↔ db 循环依赖）
 import { setSetting, getSetting } from './db/settings.js';
 import { notifyWeatherSourceChange } from './services/weatherSource.js';
+import { defaultMaxTokens, isValidMaxTokens } from './llm/modelCapabilities.js';
+import { parseServiceAccount, normalizeVertexRegion } from './llm/vertex-client.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const envPath = resolve(__dirname, '..', '.env');
@@ -61,6 +64,11 @@ export const config = {
   dbPath: resolveDbPath(),
   llm: {
     provider: process.env.LLM_PROVIDER || 'deepseek',
+    _connectionType: 'openai',
+    vertexRegion: 'global',
+    vertexServiceAccount: '',
+    get connectionType() { return this.freeEgg ? 'openai' : this._connectionType; },
+    set connectionType(v) { this._connectionType = v; },
     // 每日免费鸡蛋开关（仅内存，不做持久化：重启后默认关闭）。
     // 开启后通过下方 getter 覆盖生效值：免 Key 走免费端点 + 强制关闭思考；
     // 用户自有的 Key/地址/模型保存在 _* 字段中，关闭开关即原样恢复。
@@ -68,6 +76,7 @@ export const config = {
     _apiKey: process.env.LLM_API_KEY || process.env.DEEPSEEK_API_KEY,
     _baseURL: process.env.LLM_BASE_URL || process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com',
     _model: process.env.LLM_MODEL || 'deepseek-flash',
+    _maxTokens: isValidMaxTokens(Number(process.env.LLM_MAX_TOKENS)) ? Number(process.env.LLM_MAX_TOKENS) : null,
     _thinkingMode: ['enabled', 'disabled', 'omit'].includes(process.env.LLM_THINKING_MODE)
       ? process.env.LLM_THINKING_MODE
       : 'disabled',
@@ -79,6 +88,8 @@ export const config = {
     set baseURL(v) { this._baseURL = v; },
     get model() { return this.freeEgg ? FREE_EGG_MODEL : this._model; },
     set model(v) { this._model = v; },
+    get maxTokens() { return this.freeEgg ? defaultMaxTokens(this.baseURL, this.model) : (this._maxTokens ?? defaultMaxTokens(this.baseURL, this.model)); },
+    set maxTokens(v) { this._maxTokens = v; },
     get thinkingMode() { return this.freeEgg ? 'disabled' : this._thinkingMode; },
     set thinkingMode(v) { this._thinkingMode = v; },
     get headers() { return this.freeEgg ? {} : this._headers; },
@@ -95,8 +106,9 @@ defaultTimeoutMs: parseInt(process.env.VECTOR_DEFAULT_TIMEOUT_MS, 10) || 120000,
   comfyui: {
     imageProvider: 'comfyui',
     url: (process.env.COMFYUI_URL || 'http://localhost:8188').replace(/\/+$/, ''),
-    novelaiApiFormat: process.env.NOVELAI_API_FORMAT === 'official' ? 'official' : 'relay',
+    novelaiApiFormat: normalizeNovelaiFormat(process.env.NOVELAI_API_FORMAT),
     novelaiUrl: (process.env.NOVELAI_URL || '').replace(/\/+$/, ''),
+    novelaiProxyUrl: process.env.NOVELAI_PROXY_URL || '',
     novelaiModel: process.env.NOVELAI_MODEL || 'nai-diffusion-4-5-full',
     novelaiArtist: process.env.NOVELAI_ARTIST || '@ebora',
     novelaiWidth: parseInt(process.env.NOVELAI_WIDTH, 10) || 1216,
@@ -454,16 +466,20 @@ export function getNovelaiApiKey() {
   catch { return process.env.NOVELAI_API_KEY || ''; }
 }
 
-export function updateComfyConfig({ artist, width, height, url, momentsArtist, momentsWidth, momentsHeight, eventArtist, eventWidth, eventHeight, tlsVerify, qualityPrompt, negativePrompt, imageProvider, novelaiApiFormat, novelaiUrl, novelaiModel, novelaiArtist, novelaiWidth, novelaiHeight, novelaiSteps, novelaiSampler, novelaiNoiseSchedule, novelaiGuidance, novelaiQualityPrompt, novelaiNegativePrompt, novelaiApiKey, clearNovelaiApiKey }) {
+export function updateComfyConfig({ artist, width, height, url, momentsArtist, momentsWidth, momentsHeight, eventArtist, eventWidth, eventHeight, tlsVerify, qualityPrompt, negativePrompt, imageProvider, novelaiApiFormat, novelaiUrl, novelaiProxyUrl, novelaiModel, novelaiArtist, novelaiWidth, novelaiHeight, novelaiSteps, novelaiSampler, novelaiNoiseSchedule, novelaiGuidance, novelaiQualityPrompt, novelaiNegativePrompt, novelaiApiKey, clearNovelaiApiKey }) {
   if (imageProvider !== undefined) {
     const provider = imageProvider === 'novelai' ? 'novelai' : 'comfyui';
     config.comfyui.imageProvider = provider;
     persistSettingSync('image_provider', provider);
   }
   if (novelaiApiFormat !== undefined) {
-    const value = novelaiApiFormat === 'official' ? 'official' : 'relay';
+    const value = normalizeNovelaiFormat(novelaiApiFormat);
     config.comfyui.novelaiApiFormat = value;
     persistSettingSync('novelai_api_format', value);
+  }
+  if (novelaiProxyUrl !== undefined) {
+    config.comfyui.novelaiProxyUrl = String(novelaiProxyUrl).trim();
+    persistSettingSync('novelai_proxy_url', config.comfyui.novelaiProxyUrl);
   }
   if (novelaiUrl !== undefined) {
     const value = String(novelaiUrl).trim().replace(/\/+$/, '');
@@ -528,7 +544,7 @@ export function updateComfyConfig({ artist, width, height, url, momentsArtist, m
     persistSettingSync('novelai_negative_prompt', value);
   }
   if (novelaiApiKey !== undefined) {
-    persistSettingSync('novelai_api_key', String(novelaiApiKey).trim());
+    persistSettingSync('novelai_api_key', normalizeNovelaiKey(novelaiApiKey));
   } else if (clearNovelaiApiKey === true) {
     persistSettingSync('novelai_api_key', '');
   }
@@ -818,13 +834,17 @@ export function getLlmConfig() {
   const preview = !key ? '' : (key.length <= 12 ? '***' : `${key.slice(0, 5)}...${key.slice(-4)}`);
   return {
     provider: config.llm.provider,
+    connectionType: config.llm.connectionType,
+    vertexRegion: config.llm.vertexRegion,
+    hasVertexServiceAccount: Boolean(config.llm.vertexServiceAccount),
     freeEgg,
     // 免费鸡蛋模式下无需 Key 即可用，视为已配置，避免前端"未设置 Key"横幅误报
-    hasApiKey: freeEgg ? true : !!key,
+    hasApiKey: freeEgg ? true : config.llm.connectionType === 'vertexai' ? Boolean(config.llm.vertexServiceAccount) : !!key,
     preview,
     baseURL: config.llm.baseURL,
     model: config.llm.model,
     thinkingMode: config.llm.thinkingMode || 'disabled',
+    maxTokens: config.llm.maxTokens,
     headers: config.llm.headers || {},
     extraBody: config.llm.extraBody || {},
   };
@@ -842,11 +862,29 @@ export function updateFreeEggEnabled(enabled) {
   return { ok: true };
 }
 
-export function updateLlmConfig({ apiKey, baseURL, model, thinkingMode, headers, extraBody }) {
-  if (apiKey !== undefined) {
-    if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
-      return { ok: false, error: 'API Key cannot be empty' };
+export function updateLlmConfig({ apiKey, baseURL, model, thinkingMode, maxTokens, headers, extraBody, connectionType, vertexRegion, vertexServiceAccount }) {
+  // Validate all new fields before persisting anything; blank JSON means retain the saved secret.
+  try {
+    if (connectionType !== undefined && !['openai', 'vertexai'].includes(connectionType)) throw new Error('不支持的 LLM 接入方式');
+    if (vertexRegion !== undefined) vertexRegion = normalizeVertexRegion(vertexRegion);
+    if (vertexServiceAccount !== undefined && vertexServiceAccount !== '') vertexServiceAccount = JSON.stringify(parseServiceAccount(vertexServiceAccount));
+    for (const [name, raw] of [['headers', headers], ['extraBody', extraBody]]) {
+      if (raw === undefined) continue;
+      const value = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${name} 必须是 JSON 对象`);
+      if (name === 'headers') headers = value;
+      else extraBody = value;
     }
+  } catch (error) { return { ok: false, error: error.message }; }
+  if (maxTokens !== undefined && !isValidMaxTokens(maxTokens)) {
+    return { ok: false, error: 'MAX_tokens 必须为正整数' };
+  }
+  if (thinkingMode !== undefined && !['enabled', 'disabled', 'omit'].includes(thinkingMode)) return { ok: false, error: 'thinkingMode must be enabled, disabled, or omit' };
+  if (apiKey !== undefined && (typeof apiKey !== 'string' || !apiKey.trim())) return { ok: false, error: 'API Key cannot be empty' };
+  if (connectionType !== undefined) { config.llm.connectionType = connectionType; setSetting('llm_connection_type', connectionType); }
+  if (vertexRegion !== undefined) { config.llm.vertexRegion = vertexRegion; setSetting('llm_vertex_region', vertexRegion); }
+  if (vertexServiceAccount) { config.llm.vertexServiceAccount = vertexServiceAccount; setSetting('llm_vertex_service_account', vertexServiceAccount); }
+  if (apiKey !== undefined) {
     config.llm.apiKey = apiKey.trim();
     persistEnv('LLM_API_KEY', config.llm.apiKey);
   }
@@ -859,11 +897,12 @@ export function updateLlmConfig({ apiKey, baseURL, model, thinkingMode, headers,
     persistEnv('LLM_MODEL', model);
   }
   if (thinkingMode !== undefined) {
-    if (!['enabled', 'disabled', 'omit'].includes(thinkingMode)) {
-      return { ok: false, error: 'thinkingMode must be enabled, disabled, or omit' };
-    }
     config.llm.thinkingMode = thinkingMode;
     persistEnv('LLM_THINKING_MODE', thinkingMode);
+  }
+  if (maxTokens !== undefined || baseURL !== undefined || model !== undefined) {
+    config.llm.maxTokens = maxTokens ?? defaultMaxTokens(config.llm.connectionType === 'vertexai' ? '' : config.llm.baseURL, config.llm.model);
+    persistEnv('LLM_MAX_TOKENS', String(config.llm.maxTokens));
   }
   if (headers !== undefined) {
     config.llm.headers = typeof headers === 'string' ? JSON.parse(headers) : headers;
@@ -1033,6 +1072,8 @@ export function getLlmProfiles() {
     id: p.id,
     name: p.name,
     ...maskApiKey(p.apiKey),
+    connectionType: p.connectionType || 'openai',
+    hasVertexServiceAccount: Boolean(p.vertexServiceAccount),
     baseURL: p.baseURL || '',
     model: p.model || '',
     createdAt: p.createdAt || '',
@@ -1051,9 +1092,13 @@ export function addLlmProfile(name, overrides = {}) {
     id,
     name: name.trim(),
     apiKey: overrides.apiKey !== undefined ? overrides.apiKey : '',
+    connectionType: overrides.connectionType ?? config.llm.connectionType,
+    vertexRegion: overrides.vertexRegion ?? config.llm.vertexRegion,
+    vertexServiceAccount: '', // New snapshots never copy secrets; save credentials after activation.
     baseURL: overrides.baseURL !== undefined ? overrides.baseURL : (config.llm.baseURL || 'https://api.deepseek.com'),
     model: overrides.model !== undefined ? overrides.model : (config.llm.model || 'deepseek-flash'),
     thinkingMode: overrides.thinkingMode !== undefined ? overrides.thinkingMode : (config.llm.thinkingMode || 'disabled'),
+    maxTokens: isValidMaxTokens(overrides.maxTokens) ? overrides.maxTokens : (overrides.baseURL !== undefined || overrides.model !== undefined ? defaultMaxTokens(overrides.baseURL ?? config.llm.baseURL, overrides.model ?? config.llm.model) : config.llm.maxTokens),
     headers: overrides.headers !== undefined ? overrides.headers : (config.llm.headers || {}),
     extraBody: overrides.extraBody !== undefined ? overrides.extraBody : (config.llm.extraBody || {}),
     serializeBackgroundLLM: overrides.serializeBackgroundLLM !== undefined ? overrides.serializeBackgroundLLM : (config.features.serializeBackgroundLLM || false),
@@ -1063,7 +1108,8 @@ export function addLlmProfile(name, overrides = {}) {
   };
   profiles.push(profile);
   writeProfilesToDb(profiles);
-  return { ok: true, profile: { ...profile, ...maskApiKey(profile.apiKey) } };
+  const { apiKey: _apiKey, vertexServiceAccount: _account, ...publicProfile } = profile;
+  return { ok: true, profile: { ...publicProfile, ...maskApiKey(profile.apiKey) } };
 }
 
 export function deleteLlmProfile(id) {
@@ -1088,6 +1134,12 @@ export function deleteLlmProfile(id) {
 }
 
 function _applyProfileToConfig(profile) {
+  config.llm.connectionType = profile.connectionType === 'vertexai' ? 'vertexai' : 'openai';
+  config.llm.vertexRegion = profile.vertexRegion || 'global';
+  config.llm.vertexServiceAccount = profile.vertexServiceAccount || '';
+  setSetting('llm_connection_type', config.llm._connectionType);
+  setSetting('llm_vertex_region', config.llm.vertexRegion);
+  setSetting('llm_vertex_service_account', config.llm.vertexServiceAccount);
   config.llm.apiKey = profile.apiKey || '';
   persistEnv('LLM_API_KEY', config.llm.apiKey);
   if (profile.baseURL !== undefined) {
@@ -1102,6 +1154,8 @@ function _applyProfileToConfig(profile) {
     ? profile.thinkingMode
     : 'disabled';
   persistEnv('LLM_THINKING_MODE', config.llm.thinkingMode);
+  config.llm.maxTokens = isValidMaxTokens(profile.maxTokens) ? profile.maxTokens : defaultMaxTokens(config.llm.baseURL, config.llm.model);
+  persistEnv('LLM_MAX_TOKENS', String(config.llm.maxTokens));
   config.llm.headers = profile.headers || {};
   persistEnv('LLM_HEADERS', JSON.stringify(config.llm.headers));
   config.llm.extraBody = profile.extraBody || {};
@@ -1139,10 +1193,14 @@ export function syncActiveLlmProfile() {
   if (idx === -1) return;
   profiles[idx] = {
     ...profiles[idx],
+    connectionType: config.llm._connectionType,
+    vertexRegion: config.llm.vertexRegion,
+    vertexServiceAccount: config.llm.vertexServiceAccount,
     apiKey: config.llm.apiKey || '',
     baseURL: config.llm.baseURL || '',
     model: config.llm.model || '',
     thinkingMode: config.llm.thinkingMode || 'disabled',
+    maxTokens: config.llm.maxTokens,
     headers: config.llm.headers || {},
     extraBody: config.llm.extraBody || {},
     serializeBackgroundLLM: config.features.serializeBackgroundLLM || false,
