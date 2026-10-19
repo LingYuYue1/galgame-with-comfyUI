@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import { getDb, getSystemRules, getSystemRulesWithWorld, getWorldSetting, getWorldSettingById, getGlobalRule, getSetting, setSetting, repairFtsIndex, invalidateWorldCache } from '../db/index.js';
 import { listAppearanceTraitCatalog } from '../db/imagePromptTagKnowledgeData.js';
 import { normalizeTransitMode, TRANSIT_MODES } from '../services/characterTransitMode.js';
-import { chatSync } from '../llm/llm-client.js';
+import { chatSync } from '../services/lorebook/runtime.js';
 import { config } from '../config.js';
 import { searchCharacterInfo } from '../services/webSearch.js'; // 出站已白名单化（见 webSearch.js assertAllowedOutboundUrl / toSafeMoegirlScrapeUrl）
 import { clearImageJudgeCounter } from './chat.js';
@@ -1859,6 +1859,31 @@ router.get('/:id/standings', (req, res) => {
   // scenes 与 standings 同口径（四套，不含「全身」）—— 前端按它渲染切换器标签
   res.json({ scenes: STANDING_SCENES, standings: listSceneStandings(char.id) });
 });
+
+async function generateSceneStandingPrompt(char, scene, requirement, mode, prompt = '') {
+  // 复用已有提示词（「再次 Roll 图」）：跳过 LLM，直接出图
+  let promptText = typeof prompt === 'string' ? prompt.trim() : '';
+  if (promptText.length < 10) {
+    const model = config.llm.model || 'deepseek-chat';
+    console.log(`[scene-standing] generating "${scene}" standing for "${char.display_name}"...`);
+    const llmResult = await chatSync(buildStandingMessages(char, requirement, mode, scene), {
+      model,
+      temperature: 0.7,
+      label: '生成角色形象',
+    });
+    promptText = llmResult.trim()
+      .replace(/^```(?:[a-z]+)?\s*/i, '')
+      .replace(/\s*```$/i, '')
+      .replace(/^["'`]+|["'`]+$/g, '')
+      .trim();
+    if (!promptText || promptText.length < 10) {
+      throw new Error('LLM 生成的提示词不完整，请重试');
+    }
+  }
+
+  return promptText;
+}
+
 
 // POST /api/characters/:id/standings/generate — 生成指定场景立绘 Body: { scene, requirement? }
 router.post('/:id/standings/generate', async (req, res) => {

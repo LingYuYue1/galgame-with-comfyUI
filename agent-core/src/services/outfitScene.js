@@ -24,7 +24,7 @@
 
 import { getDb, getSystemRules, getWorldSetting } from '../db/index.js';
 import { getLocalDateKey } from '../utils/localDate.js';
-import { chatSync } from '../llm/llm-client.js';
+import { chatSync } from './lorebook/runtime.js';
 import { config } from '../config.js';
 
 /**
@@ -500,8 +500,7 @@ export async function generateSceneOutfits(character, opts = {}) {
 
   const model = config.llm.model || 'deepseek-chat';
   const raw = await chatSync(msgs, {
-    model, temperature: 0.8,
-    response_format: { type: 'json_object' }, label: '场景服装生成',
+    model: config.llm.model || 'deepseek-chat', temperature: 0.8, response_format: { type: 'json_object' }, label: '场景服装生成',
   });
 
   let parsed;

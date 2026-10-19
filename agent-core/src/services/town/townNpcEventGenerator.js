@@ -8,7 +8,7 @@
  */
 
 import { getDb, getSystemRules, getSystemRulesWithWorld, getWorldSetting, getGlobalRule } from '../../db/index.js';
-import { chatSync as defaultChatSync } from '../../llm/llm-client.js';
+import { chatWithPreset } from '../presets/narrative.js';
 import { generateImageRaw as defaultGenerateImageRaw } from '../imageSkill.js';
 import { recordCompletedImageTask } from '../imageTaskRecorder.js';
 import { saveBase64Image } from '../imagePaths.js';
@@ -163,7 +163,7 @@ export async function generateTownNpcEvent(npc, options = {}) {
   if (options.manual !== true) throw new Error('NPC_EVENT_REQUIRES_PLAYER_ACTION');
   const db = getDb();
   const now = new Date();
-  const chatSync = options.llm?.chatSync || defaultChatSync;
+  const chatSync = options.llm?.chatSync || chatWithPreset;
   const generateImageRaw = options.image?.generateImageRaw || defaultGenerateImageRaw;
 
   // 1. 并发保护：每位镇民同时最多一个活跃奇遇（唯一索引兜底）
@@ -274,7 +274,7 @@ ${timeTag}${locationLine}
   for (let attempt = 0; attempt < 2 && !eventData; attempt++) {
     let rawResult = '';
     try {
-      rawResult = await chatSync(msgs, { temperature: 0.7, response_format: { type: 'json_object' }, label: '镇民奇遇生成' });
+      rawResult = await chatSync(msgs, { temperature: 0.7, response_format: { type: 'json_object' }, label: '镇民奇遇生成', lorebook:{personaTexts:[personaMsg],characterName:displayName} });
       const jsonStr = extractFirstJson(rawResult);
       if (!jsonStr) throw new Error('No JSON found in LLM response');
       eventData = JSON.parse(repairJson(jsonStr));
@@ -418,7 +418,7 @@ ${timeTag}${locationLine}
 export async function generateTownNpcNextBranch(npc, event, choice, deps = {}) {
   const db = getDb();
   const now = new Date();
-  const chatSync = deps.llm?.chatSync || defaultChatSync;
+  const chatSync = deps.llm?.chatSync || chatWithPreset;
   const generateImageRaw = deps.image?.generateImageRaw || defaultGenerateImageRaw;
   const branchTimeExtensionMinutes = 5;
   const branchTimeExtensionWindowMs = 15 * 60 * 1000;
@@ -523,7 +523,7 @@ ${npcPersonaBlock(npc, playerName, playerAppearance)}` },
     for (let attempt = 1; attempt <= MAX_BRANCH_ATTEMPTS; attempt++) {
       rawBranchResult = '';
       try {
-      rawBranchResult = await chatSync(msgs, { temperature: 0.7, response_format: { type: 'json_object' }, label: '镇民奇遇分支' });
+      rawBranchResult = await chatSync(msgs, { temperature: 0.7, response_format: { type: 'json_object' }, label: '镇民奇遇分支', lorebook:{personaTexts:[msgs.at(-2).content],characterName:displayName} });
       const jsonStr = extractFirstJson(rawBranchResult);
       if (!jsonStr) throw new Error('No JSON found in LLM response');
       const parsed = JSON.parse(repairJson(jsonStr));
@@ -678,7 +678,7 @@ function archiveNpcEvent(npc, event, outcome, conclusionData) {
  */
 export async function concludeTownNpcEvent(npc, event, outcome, deps = {}) {
   const db = getDb();
-  const chatSync = deps.llm?.chatSync || defaultChatSync;
+  const chatSync = deps.llm?.chatSync || chatWithPreset;
   console.log(`[townNpcEventGen] Concluding event "${event.title}" for ${npc.display_name} (engaged=${event.engaged}, outcome=${outcome})`);
 
   const worldSetting = getWorldSetting();
@@ -717,7 +717,7 @@ ${historyText}
 
   let conclusionData;
   try {
-    const result = await chatSync(msgs, { temperature: 0.7, thinking: { type: 'disabled' }, response_format: { type: 'json_object' }, label: '镇民奇遇结局' });
+    const result = await chatSync(msgs, { temperature: 0.7, response_format: { type: 'json_object' }, thinking: { type: 'disabled' }, label: '镇民奇遇结局', lorebook:{personaTexts:[msgs.at(-2).content],characterName:displayName} });
     const jsonStr = extractFirstJson(result);
     if (!jsonStr) throw new Error('No JSON found');
     conclusionData = JSON.parse(repairJson(jsonStr));
