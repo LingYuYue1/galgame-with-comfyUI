@@ -42,6 +42,9 @@ import { migrateCharacterReactionPacksSchema } from './characterReactionPackSche
 import { migrateCharacterDiarySchema } from './diarySchema.js';
 import { migrateMediaAvatarLibrary } from './mediaAvatarSchema.js';
 import { migrateMediaFavorites } from './mediaFavorites.js';
+// 上游 v3.10.0：酒馆世界书 / 预设（星图口径见合并方案 §4-④：世界书＝资料层）
+import { migrateLorebooks } from './lorebookRepository.js';
+import { migratePresets } from './presetRepository.js';
 
 let db;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1209,6 +1212,12 @@ function initSchema(db) {
   migrateCharacterReactionPacksSchema(db);
   // 迁移: 角色日记（每角色每日一篇，同日覆盖、历史保留）
   migrateCharacterDiarySchema(db);
+
+  // 迁移: 酒馆世界书 / 预设（v3.10.0）
+  //   · world_lorebooks 按 world_id 存一本，世界删了跟着删（ON DELETE CASCADE）；
+  //   · 建表放在 world_settings 之后即可 —— 它是外键依赖，不是逻辑依赖。
+  migrateLorebooks(db);
+  migratePresets(db);
 
   // 迁移: 宝箱橱窗（loot_catalog 商品清单 + loot_offers 当前橱窗）
   migrateLootCatalogSchema(db);

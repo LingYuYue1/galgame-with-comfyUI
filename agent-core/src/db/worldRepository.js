@@ -195,18 +195,26 @@ const FRAMEWORK_MERGE_HINT = [
   '按「开头」与「正文」的关系连着读，不要当成两套互相并列的世界。',
 ].join('');
 
+/**
+ * 防打扰模式下「此刻是否要隐藏世界观」。
+ *
+ * 2026-10-19 从 `getWorldSetting()` 里抽出来（合并 v3.10 需要：上游
+ * `services/lorebook/runtime.js` 直接 import 这个函数）。抽取是纯重构，
+ * 判据与原来逐字一致，`getWorldSetting` 改为调用本函数。
+ *
+ * ⚠ 这一层**不进缓存**：它随「当前时刻」变化（同一角色白天有世界、夜里没有），
+ *   进缓存就得给"时间段"再造一套失效逻辑，得不偿失。它只是两次 Date 比较，很便宜。
+ */
+export function isWorldSettingHidden(now = new Date()) {
+  if (!config.features.disturbMode || !config.disturb.hideWorld) return false;
+  if (!isInDisturbTimeRange(now, config.disturb.startTime, config.disturb.endTime)) return false;
+  if (config.disturb.skipWeekends && (now.getDay() === 0 || now.getDay() === 6)) return false;
+  return true;
+}
+
 export function getWorldSetting(characterId = null) {
   // 防打扰隐藏世界观：不改 DB，仅在 prompt 构建时返回 null
-  // ⚠ 这一层**不进缓存**：它随「当前时刻」变化（同一角色白天有世界、夜里没有），
-  //   进缓存就得给"时间段"再造一套失效逻辑，得不偿失。它只是两次 Date 比较，很便宜。
-  if (config.features.disturbMode && config.disturb.hideWorld) {
-    const now = new Date();
-    if (isInDisturbTimeRange(now, config.disturb.startTime, config.disturb.endTime)) {
-      if (!config.disturb.skipWeekends || (now.getDay() !== 0 && now.getDay() !== 6)) {
-        return null;
-      }
-    }
-  }
+  if (isWorldSettingHidden()) return null;
 
   // ★ 星图 T13：进程内 memo（命中直接返回，未命中重建后回填）
   //   失效靠 `worldCacheSignal` 的代数 + 3 秒 TTL 双保险：

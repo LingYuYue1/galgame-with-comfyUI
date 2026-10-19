@@ -6,6 +6,15 @@ import { prepareLorebook } from '../services/lorebook/runtime.js';
 import { probeLorebookCache } from '../services/lorebook/cacheProbe.js';
 
 const router = express.Router();
+
+/**
+ * 挂载点必须显式写死。
+ * 上游在 app.js 里手写 `app.use('/api/config', lorebookRoutes)`；
+ * 本地是约定式自动挂载（文件名 → /api/<kebab>），不写这行会被挂到
+ * `/api/lorebooks`，前端全部 404。见合并方案 §4-①。
+ */
+export const mount = '/api/config';
+
 const repository = () => createLorebookRepository(getDb());
 router.param('worldId', (req,res,next,value) => {
   const id = Number(value);

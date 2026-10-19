@@ -4,17 +4,51 @@ import { runLorebookTask } from './workerClient.js';
 import { classifyCacheEntry } from './cachePolicy.js';
 import * as builtinRules from '../../builtinRules.js';
 
+/**
+ * 世界书运行时（上游 v3.10.0 引入）
+ *
+ * ★ 本地改造（2026-10-19，合并方案 §2.5 S2.3）——「星图优先」的落地点：
+ *   上游取世界用的是 `getActiveWorldSetting()`。但本地在 v3.10 之前已把世界分成两层
+ *   （`world_settings.is_core`）：主世界是**骨架**、常驻叠加，副世界才是具体世界。
+ *   分层之后 `getActiveWorldSetting()` 返回的是**主世界骨架** ——
+ *   照抄会让所有角色都去查主世界那本（而主世界按设计不带世界书），
+ *   等于世界书永远不生效，且与「星图＝世界层」的口径打架。
+ *
+ *   所以解析顺序改为：
+ *     ① `options.worldId`（调用方明确指定，优先级最高）
+ *     ② `options.characterId` 对应的世界（星图：角色所属/所在世界）
+ *     ③ `getActiveWorldSetting()` 兜底（无角色上下文的全局调用）
+ *
+ *   口径：星图＝世界层（规则 / 常识 / 社会结构）；世界书＝资料层
+ *   （专有名词 / 地名 / 组织 / 人物细节，按关键词触发、不常驻）。冲突时世界层优先。
+ */
+
 /** Only explicitly opted-in creative call sites use this adapter. Extraction/classification keep their original client. */
 export async function prepareLorebook(messages, options = {}) {
   const withoutBook = () => ({ messages, reapply: nextMessages => nextMessages, commit() {} });
   if (options === false) return withoutBook();
   const { getDb } = await import('../../db/index.js');
-  const { getActiveWorldSetting, isWorldSettingHidden, getSystemRules } = await import('../../db/worldRepository.js');
+  const { getActiveWorldSetting, getCharacterWorldSettingId, isWorldSettingHidden, getSystemRules } = await import('../../db/worldRepository.js');
   const { config } = await import('../../config.js');
   const db = getDb(); const repo = createLorebookRepository(db);
-  const world = options.worldId ? db.prepare('SELECT * FROM world_settings WHERE id=?').get(options.worldId) : getActiveWorldSetting();
+  // 解析顺序：显式 worldId → 角色所属世界 → 全局兜底（见文件头）
+  // ⚠ 角色在旅途中时 `getCharacterWorldSettingId` 会给出旅途伪世界的 id，
+  //   它在 world_settings 里查不到 → world=null → 不注入（在途没有"某个具体世界"）。
+  let world = null;
+  let explicit = false;
+  if (options.worldId) {
+    world = db.prepare('SELECT * FROM world_settings WHERE id=?').get(options.worldId) || null;
+    explicit = true;
+  } else if (options.characterId != null) {
+    explicit = true;
+    const wid = getCharacterWorldSettingId(options.characterId);
+    world = wid != null ? (db.prepare('SELECT * FROM world_settings WHERE id=?').get(wid) || null) : getActiveWorldSetting();
+  } else {
+    world = getActiveWorldSetting();
+  }
   // An explicitly selected empty world is still allowed to own a lorebook. Disturb hideWorld suppresses both.
-  if (!world || (!options.worldId && isWorldSettingHidden())) return withoutBook();
+  // 防打扰（hideWorld）只压全局兜底那一路：调用方显式指定世界/角色时不受影响。
+  if (!world || (!explicit && isWorldSettingHidden())) return withoutBook();
   const savedBook = options.book || repo.get(world.id);
   if (!savedBook?.enabled) return withoutBook();
   const book = { ...savedBook, settings: normalizeSettings(savedBook.settings) };
