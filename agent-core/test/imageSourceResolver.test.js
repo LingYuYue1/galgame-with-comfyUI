@@ -84,7 +84,20 @@ test('索引：角色图与传媒图都能给出人话来源，查不到给未�
   const withQuery = attachSource({ url: '/images/moments/m_1.png?_t=99' }, index);
   assert.equal(withQuery.character_id, 4, '缓存失效参数不影响反查');
 
-  const unknown = attachSource({ url: '/images/moments/nobody.png' }, index);
+  // ★ 2026-10-20 口径调整：查不到任务记录时不再一律「未知来源」，
+  //   而是按**目录 + 文件名**兜底（目录由谁写 = 事实，不是猜）：
+  //   moments/ 只有朋友圈写 → 至少能说「朋友圈」；角色名拿不到就只显示来源。
+  const noTask = attachSource({ url: '/images/moments/nobody.png' }, index);
+  assert.equal(noTask.source_label, '朋友圈', '目录已知时给来源，不再硬塞未知来源');
+  assert.equal(noTask.character_id, null, '没有任务记录就不知道是谁，不许猜');
+
+  // 立绘/上传/道具图：文件名自带信息，能落到具体来源
+  assert.equal(attachSource({ url: '/images/standing/char_4_smile_x.png' }, index, new Map([[4, '三月七']])).source_label, '立绘 · 三月七');
+  assert.equal(attachSource({ url: '/images/chat/user_1792474653082_x.png' }, index).source_label, '我上传');
+  assert.equal(attachSource({ url: '/images/items/loot_tag_a_1.png' }, index).source_label, '商品图');
+
+  // 目录也认不出来的，仍然如实说「未知来源」
+  const unknown = attachSource({ url: '/images/whatever/unknown.png' }, index);
   assert.equal(unknown.source_label, '未知来源');
   assert.equal(unknown.character_id, null);
 

@@ -594,7 +594,18 @@ export async function generateImage(rawPrompt, opts = {}) {
   return _execute(rawPrompt, opts);
 }
 
+// ★ 2026-10-20 哨兵：占位提示词检测。
+//   实测 ComfyUI 收到过 `tag_a, no humans, plain white background, product photograph, best quality`
+//   ——`tag_a` 是模板里的占位 tag，说明**某条链路把占位符当成了真 tag**。
+//   这类图既不写 image_tasks、也不落盘（本库零写入），只能靠日志反查调用方。
+//   这里只在提交前打一条带栈的警告，**不改变行为**：先抓出是谁，再决定拦截还是修。
+const PLACEHOLDER_PROMPT_RE = /^\s*(tag_[a-z]\b|请输入画面描述|\{\{?\s*tag\s*\}?\}|<\s*tag\s*>)/i;
+
 export async function generateImageRaw(rawPrompt, opts = {}) {
+  if (PLACEHOLDER_PROMPT_RE.test(String(rawPrompt || ''))) {
+    const stack = new Error('placeholder prompt').stack?.split('\n').slice(2, 7).join('\n') || '';
+    console.warn(`[imageSkill] ⚠ 疑似占位提示词，可能未做变量替换：${String(rawPrompt).slice(0, 80)}\n${stack}`);
+  }
   if (opts.priority === 'low') {
     return new Promise((resolve, reject) => {
       lowQueue.push({ rawPrompt, opts, resolve, reject });

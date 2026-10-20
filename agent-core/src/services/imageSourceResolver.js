@@ -141,9 +141,61 @@ export function buildImageSourceIndex(db) {
   return index;
 }
 
+/**
+ * 兜底：任务记录查不到时，按**目录 + 文件名**推来源。
+ *
+ * 为什么需要：立绘/头像/道具这些落图点有的本来就不写 `image_tasks`
+ * （上传、裁剪、历史遗留、或生成时没带 prompt），相册就只剩「未知来源」。
+ * 实测相册 22 张立绘有 21 张、72 张聊天图有 53 张（用户上传）落在这里。
+ *
+ * 只认**文件名里自带的信息**（`char_<id>_` 前缀、目录名），不猜内容。
+ * 猜不出的仍然返回 null → 上层显示「未知来源」，保持"不硬猜"的口径。
+ */
+export function describeByPath(key, names = new Map()) {
+  const k = String(key || '').toLowerCase();
+  if (!k) return null;
+
+  const [dir] = k.split('/');
+  const charMatch = /char_(\d+)_/.exec(k);
+  const charId = charMatch ? Number(charMatch[1]) : null;
+  const name = charId != null ? names.get(charId) || null : null;
+
+  const mk = (source, extra = {}) => ({
+    source,
+    source_label: name ? `${source} · ${name}` : source,
+    character_id: charId,
+    character_name: name,
+    ...extra,
+  });
+
+  if (dir === 'standing') return mk('立绘');
+  if (dir === 'avatargen') return mk('头像');
+  if (dir === 'peek') return mk('日程一瞥');
+  if (dir === 'diary') return mk('日记');
+  if (dir === 'emoji') return mk('表情包');
+  if (dir === 'events') return mk('奇遇');
+  if (dir === 'moments') return mk('朋友圈');
+  if (dir === 'newspaper') return mk('小镇 · 日报');
+
+  if (dir === 'chat') {
+    // chat/user_<ts>_<rand>.png = 用户在对话里上传的图，不是邻舍生成的
+    if (/^chat\/user_/.test(k)) return { source: '我上传', source_label: '我上传', character_id: null, character_name: null };
+    return mk('聊天');
+  }
+
+  if (dir === 'items') {
+    // items/item_<id>_*.png = 背包道具图；items/loot_<tag>_*.png = 橱窗商品图
+    if (/^items\/loot_/.test(k)) return { source: '商品图', source_label: '商品图', character_id: null, character_name: null };
+    return { source: '道具图', source_label: '道具图', character_id: null, character_name: null };
+  }
+
+  return null;
+}
+
 /** 相册卡片要附带的来源字段（查不到给「未知来源」）。 */
-export function attachSource(image, index) {
-  const info = index?.get(normalizeImageKey(image?.url));
+export function attachSource(image, index, names = new Map()) {
+  const key = normalizeImageKey(image?.url);
+  const info = index?.get(key) || describeByPath(key, names);
   if (!info) {
     return { ...image, source: null, source_label: '未知来源', character_id: null, character_name: null };
   }

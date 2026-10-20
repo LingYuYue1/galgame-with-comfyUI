@@ -59,12 +59,18 @@ export async function refreshGalleryCache() {
   // 相册本来是纯磁盘扫描，来源数据一直躺在 DB 里没被读出来。
   // 索引构建失败不能让相册整体挂掉 —— 降级为「全部未知来源」。
   let sourceIndex = null;
+  let names = new Map();
   try {
-    sourceIndex = buildImageSourceIndex(getDb());
+    const db = getDb();
+    sourceIndex = buildImageSourceIndex(db);
+    names = new Map(db.prepare('SELECT id, display_name FROM characters').all().map((r) => [r.id, r.display_name]));
   } catch (err) {
     console.error('[gallery] 来源索引构建失败（相册仍可用）:', err.message);
   }
-  const images = sourceIndex ? allResults.map(img => attachSource(img, sourceIndex)) : allResults;
+  // ★ 2026-10-20：即使索引为空也要走 attachSource —— 它现在带「按目录/文件名」兜底，
+  //   立绘（22 张有 21 张没任务记录）、用户上传图（53 张）都能落到具体来源，
+  //   不再一律显示「未知来源」。
+  const images = allResults.map(img => attachSource(img, sourceIndex || new Map(), names));
 
   galleryCache.data = { images, total: images.length };
   galleryCache.mtime = Date.now();
