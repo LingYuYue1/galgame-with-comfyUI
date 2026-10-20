@@ -24,13 +24,38 @@
 //    手动改它没有意义（下次 tag 会被覆盖），想让用户重新看到弹窗，
 //    改文案就行了 —— 哪怕只是加一个标点。
 // ────────────────────────────────────────────────────────────────────────
-export const CHANGELOG_FLAG = '0c767a6a49c0'
+export const CHANGELOG_FLAG = 'c1944bc1b23a'
 
 /** 弹窗标题 */
 export const CHANGELOG_TITLE = '更新说明'
 
 /** 更新条目：最新的放最前面 */
 export const CHANGELOG_ENTRIES = [
+  {
+    version: 'v3.10.0',
+    date: '2026-10-19',
+    title: '初步兼容Sillytraven预设和世界书',
+    summary: '👀欢迎尝试，记得适当改造',
+    items: [
+      '优化了手机端上galgame的体验，需升级apk',
+      '加入Vertex支持，加入nai更多协议支持',
+      '⭐兼容Sillytraven酒馆预设和世界书',
+      '解除系统的token限制, 也就是说，现在可以尝试打开api的思考模式了'
+    ],
+  },
+  {
+    version: 'v3.9.1',
+    date: '2026-10-15',
+    title: '做了一个Galgame私聊入口，增加服装库',
+    summary: '👀兼容Sillytraven酒馆预设和世界书',
+    items: [
+      '增加Galgame私聊入口，点击私聊窗口右上角进入',
+      '增加服装库，增加立绘衣服选择',
+      '⭐兼容Sillytraven酒馆预设和世界书',
+      '解除思考模式的token限制, 也就是说，现在可以尝试打开api的思考模式了'
+
+    ],
+  },
   {
     version: 'v3.8.0',
     date: '2026-10-10',

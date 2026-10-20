@@ -2,6 +2,9 @@
   <Transition name="gal-backlog" :duration="300" @after-leave="afterClose">
     <div v-if="open" class="gal-backlog" @click.self="close" @keydown.stop="onKeydown">
       <section ref="panel" class="backlog-paper" role="dialog" aria-modal="true" aria-label="历史回顾" tabindex="-1" :inert="suspended || undefined">
+        <svg class="backlog-frame backlog-frame-shadow" viewBox="0 0 1000 700" preserveAspectRatio="none" aria-hidden="true">
+          <path d="M30 5 H970 L994 29 V670 L970 694 H30 L6 670 V29 Z" />
+        </svg>
         <svg class="backlog-frame" viewBox="0 0 1000 700" preserveAspectRatio="none" aria-hidden="true">
           <path class="backlog-frame-paper" d="M30 5 H970 L994 29 V670 L970 694 H30 L6 670 V29 Z" />
           <path class="backlog-frame-inner" d="M35 14 H965 L984 34 V665 L965 684 H35 L16 665 V34 Z" />
@@ -147,7 +150,12 @@ function historyTime(value) {
 <style scoped>
 .gal-backlog { position: absolute; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; padding: max(24px, env(safe-area-inset-top)) max(28px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(28px, env(safe-area-inset-left)); background: var(--dialogue-shadow); }
 .backlog-paper { position: relative; isolation: isolate; display: flex; flex-direction: column; width: min(1100px, 100%); height: 100%; max-height: 880px; min-height: 0; padding: 30px clamp(28px, 4vw, 58px) 20px; color: var(--dialogue-ink); outline: none; }
-.backlog-frame { position: absolute; inset: 0; z-index: -1; width: 100%; height: 100%; overflow: visible; filter: drop-shadow(0 5px 0 var(--dialogue-shadow)); pointer-events: none; }
+.backlog-paper > :not(.backlog-frame) { position: relative; z-index: 1; }
+/* Retain the animation layers at transition end; Android otherwise briefly drops the paper. */
+.gal-backlog { will-change: opacity; }
+.backlog-paper { will-change: transform; }
+.backlog-frame { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.backlog-frame-shadow { top: 5px; fill: var(--dialogue-shadow); }
 .backlog-frame-paper { fill: var(--dialogue-paper); stroke: var(--dialogue-outline); stroke-width: 2; vector-effect: non-scaling-stroke; }
 .backlog-frame-inner { fill: none; stroke: var(--dialogue-inner); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .backlog-heading { display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; gap: 20px; padding-bottom: 20px; border-bottom: 2px solid var(--dialogue-rule); }
@@ -159,8 +167,8 @@ function historyTime(value) {
 .backlog-paper svg:not(.backlog-frame) { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .backlog-action { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 5px 8px; font-size: var(--fs-sm); font-weight: 600; letter-spacing: .06em; text-align: center; cursor: pointer; user-select: none; transition: opacity .3s var(--ease-standard), transform .3s var(--ease-standard); }
 .backlog-action svg { width: 20px; height: 20px; flex-shrink: 0; }
-.backlog-action:hover:not(.is-disabled) { transform: translateY(-2px); }
-.backlog-action:active:not(.is-disabled) { transform: translateY(1px); }
+@media (hover: hover) and (pointer: fine) { .backlog-action:hover:not(.is-disabled) { transform: translateY(-2px); } }
+@media (hover: hover) and (pointer: fine) { .backlog-action:active:not(.is-disabled) { transform: translateY(1px); } }
 .backlog-action.is-disabled { cursor: wait; opacity: .55; }
 .backlog-return { flex-shrink: 0; font-size: var(--fs-md); }
 .backlog-action:focus-visible, .backlog-photo:focus-visible, .backlog-scroll:focus-visible { outline: 2px solid var(--dialogue-ink); outline-offset: 2px; }
@@ -210,5 +218,18 @@ function historyTime(value) {
   .backlog-key-hint { display: none; }
   .backlog-photo img { width: 128px; height: 100px; }
 }
-@media (max-height: 520px) { .backlog-paper { padding-top: 18px; padding-bottom: 12px; } .backlog-heading { padding-bottom: 8px; } .backlog-title p { display: none; } }
+@media (max-height: 520px) {
+  .gal-backlog { padding: max(8px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+  .backlog-paper { padding: 16px 28px 10px; }
+  .backlog-heading { padding-bottom: 6px; }
+  .backlog-title { gap: 10px; }
+  .backlog-title h2 { font-size: 20px; }
+  .backlog-title > svg { width: 25px; height: 25px; }
+  .backlog-title p, .backlog-key-hint { display: none; }
+  .backlog-action { min-height: 36px; font-size: 12px; }
+  .backlog-entry { padding: 14px 0; gap: 12px; }
+  .backlog-speaker strong, .backlog-lines { font-size: 14px; }
+  .backlog-lines { line-height: 1.7; }
+  .backlog-end { padding: 12px 0; }
+}
 </style>

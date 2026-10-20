@@ -5,7 +5,6 @@
       <linshe-tabs v-model="outfitScene" :options="outfitOptions" size="sm" :disabled="disabled" aria-label="生成使用的角色形象" />
       <linshe-input :id="inputId" v-model="requirement" :maxlength="2000" :disabled="disabled" placeholder="例如换成冬装、修改发色、动作更含蓄…（可选）" />
     </div>
-    <p>{{ batch ? '所有角色均按所选形象生成' : '按所选形象生成' }}，不随当前日程换装；缺少服装时会先请你选择自动补全或使用默认外观。填写外观要求后，以你的要求为准。</p>
   </div>
 </template>
 

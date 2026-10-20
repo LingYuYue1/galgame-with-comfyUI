@@ -78,13 +78,11 @@ function select() {
   color: var(--town-paper-accent, #ae6451);
   transition: transform var(--dur-fast) var(--ease-spring);
 }
-.vn-choice:hover:not(.is-disabled),
 .vn-choice:focus-visible:not(.is-disabled) {
   filter: brightness(1.03);
   transform: translateY(-1px);
   box-shadow: 0 4px 0 #d8c1a1, 0 8px 16px rgba(54, 42, 56, .16);
 }
-.vn-choice:hover:not(.is-disabled)::before,
 .vn-choice:focus-visible:not(.is-disabled)::before { transform: translateY(-50%) translateX(3px); }
 .vn-choice:active:not(.is-disabled) {
   transform: translateY(2px);
@@ -124,18 +122,27 @@ function select() {
   color: var(--dialogue-menu-text);
   box-shadow: none;
   text-shadow: none;
-  min-height: 46px;
-  padding: 12px 22px 12px 35px;
+  min-height: var(--vn-dialogue-min-height, 46px);
+  padding: var(--vn-dialogue-padding, 12px 22px 12px 35px);
+  font-size: var(--vn-dialogue-font-size, var(--fs-md, 14px));
   font-weight: 800;
   line-height: 1.5;
   transition: color var(--dur-interaction) var(--ease-standard), transform var(--dur-interaction) var(--ease-standard), opacity var(--dur-interaction) var(--ease-standard);
 }
 .vn-choice.vn-choice--dialogue::before { content: '›'; left: 16px; font-size: 22px; font-weight: 800; color: inherit; transition-duration: var(--dur-interaction); }
-.vn-choice--dialogue:hover:not(.is-disabled), .vn-choice--dialogue:focus-visible:not(.is-disabled) { filter: none; box-shadow: none; transform: translateY(-2px); }
+.vn-choice--dialogue::before { z-index: 1; }
+.vn-choice--dialogue > :not(.gal-menu-frame) { position: relative; z-index: 1; }
+.vn-choice--dialogue:focus-visible:not(.is-disabled) { filter: none; box-shadow: none; transform: translateY(-2px); }
 .vn-choice--dialogue:active:not(.is-disabled) { box-shadow: none; transform: translateY(1px); }
 .vn-choice--dialogue.is-active, .vn-choice--dialogue.is-primary { --gal-menu-outline: var(--dialogue-menu-outline); }
-.vn-choice--dialogue:is(:hover, :focus-visible):not(.is-disabled):not(.is-busy) { --dialogue-menu-text: var(--dialogue-menu-hover); --gal-menu-outline: var(--dialogue-menu-hover); }
+.vn-choice--dialogue:focus-visible:not(.is-disabled):not(.is-busy) { --dialogue-menu-text: var(--dialogue-menu-hover); --gal-menu-outline: var(--dialogue-menu-hover); }
 .vn-choice--dialogue.is-busy { transform: none; }
 .vn-choice--dialogue:focus-visible { outline: 2px solid var(--dialogue-menu-text); outline-offset: 3px; }
 .vn-choice--dialogue .vn-choice__hint, .vn-choice--dialogue.is-primary .vn-choice__hint { color: var(--dialogue-menu-text); }
+@media (hover: hover) and (pointer: fine) {
+  .vn-choice:hover:not(.is-disabled) { filter: brightness(1.03); transform: translateY(-1px); box-shadow: 0 4px 0 #d8c1a1, 0 8px 16px rgba(54, 42, 56, .16); }
+  .vn-choice:hover:not(.is-disabled)::before { transform: translateY(-50%) translateX(3px); }
+  .vn-choice--dialogue:hover:not(.is-disabled) { filter: none; box-shadow: none; transform: translateY(-2px); }
+  .vn-choice--dialogue:hover:not(.is-disabled):not(.is-busy) { --dialogue-menu-text: var(--dialogue-menu-hover); --gal-menu-outline: var(--dialogue-menu-hover); }
+}
 </style>

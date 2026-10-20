@@ -47,6 +47,16 @@ test('expanding a multi-page reply to one page preserves its typing progress', (
   assert.equal(finished.revealed, 2)
 })
 
+test('viewport remeasurement keeps an unread page at its start and a completed page at its end', () => {
+  const text = '一二三四五六七八九十'
+  const layout = { width: 4, lines: 1, measure: () => 1 }
+  const pages = paginateDialogue(text, layout)
+  assert.deepEqual(repaginateDialogue(text, layout, { pages, pageIndex: 1, revealed: 0 }),
+    { pages, pageIndex: 1, revealed: 0 })
+  assert.deepEqual(repaginateDialogue(text, layout, { pages, pageIndex: 0, revealed: 4 }),
+    { pages, pageIndex: 0, revealed: 4 })
+})
+
 test('saved full reply and prediction identity arrive before image tasks release the send lock', async t => {
   const originalFetch = globalThis.fetch
   let controller, requestBody

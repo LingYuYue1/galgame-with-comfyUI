@@ -1557,9 +1557,11 @@ onMounted(async () => {
   //   自动抓帖的开关已移到**设置 → 功能开关**（不在这个内容页），倒计时也随之搬走
   //   （设置页只在打开时读一次状态，不需要每秒 tick）。
   unsubNew = onEvent('media_new_posts', async () => {
+    // v3.10：后台新帖只更新提示，避免打断阅读；主动刷新才重新加载列表。
+    const wasManualRefresh = refreshing.value
     refreshing.value = false
     clearTimeout(refreshTimer)
-    await reloadAll()
+    if (wasManualRefresh) await reloadAll()
     toastFn?.('新帖已到', 'success')
   })
   // 配图就绪：★ F-07 修复（2026-10-12）——本事件此前根本没注册进 unifiedStream 的

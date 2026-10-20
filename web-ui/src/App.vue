@@ -1,6 +1,6 @@
 <template>
   <!-- API Key 未配置横幅 -->
-  <div v-if="!settings.hasApiKey" class="api-key-banner">
+  <div v-if="!settings.hasApiKey && route.path !== '/settings'" class="api-key-banner">
     <span class="banner-icon">⚠️</span>
     <span class="banner-text">尚未配置 API Key，请前往设置页面填写 DeepSeek（或其他兼容）API Key</span>
     <router-link to="/settings" class="banner-link">前往设置 →</router-link>

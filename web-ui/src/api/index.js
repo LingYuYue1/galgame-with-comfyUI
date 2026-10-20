@@ -1,5 +1,12 @@
 const BASE = '/api'
 
+export const getPromptPresets = () => request('/presets')
+export const createPromptPreset = body => request('/presets', { method: 'POST', body })
+export const updatePromptPreset = (id, body) => request(`/presets/${id}`, { method: 'PUT', body })
+export const activatePromptPreset = (id, active, expectedRevision) => request(`/presets/${id}/active`, { method: 'PUT', body: { active, expectedRevision } })
+export const deletePromptPreset = (id, expectedRevision) => request(`/presets/${id}`, { method: 'DELETE', body: { expectedRevision } })
+export const previewPromptPreset = body => request('/presets/preview', { method: 'POST', body })
+
 /**
  * 统一请求基元：非 2xx 自动抛出服务端 error 信息，成功返回解析后的 JSON。
  *
@@ -317,8 +324,12 @@ export function updateEmojiFixedTags(tags, styleMode, resolution) {
   })
 }
 
-export function generateEmojiPrompts(character_ids, style = '', setId = null) {
-  return request(`/characters/emoji/prompts`, { method: 'POST', body: { character_ids, style, set_id: setId } })
+export function preflightEmojiOutfits(character_ids, outfitScene = 'work') {
+  return request(`/characters/emoji/outfits/preflight`, { method: 'POST', body: { character_ids, outfitScene } })
+}
+
+export function generateEmojiPrompts(character_ids, style = '', setId = null, options = {}) {
+  return request(`/characters/emoji/prompts`, { method: 'POST', body: { character_ids, style, set_id: setId, ...options } })
 }
 
 export function generateEmojiImages(character_ids, keys = [], artist = '@ebora', includeDone = false, setId = null) {
@@ -328,8 +339,8 @@ export function generateEmojiImages(character_ids, keys = [], artist = '@ebora',
   })
 }
 
-export function regenerateEmojiPrompt(characterId, key, style = '', setId = null) {
-  return request(`/characters/emoji/${characterId}/${key}/prompt`, { method: 'POST', body: { style, set_id: setId } })
+export function regenerateEmojiPrompt(characterId, key, style = '', setId = null, options = {}) {
+  return request(`/characters/emoji/${characterId}/${key}/prompt`, { method: 'POST', body: { style, set_id: setId, ...options } })
 }
 
 export function regenerateEmojiImage(characterId, key, artist = '@ebora', setId = null) {
@@ -803,6 +814,10 @@ export function testLlmConnection(data) {
   return request(`/config/llm/test`, { method: 'POST', body: data })
 }
 
+export function validateVertexServiceAccount(data) {
+  return request('/config/llm/vertex/validate', { method: 'POST', body: data })
+}
+
 /** 每日免费鸡蛋开关（opencode zen 免费端点，免 Key） */
 export function setLlmFreeEgg(enabled) {
   return request(`/config/llm/free-egg`, { method: 'PUT', body: { enabled } })
@@ -925,6 +940,10 @@ export function retryFailedMemories() {
 export async function getWorldSettings() {
   return request(`/config/world-settings`)
 }
+export const getWorldLorebook = id => request(`/config/world-settings/${id}/lorebook`)
+export const saveWorldLorebook = (id, body) => request(`/config/world-settings/${id}/lorebook`, { method:'PUT', body })
+export const previewWorldLorebook = (id, body) => request(`/config/world-settings/${id}/lorebook/preview`, { method:'POST', body })
+export const probeWorldLorebookCache = id => request(`/config/world-settings/${id}/lorebook/cache-probe`, { method:'POST', body:{} })
 
 export async function createWorldSetting(data) {
   return request(`/config/world-settings`, { method: 'POST', body: data })
@@ -1876,23 +1895,17 @@ export async function dismissNewspaperWorldState(dismissed) {
   return request(`/newspaper/dismiss-world`, { method: 'POST', body: { dismissed } })
 }
 
-// 删除某一期（连同它的配图文件）
+// 删除某一期（连同它的配图文件）—— 本地保留：上游 v3.10 删了报纸期次管理入口，我们保留
 export async function deleteNewspaperEdition(date) {
   return request(`/newspaper/editions/${date}`, { method: 'DELETE' })
 }
 
-/**
- * 批量清除往期。
- * @param {{ keep?: 'today'|'none', before?: string|null }} opts
- *   keep='today'（默认）只清往期、保留今天；'none' 连今天一起清空
- *   before='YYYY-MM-DD' 只清该日期之前（不含）的期
- */
+// 清除往期（keep='today' 保留今天）
 export async function clearNewspaperEditions({ keep = 'today', before = null } = {}) {
-  let path = `/newspaper/editions?keep=${encodeURIComponent(keep)}`
-  if (before) path += `&before=${encodeURIComponent(before)}`
-  return request(path, { method: 'DELETE' })
+  const qs = new URLSearchParams({ keep })
+  if (before) qs.set('before', before)
+  return request(`/newspaper/editions?${qs}`, { method: 'DELETE' })
 }
-
 
 // ── 事件库管理（奇遇事件类型 / 朋友圈话题）──
 

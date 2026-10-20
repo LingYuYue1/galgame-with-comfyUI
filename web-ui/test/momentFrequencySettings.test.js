@@ -29,7 +29,7 @@ test('所有具体时间档与默认档保存后均可正确回显，旧值 1 �
 })
 
 test('切换 2 小时和默认时向接口发送不同模式', async () => {
-  for (const label of ['2 小时', '默认', '12 小时', '16 小时', '24 小时', '关闭']) {
+  for (const label of ['2 小时', '默认', '12 小时', '16 小时', '24 小时', '36 小时', '关闭']) {
     const index = steps.findIndex(step => step.label === label)
     const features = {}
     const calls = []
