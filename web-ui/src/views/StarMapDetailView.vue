@@ -22,6 +22,12 @@
           @change="saveEnabled"
         />
         <linshe-button variant="ghost" size="sm" title="卡片封面图（会铺在星图首页的这张卡上）" @click="coverOpen = true">封面</linshe-button>
+        <linshe-button
+          variant="ghost"
+          size="sm"
+          title="世界书：按关键词触发注入的资料条目（星图管规则，世界书管专有名词与细节）"
+          @click="lorebookOpen = true"
+        >世界书</linshe-button>
         <linshe-button variant="ghost" size="sm" @click="openRename">重命名</linshe-button>
         <linshe-button variant="danger" size="sm" @click="removeWorld">删除</linshe-button>
       </div>
@@ -318,6 +324,9 @@
       </template>
     </linshe-modal>
 
+    <!-- ★ 2026-10-20 合并 v3.10.0：世界书编辑器（资料层，按关键词触发；星图仍是世界层） -->
+    <WorldLorebookModal v-model="lorebookOpen" :world-id="world?.id" :world-name="world?.name || ''" />
+
     <!-- ★ 2026-10-18：世界封面（星图卡片背景图） -->
     <linshe-modal v-model="coverOpen" title="世界封面">
       <div class="smd-cover-form">
@@ -460,6 +469,7 @@ import LinsheTabs from '../components/ui/LinsheTabs.vue'
 import LinsheSwitch from '../components/ui/LinsheSwitch.vue'
 import LinsheSelect from '../components/ui/LinsheSelect.vue'
 import LinsheModal from '../components/ui/LinsheModal.vue'
+import WorldLorebookModal from '../components/WorldLorebookModal.vue'
 
 // ★ 2026-10-18：改成「可嵌入」——星图首页是左列表右详情，详情作为右栏常驻组件。
 //   · 当路由页用时 worldId 从 route.params.id 取（老链接 /starmap/11 仍然直达）
@@ -520,6 +530,7 @@ const renameValue = ref('')
 
 // ★ 2026-10-18：世界封面
 const coverOpen = ref(false)
+const lorebookOpen = ref(false)
 const coverBusy = ref(false)
 const coverInput = ref(null)
 /** 「近期生成」选择区：懒加载，展开过一次就复用（同一次弹窗会话内不必反复请求） */
