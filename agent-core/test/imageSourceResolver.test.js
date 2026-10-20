@@ -93,7 +93,9 @@ test('索引：角色图与传媒图都能给出人话来源，查不到给未�
 
   // 立绘/上传/道具图：文件名自带信息，能落到具体来源
   assert.equal(attachSource({ url: '/images/standing/char_4_smile_x.png' }, index, new Map([[4, '三月七']])).source_label, '立绘 · 三月七');
-  assert.equal(attachSource({ url: '/images/chat/user_1792474653082_x.png' }, index).source_label, '我上传');
+  // 2026-10-20 回退：chat/user_* 实测是 3 字节的空壳图（不是用户上传），只按目录标「聊天」，
+  // 不编造「我上传」；这类文件也已由上传接口拒收 + 相册扫描跳过。
+  assert.equal(attachSource({ url: '/images/chat/user_1792474653082_x.png' }, index).source_label, '聊天');
   assert.equal(attachSource({ url: '/images/items/loot_tag_a_1.png' }, index).source_label, '商品图');
 
   // 目录也认不出来的，仍然如实说「未知来源」

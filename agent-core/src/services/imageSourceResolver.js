@@ -178,8 +178,10 @@ export function describeByPath(key, names = new Map()) {
   if (dir === 'newspaper') return mk('小镇 · 日报');
 
   if (dir === 'chat') {
-    // chat/user_<ts>_<rand>.png = 用户在对话里上传的图，不是邻舍生成的
-    if (/^chat\/user_/.test(k)) return { source: '我上传', source_label: '我上传', character_id: null, character_name: null };
+    // ⚠ 2026-10-20 回退：不再把 `chat/user_*` 判成「我上传」。
+    //   用户明确指出他没有上传过任何内容，而这些文件实测是 **3 字节的 NUL 空图**
+    //   （`base64,AAAA` 解出来的东西），不是真实图片 —— 判成「我上传」是错的。
+    //   空图现在由上传接口直接拒收、相册扫描也会跳过，所以这里不再给它们编来源。
     return mk('聊天');
   }
 

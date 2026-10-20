@@ -32,7 +32,11 @@ async function scanDirectory(dirPath, category, urlPrefix) {
       );
       results.push(...batchResults);
     }
-    return results;
+    // ★ 2026-10-20：跳过「空壳图」。实测 chat/ 下有 50 个 3 字节（NUL×3）的
+    //   user_*.png —— 客户端 POST 了 `base64,AAAA` 留下的垃圾。它们打不开、
+    //   也没有任何任务记录，进相册只能变成「未知来源」，不如不显示。
+    //   上传接口已同步加了 <100 字节拒收，这里是对历史文件与其它写入口的兜底。
+    return results.filter(r => r.size >= 100);
   } catch {
     return [];
   }

@@ -150,6 +150,22 @@ router.post('/chat/upload-image', (req, res) => {
     const buf = Buffer.from(base64.slice(mimeMatch[0].length), 'base64');
     if (buf.length === 0) return res.status(400).json({ error: '图片为空' });
     if (buf.length > 8 * 1024 * 1024) return res.status(400).json({ error: '图片不能超过 8MB' });
+    // ★ 2026-10-20 修复：拒收「空壳图」。
+    //   实测 data/images/chat 里有 50 个 **3 字节（NUL×3）** 的 user_*.png ——
+    //   来源是某个客户端 POST 了 `data:image/png;base64,AAAA`（解出来正好 3 个 0 字节）。
+    //   它们进相册后既打不开、也没有任何任务记录 → 只能显示「未知来源」。
+    //   判据取「过小 或 全是 NUL」：真正的 1×1 PNG 也有 ~68 字节，不会被误伤。
+    const tooSmall = buf.length < 20;
+    const allZero = buf.length > 0 && buf.every((b) => b === 0);
+    if (tooSmall || allZero) {
+      const ua = typeof req.get === 'function' ? String(req.get('user-agent') || '') : '';
+      console.warn('[chat] 拒收空壳图',
+        `size=${buf.length}`, `allZero=${allZero}`,
+        `ua=${ua.slice(0, 80)}`,
+        `ip=${req.ip || '-'}`,
+        `head=${base64.slice(0, 60)}`);
+      return res.status(400).json({ error: '图片数据无效（内容为空或全零）' });
+    }
 
     const extMap = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif', 'image/bmp': 'bmp' };
     const filename = `user_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${extMap[mimeMatch[1]]}`;

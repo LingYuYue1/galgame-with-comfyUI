@@ -1,7 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 process.env.DB_PATH = ':memory:';
+// ★ 2026-10-20 修复：本测试会真的走一遍上传接口 → saveBase64Image('chat', …)。
+//   原来没设 IMAGES_DIR，于是每次跑测试都把一张 **3 字节的假图**写进真实
+//   data/images/chat/，相册里就多出一张打不开的「未知来源」。改为临时目录。
+process.env.IMAGES_DIR = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'linshe-chatup-')), 'images');
 globalThis.fetch = async () => { throw new Error('Network forbidden'); };
 const { config } = await import('../src/config.js');
 config.dbPath = ':memory:';
@@ -26,10 +33,15 @@ function call(router, method, url, body = {}, query = {}) {
 // 本测试改为钉住「本地保留行为」：上传入口可用、带图消息不再因 message 为空被拦。
 test('聊天上传入口与带图消息在本地仍可用，空白且无图的消息才被拦截', async () => {
   // ① 上传入口仍在（本地保留）
-  const up = await call(chatRouter, 'POST', '/chat/upload-image', { base64: 'data:image/png;base64,AAAA' });
+  const minimalPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  const up = await call(chatRouter, 'POST', '/chat/upload-image', { base64: minimalPng });
   assert.notEqual(up, null, '上传入口 /chat/upload-image 应存在（本地保留）');
   assert.equal(up.status, 200);
   assert.ok(up.payload?.url, '上传应返回可用的图片 URL');
+
+  // ①b 空壳图（3 个 NUL 字节）必须被拒收 —— 曾经每次跑测试都往真实相册写一张
+  const junk = await call(chatRouter, 'POST', '/chat/upload-image', { base64: 'data:image/png;base64,AAAA' });
+  assert.equal(junk.status, 400, '全零假图应被拒收');
 
   // ② 空 / 非字符串消息，且**不带图** → 明确拦截（本地基线校验：无图时 message 必须是非空字符串）
   for (const message of [undefined, '', 123]) {

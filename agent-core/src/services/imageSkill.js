@@ -594,17 +594,43 @@ export async function generateImage(rawPrompt, opts = {}) {
   return _execute(rawPrompt, opts);
 }
 
-// ★ 2026-10-20 哨兵：占位提示词检测。
-//   实测 ComfyUI 收到过 `tag_a, no humans, plain white background, product photograph, best quality`
-//   ——`tag_a` 是模板里的占位 tag，说明**某条链路把占位符当成了真 tag**。
-//   这类图既不写 image_tasks、也不落盘（本库零写入），只能靠日志反查调用方。
-//   这里只在提交前打一条带栈的警告，**不改变行为**：先抓出是谁，再决定拦截还是修。
+// ★ 2026-10-20 硬 bug 修复：**测试进程不许向真实 ComfyUI 提单**。
+//
+//   现象：用户报「邻舍时不时向 ComfyUI 申请部位图/商品图，但不落库」，给了任务 id 一查——
+//   提示词是 `tag_a, no humans, plain white background, product photograph…`，
+//   而 `tag_a` 是 `test/lootTakeStatus.test.js` 里**测试数据**的商品 tag。
+//   机制：该测试调 `takeItems()` → `enqueueImage()`（fire-and-forget 队列）→
+//   `generateOneImage()` → 真的连 8188 出图。结果写进测试临时目录，跑完即弃，
+//   所以「生成过、但库里/盘上什么都没有」。
+//
+//   测试里沿用真实地址时直接拒绝，并给出清晰原因；显式设 `LINSHE_ALLOW_REAL_COMFY=1`
+//   或把 `COMFYUI_URL` 指向桩服务时仍可放行（有些测试就是要验这条路）。
+function isDefaultRealComfy(url) {
+  try {
+    const u = new URL(url);
+    return /^(localhost|127\.0\.0\.1|\[::1\])$/.test(u.hostname) && u.port === '8188';
+  } catch {
+    return false;
+  }
+}
+
+function testGuardBlocksComfy() {
+  if (!process.env.NODE_TEST_CONTEXT) return false;          // 非测试进程，放行
+  if (process.env.LINSHE_ALLOW_REAL_COMFY === '1') return false; // 显式放行
+  return isDefaultRealComfy(config.comfyui?.url || '');
+}
+
 const PLACEHOLDER_PROMPT_RE = /^\s*(tag_[a-z]\b|请输入画面描述|\{\{?\s*tag\s*\}?\}|<\s*tag\s*>)/i;
 
 export async function generateImageRaw(rawPrompt, opts = {}) {
   if (PLACEHOLDER_PROMPT_RE.test(String(rawPrompt || ''))) {
     const stack = new Error('placeholder prompt').stack?.split('\n').slice(2, 7).join('\n') || '';
     console.warn(`[imageSkill] ⚠ 疑似占位提示词，可能未做变量替换：${String(rawPrompt).slice(0, 80)}\n${stack}`);
+  }
+  if (testGuardBlocksComfy()) {
+    console.warn(`[imageSkill] 测试进程拒绝连真实 ComfyUI（${config.comfyui?.url}）；` +
+      `prompt=${String(rawPrompt).slice(0, 60)}… 如确需真实出图请设 LINSHE_ALLOW_REAL_COMFY=1`);
+    return { success: false, images: [], error: 'COMFY_SKIPPED_IN_TEST', promptRefined: rawPrompt };
   }
   if (opts.priority === 'low') {
     return new Promise((resolve, reject) => {
