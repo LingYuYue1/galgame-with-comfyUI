@@ -649,14 +649,39 @@ router.post('/:id/avatar', (req, res) => {
   if (!char) return res.status(404).json({ error: 'Character not found' });
 
   const { base64 } = req.body;
+  // ★ 2026-10-20 BUG 修复：旧头像不能无脑删。
+  //   媒体帖在发帖时把 `author_avatar` 存成**快照路径**（mediaService 写入时取当时的
+  //   avatar_path），评论里也会存一份。头像重生成时把这些文件删掉 → 旧帖头像变断图。
+  //   实测库里已有 3 条媒体帖因此断链。改为：仍被引用就保留文件，只换 DB 指向。
+  const avatarFileInUse = (db, filename) => {
+    const like = `%${filename}%`;
+    const hit = db.prepare(
+      `SELECT 1 FROM media_posts
+        WHERE author_avatar LIKE ? OR comments_json LIKE ?
+        LIMIT 1`
+    ).get(like, like);
+    return !!hit;
+  };
+  const dropAvatarFileIfUnused = (db, dir, avatarPath) => {
+    if (!avatarPath) return;
+    const name = path.basename(String(avatarPath));
+    if (avatarFileInUse(db, name)) {
+      console.log(`[avatar] 旧头像仍被媒体帖引用，保留文件：${name}`);
+      return;
+    }
+    try {
+      const p = path.join(dir, name);
+      if (fs.existsSync(p)) fs.unlinkSync(p);
+    } catch {}
+  };
+
   // null / 空字符串 = 删除头像
   if (!base64) {
     const old = db.prepare('SELECT avatar_path FROM characters WHERE id = ?').get(req.params.id);
     if (old?.avatar_path) {
       const __filename2 = fileURLToPath(import.meta.url);
       const projectRoot2 = path.dirname(path.dirname(path.dirname(__filename2)));
-      const oldPath = path.join(projectRoot2, 'data', 'avatars', path.basename(old.avatar_path));
-      try { if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath); } catch {}
+      dropAvatarFileIfUnused(db, path.join(projectRoot2, 'data', 'avatars'), old.avatar_path);
     }
     db.prepare('UPDATE characters SET avatar_path = NULL WHERE id = ?').run(req.params.id);
     return res.json({ ok: true, avatar_path: null });
@@ -672,12 +697,9 @@ router.post('/:id/avatar', (req, res) => {
   const base64Data = base64.replace(/^data:image\/\w+;base64,/, '');
   fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
 
-  // 如果有旧头像，删除
+  // 如果有旧头像，删除（仍被媒体帖引用的除外，见上）
   const old = db.prepare('SELECT avatar_path FROM characters WHERE id = ?').get(req.params.id);
-  if (old?.avatar_path) {
-    const oldPath = path.join(avatarsDir, path.basename(old.avatar_path));
-    try { if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath); } catch {}
-  }
+  if (old?.avatar_path) dropAvatarFileIfUnused(db, avatarsDir, old.avatar_path);
 
   const avatarPath = `/avatars/${filename}`;
   db.prepare('UPDATE characters SET avatar_path = ? WHERE id = ?').run(avatarPath, req.params.id);

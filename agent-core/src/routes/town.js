@@ -49,6 +49,7 @@ import {
   getTownBuildingFeatureGallery,
   generateTownBuildingFeatures, getTownBuildingFeatureGeneration, refreshTownBuildingFeatureStock,
   listTownBuildingFeatureCandidates, updateTownBuildingFeatureDescription, setTownBuildingFeatureEnabled,
+  listTownBuildingFeatureEvents,
 } from '../services/town/townBuildingFeatureRuntime.js';
 import {
   getInitState, startInit, updateBlueprint, generateSamples, startBatch,

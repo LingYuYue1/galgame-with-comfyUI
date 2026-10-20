@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { config } from '../config.js';
 import { initSettingsHandle, loadSystemSettings } from './settings.js';
-import { initWorldRepository } from './worldRepository.js';
+import { initWorldRepository, getActiveWorldSetting } from './worldRepository.js';
 import { initTripRepository } from './tripRepository.js';
 import { bumpWorldCache } from './worldCacheSignal.js';
 // 世界观项目库（通勤种子等**世界观数据**的家，见 2026-10-07 引擎实例化污染审计）
@@ -1256,6 +1256,13 @@ function initSchema(db) {
   loadSystemSettings(db);
   initWorldRepository(db);
   initTripRepository(db);
+
+  // ★ 2026-10-20 BUG 修复：通勤种子必须在世界仓储初始化**之后**再试一次。
+  //   上面 1237 行的 migrateWorldMapSchema 会走到 migrateWorldMapTransit，
+  //   但那时 initWorldRepository 还没跑，取激活世界必然抛
+  //   「db handle not initialized」并被 catch 成一条 warn → 种子永远不落库。
+  //   本函数自带「表里已有数据直接返回」的幂等判断，重复调用安全。
+  migrateWorldMapTransit(db);
 
   // 重建 FTS5 索引
   rebuildFtsIndex(db);
@@ -3175,7 +3182,11 @@ function migrateWorldMapSchema(db) {
     console.error('[db] migrateWorldMapSchema 失败:', err.message);
   }
   migrateWorldMapPlaceAttrs(db);
-  migrateWorldMapTransit(db);
+  // ★ 2026-10-20 BUG 修复：通勤种子**不在这里**跑。
+  //   本函数在 initSchema 的 1237 行被调用，而世界仓储要到 1257 行才初始化；
+  //   在这里种 = 取激活世界必然抛「db handle not initialized」，被 catch 成一条 warn，
+  //   于是每次启动都失败、每次都被当成「正常跳过」。
+  //   种子改到 initWorldRepository 之后调用（见 initSchema 内注释），那里才拿得到世界。
 }
 
 /**
