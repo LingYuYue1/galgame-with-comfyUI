@@ -18,6 +18,9 @@ import { IMAGE_PROMPT_RULE, getWorldIntegrationRule } from '../builtinRules.js';
 import { matchAll } from '../services/characterSearch.js';
 import { getUserName, matchUser } from '../services/userSearch.js';
 import { parseLoras } from '../maibot-bridge/generate.js';
+// ★ 2026-10-20 BUG-04：相册图也能被「重新生成」覆盖同一路径，URL 需带 mtime 版本，
+//   否则切页/刷新会命中客户端缓存里的旧图。这里扫描时已有 mtime，直接复用，不再 stat。
+import { withImageVersion } from '../utils/imageVersion.js';
 import { extractImagePromptResponse } from '../services/imagePromptResponse.js';
 import fs from 'fs';
 import path from 'path';
@@ -81,7 +84,8 @@ router.get('/gallery', async (req, res) => {
       // 查不到的给「未知来源」（老图没留下任务记录，不硬猜）。
       images: pageImages.map(img => ({
         name: img.name,
-        url: img.url,
+        // 版本号取扫描时拿到的 mtime；覆盖后缓存失效会重新扫描，URL 随之变化
+        url: withImageVersion(img.url, img.mtime),
         size: img.size,
         mtime: img.mtime,
         folder: img.folder,

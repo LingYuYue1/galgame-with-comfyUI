@@ -14,6 +14,9 @@ import { randomBytes, randomUUID } from 'crypto';
 import { getPendingDir } from './imagePaths.js';
 import { broadcast } from './unifiedStreamBus.js';
 import { invalidateGalleryCache } from './galleryCache.js';
+// ★ 2026-10-20 BUG-04：覆盖原图后必须让 URL 版本号立即变，
+//   否则客户端会继续用「同一 URL 的旧缓存」（用户实测：黑图改好、切页又变黑）。
+import { invalidateImageVersionCache } from '../utils/imageVersion.js';
 
 const tasks = new Map();
 
@@ -188,6 +191,10 @@ export async function applyEditTask(id, token) {
 
   try {
     invalidateGalleryCache();
+  } catch {}
+  // 文件已换 → URL 版本号必须立即失效，下一次请求才会拿到新的 ?v=
+  try {
+    invalidateImageVersionCache();
   } catch {}
 
   return task;

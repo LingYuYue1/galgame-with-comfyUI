@@ -21,6 +21,9 @@ import { getWorldIntegrationRule } from '../builtinRules.js';
 import { DEFAULT_MOMENT_IMAGE_PROMPT, parseMomentResponse, sanitizeMomentContent } from '../services/momentResponseParser.js';
 import { MOMENT_FORMS, weightedPick, pickMomentImageCount, MOMENT_SINGLE_FOCUS_RULE, MOMENT_TONE_RULES, MOMENT_IMAGE_RULES, buildMomentOutputFormat, buildMomentMotiveDirective, buildMomentScheduleContext, buildMomentMultiImageRule, adaptWorldForMoment, MOMENT_RECORD_BACKDROP_RULE } from '../services/momentForms.js';
 import { MOMENT_DREAM_IMAGE_RULES, MOMENT_DREAM_IMAGE_REQUIREMENT } from '../services/momentForms.js';
+// ★ 2026-10-20 BUG-04：图片可被「重新生成」覆盖同一路径，URL 必须带 mtime 版本，
+//   否则切页/刷新时客户端会拿缓存里的旧图（实测：黑图改好后又变回黑的）。
+import { withImageVersions } from '../utils/imageVersion.js';
 
 import { startMomentBackfill, stopMomentBackfill, isMomentBackfillRunning } from '../services/momentBackfill.js';
 
@@ -202,7 +205,7 @@ router.get('/', (req, res) => {
       ...rest,
       content: sanitizeMomentContent(p.content),
       liked: !!p.liked,
-      images: JSON.parse(p.images || '[]'),
+      images: withImageVersions(JSON.parse(p.images || '[]')),
       created_at: toISO(p.created_at),
     };
   });
@@ -265,7 +268,7 @@ router.get('/:id', (req, res) => {
   res.json({
     ...post,
     content: sanitizeMomentContent(post.content),
-    images: JSON.parse(post.images || '[]'),
+    images: withImageVersions(JSON.parse(post.images || '[]')),
     created_at: toISO(post.created_at),
     comments: comments.map(c => ({ ...c, created_at: toISO(c.created_at) })),
     liked,
