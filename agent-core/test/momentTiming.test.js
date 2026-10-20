@@ -18,7 +18,7 @@ test('默认档保留首次 1~4 小时、后续 2~8 小时，兼容旧设置', (
 });
 
 test('所有具体时间档首次和后续以所选时间为中心，浮动 ±20%，5 分钟档不被截断', () => {
-  for (const minutes of [1440, 960, 720, 480, 240, 120, 60, 30, 15, 5]) {
+  for (const minutes of [2160, 1440, 960, 720, 480, 240, 120, 60, 30, 15, 5]) {
     const features = { momentFreq: 120 / minutes, momentFreqMode: 'interval' };
     assert.equal(isDefaultMomentTiming(features), false);
     for (const initial of [false, true]) {
@@ -41,7 +41,7 @@ test('2 小时与默认的模式随设置持久化，重载后仍可区分', () 
   db.exec('CREATE TABLE system_settings (setting_key TEXT PRIMARY KEY, setting_value TEXT, updated_at TEXT)');
   initSettingsHandle(db);
   try {
-    for (const [value, mode, expectedHours] of [[1, 'interval', 2], [1, 'default', 5], [1 / 8, 'interval', 16]]) {
+    for (const [value, mode, expectedHours] of [[1, 'interval', 2], [1, 'default', 5], [1 / 8, 'interval', 16], [1 / 18, 'interval', 36]]) {
       updateMomentFreq(value, mode);
       config.features.momentFreq = 0;
       config.features.momentFreqMode = '';

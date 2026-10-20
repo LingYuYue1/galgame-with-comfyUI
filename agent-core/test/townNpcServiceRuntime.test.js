@@ -19,7 +19,11 @@ function fakeLlm() {
     }),
   };
 }
-const fakeImage = { generateImageRaw: async () => ({ success: true, images: [{ base64: 'aGVsbG8=', filename: 'x.png' }] }) };
+const fakeImage = { generateImageRaw: async (prompt, options) => {
+  assert.equal(options.ragQuery, TALE, '服务、打工及继续操作必须用本次中文趣事检索');
+  assert.match(prompt, /^two people pulling weeds/);
+  return { success: true, images: [{ base64: 'aGVsbG8=', filename: 'x.png' }] };
+} };
 const fakePersist = () => ({ imageUrl: '/images/town_service/test.png', inline: null });
 
 function setup() {

@@ -9,6 +9,8 @@ import { initTripRepository } from './tripRepository.js';
 import { bumpWorldCache } from './worldCacheSignal.js';
 // 世界观项目库（通勤种子等**世界观数据**的家，见 2026-10-07 引擎实例化污染审计）
 import { readProject, slugForWorld } from '../services/worldProjectLibrary.js';
+import { migrateLorebooks } from './lorebookRepository.js';
+import { migratePresets } from './presetRepository.js';
 import { seedAll } from './seedData.js';
 import { DEFAULT_EVENT_TYPES } from './seedEventTypes.js';
 import { DEFAULT_MOMENT_TOPICS } from './seedTopics.js';
@@ -42,10 +44,6 @@ import { migrateCharacterReactionPacksSchema } from './characterReactionPackSche
 import { migrateCharacterDiarySchema } from './diarySchema.js';
 import { migrateMediaAvatarLibrary } from './mediaAvatarSchema.js';
 import { migrateMediaFavorites } from './mediaFavorites.js';
-// 上游 v3.10.0：酒馆世界书 / 预设（星图口径见合并方案 §4-④：世界书＝资料层）
-import { migrateLorebooks } from './lorebookRepository.js';
-import { migratePresets } from './presetRepository.js';
-
 let db;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -2939,6 +2937,9 @@ function migrateLlmProfiles(db) {
     const defaultProfile = {
       id: 'p_' + Date.now(),
       name: '默认配置',
+      connectionType: config.llm.connectionType,
+      vertexRegion: config.llm.vertexRegion,
+      vertexServiceAccount: config.llm.vertexServiceAccount,
       apiKey: config.llm.apiKey || '',
       baseURL: config.llm.baseURL || 'https://api.deepseek.com',
       model: config.llm.model || 'deepseek-flash',

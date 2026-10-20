@@ -18,6 +18,7 @@ import {
   resolveOrCreateEmojiSet,
 } from '../services/emojiService.js';
 import { deleteImageFileByUrl, saveBase64Image } from '../services/imagePaths.js';
+import { inspectStandingOutfits, normalizeStandingOutfitScene, validateMissingOutfitPolicy } from '../services/expressionStandingAppearance.js';
 
 const router = Router();
 
@@ -139,12 +140,35 @@ router.delete('/sets/:setId', (req, res) => {
   }
 });
 
+function inspectEmojiOutfits(body = {}) {
+  const { character_ids, outfitScene, missingOutfitPolicy } = body;
+  if (!Array.isArray(character_ids) || !character_ids.length) {
+    throw Object.assign(new Error('character_ids is required (non-empty array)'), { status: 400 });
+  }
+  normalizeStandingOutfitScene(outfitScene);
+  validateMissingOutfitPolicy(missingOutfitPolicy);
+  const characters = [...new Set(character_ids)].map(id => getDb().prepare('SELECT * FROM characters WHERE id = ?').get(id));
+  if (characters.some(char => !char)) throw Object.assign(new Error('角色不存在'), { status: 404 });
+  return inspectStandingOutfits(characters, outfitScene);
+}
+
+router.post('/outfits/preflight', (req, res) => {
+  try { res.json(inspectEmojiOutfits(req.body)); }
+  catch (err) { res.status(err.status || 500).json({ error: err.message }); }
+});
+
 /** POST /api/characters/emoji/prompts — 为单个或多个角色生成全部表情类别 prompt（作用于各自启用中的配置单，或指定的 set_id） */
 router.post('/prompts', async (req, res) => {
-  const { character_ids, style, set_id } = req.body || {};
+  const { character_ids, style, set_id, outfitScene, missingOutfitPolicy } = req.body || {};
   if (!Array.isArray(character_ids) || character_ids.length === 0) {
     return res.status(400).json({ error: 'character_ids is required (non-empty array)' });
   }
+  try {
+    const preview = inspectEmojiOutfits(req.body);
+    if (preview.missingCharacters.length && !missingOutfitPolicy) {
+      return res.status(409).json({ error: '所选服装尚未配置，请选择自动补全或使用默认外观', ...preview });
+    }
+  } catch (err) { return res.status(err.status || 500).json({ error: err.message }); }
 
   const db = getDb();
   const results = [];
@@ -159,7 +183,7 @@ router.post('/prompts', async (req, res) => {
       try {
         const emojiKeys = getEmojiCategories(db);
         const set = resolveOrCreateEmojiSet(characterId, set_id ?? null, db);
-        const prompts = await generateEmojiPrompts(char, typeof style === 'string' ? style.trim() : '', emojiKeys);
+        const prompts = await generateEmojiPrompts(char, typeof style === 'string' ? style.trim() : '', emojiKeys, { outfitScene, missingOutfitPolicy });
         const upsert = db.prepare(`
           INSERT INTO character_emojis (character_id, set_id, emoji_key, prompt, style, status, updated_at)
           VALUES (?, ?, ?, ?, ?, 'prompt_ready', datetime('now'))
@@ -279,7 +303,9 @@ router.post('/:characterId/:key/prompt', async (req, res) => {
 
   try {
     const style = typeof req.body?.style === 'string' ? req.body.style.trim() : '';
-    const prompts = await generateEmojiPrompts(char, style, [emojiKey]);
+    const prompts = await generateEmojiPrompts(char, style, [emojiKey], {
+      outfitScene: req.body?.outfitScene, missingOutfitPolicy: req.body?.missingOutfitPolicy,
+    });
       const prompt = prompts[emojiKey];
 
     db.prepare(`
@@ -290,6 +316,7 @@ router.post('/:characterId/:key/prompt', async (req, res) => {
 
     res.json({ ok: true, prompt, style });
   } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
     db.prepare(`
       UPDATE character_emojis SET status='failed', error_message=?, updated_at=datetime('now') WHERE id=?
     `).run(err.message || String(err), row.id);

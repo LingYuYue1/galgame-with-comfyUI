@@ -21,6 +21,7 @@ import {
   truncateRoundAfter, invalidateGroupTranscriptBoundary, isGroupPostProcessing,
 } from '../services/groupChatEngine.js';
 import { undoLastGroupRound } from '../services/groupRoundUndo.js';
+import { createLorebookRepository } from '../db/lorebookRepository.js';
 import { clearConversationMemories } from '../services/memory/memoryRepository.js';
 import { broadcast } from '../services/unifiedStreamBus.js';
 import { beginTurn } from '../services/llmTelemetry.js';
@@ -218,6 +219,8 @@ router.delete('/:id/messages/last-round', async (req, res, next) => {
   try {
     const result = await undoLastGroupRound(groupId);
     if (result.notFound) return res.status(404).json({ error: '群不存在' });
+    const conversationId = groupConvId(groupId);
+    createLorebookRepository(getDb()).rewind(conversationId, getDb().prepare('SELECT COUNT(*) AS n FROM raw_messages WHERE conversation_id=?').get(conversationId).n);
 
     invalidateGroupTranscriptBoundary(groupId);
     broadcast('group_round_undone', {
@@ -258,6 +261,7 @@ router.delete('/:id', (req, res, next) => {
       db.prepare(`DELETE FROM image_tasks WHERE conversation_id = ?`).run(conversationId);
       db.prepare(`DELETE FROM messages WHERE conversation_id = ?`).run(conversationId);
       db.prepare(`DELETE FROM raw_messages WHERE conversation_id = ?`).run(conversationId);
+      createLorebookRepository(db).rewind(conversationId);
       db.prepare(`DELETE FROM group_chats WHERE id = ?`).run(groupId);
     });
     transaction();

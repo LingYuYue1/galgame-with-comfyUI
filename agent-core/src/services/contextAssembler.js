@@ -240,12 +240,14 @@ export function getSplitHistory(db, conversationId, maxActiveRounds = 10, maxChe
   const activeRounds = displayMsgs.filter(m => m.role === 'assistant').length;
 
   let activeText = '';
+  let activeSegments = [];
   if (displayMsgs.length > 0) {
     const lines = displayMsgs.map(m => {
       const label = m.role === 'user' ? `[${userName}]` : `[${characterName}]`;
       return `${label}: ${stripPromptJson(m.content)}`;
     });
     activeText = `<active_chat_history>\n${lines.join('\n')}\n</active_chat_history>`;
+    activeSegments = lines;
   }
 
   // ── 3. checkpoint 历史：已摘要消息 (id ≤ afterId)，固定 10 条 assistant ──
@@ -291,6 +293,7 @@ export function getSplitHistory(db, conversationId, maxActiveRounds = 10, maxChe
     checkpointRounds,
     activeText,
     activeRounds,
+    activeSegments,
   };
 }
 

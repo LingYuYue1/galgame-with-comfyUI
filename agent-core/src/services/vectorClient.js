@@ -31,30 +31,27 @@ async function describeFailure(res) {
   return `HTTP ${res.status}`;
 }
 
-export async function embedText(text) {
-  const res = await fetchWithTimeout(`${BASE}/embed`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
-  });
-  if (!res.ok) {
-    throw new Error(`Embed error: ${await describeFailure(res)}`);
-  }
-  const data = await res.json();
+async function embedRequest(text, { signal, timeoutMs = DEFAULT_TIMEOUT } = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${BASE}/embed`, {
+      method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ text }),
+      signal: signal ? AbortSignal.any([signal, controller.signal]) : controller.signal,
+    });
+    if (!res.ok) throw new Error(`Embed error: ${await describeFailure(res)}`);
+    return await res.json();
+  } finally { clearTimeout(timer); }
+}
+
+export async function embedText(text, options) {
+  const data = await embedRequest(text, options);
   // 单文本返回第一个向量
   return data.embeddings?.[0] ?? data.embedding;
 }
 
-export async function embedBatch(texts) {
-  const res = await fetchWithTimeout(`${BASE}/embed`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text: texts }),
-  });
-  if (!res.ok) {
-    throw new Error(`Embed error: ${await describeFailure(res)}`);
-  }
-  const data = await res.json();
+export async function embedBatch(texts, options) {
+  const data = await embedRequest(texts, options);
   return data.embeddings;
 }
 

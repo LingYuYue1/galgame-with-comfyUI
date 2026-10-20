@@ -12,6 +12,8 @@ import { isMomentBackfillRunning } from './momentBackfill.js';
 
 import { getDb, getSystemRules, getWorldSetting } from '../db/index.js';
 import { chatSync } from '../llm/llm-client.js';
+import { prepareNarrativePrompt } from './presets/narrative.js';
+import { buildConversationLorebookContext } from './lorebook/conversationContext.js';
 import { config } from '../config.js';
 import { getCurrentActivity, syncSleepingState } from './scheduleManager.js';
 import { getTimeLight } from './timeLight.js';
@@ -156,7 +158,7 @@ async function processReplyQueue() {
 
   // 取最早到期的一个角色（只取第一条来确定角色，然后拉该角色所有 waiting）
   const entry = db.prepare(`
-    SELECT rq.*, c.display_name, c.base_prompt, c.emotion_baseline
+    SELECT rq.*, c.name, c.display_name, c.base_prompt, c.short_prompt, c.emotion_baseline
     FROM reply_queue rq
     JOIN characters c ON c.id = rq.character_id
     WHERE rq.status = 'waiting'
@@ -203,7 +205,10 @@ async function processReplyQueue() {
     const msgs = buildDelayedReplyContext(entry, allPending, isSleepWakeup, dream);
 
     // 调用 LLM 生成回复
-    const fullReply = await chatSync(msgs, {
+    const lorebookTurn = await prepareNarrativePrompt(msgs, {
+      ...buildConversationLorebookContext(db, {conversationId, character:entry, kind:'delayed', userName:config.user.nickname || '用户'}), maxOutputTokens:512,
+    });
+    const fullReply = await chatSync(lorebookTurn.messages, {
       temperature: 0.72,
       thinking: { type: 'disabled' },
       label: `delayed-reply:${entry.display_name}`,
@@ -221,6 +226,7 @@ async function processReplyQueue() {
       INSERT INTO raw_messages (conversation_id, role, content)
       VALUES (?, 'assistant', ?)
     `).run(conversationId, fullReply);
+    lorebookTurn.commit();
 
     // 写入 messages（分句展示）
     const msgIds = [];

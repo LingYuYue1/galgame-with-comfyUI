@@ -41,11 +41,15 @@ export async function completeStandingOutfit(char, scene, design = generateScene
 
 // Explicit selection always bypasses automatic outfits, including schedule and temporary outfits.
 // The detail card's default appearance lives in base_prompt; missing scene outfits use that too.
-export function buildStandingPersona(char, scene = 'work', readOutfits = listSceneOutfits) {
+export function resolveStandingOutfits(char, scene = 'work', readOutfits = listSceneOutfits) {
   normalizeStandingOutfitScene(scene);
   const outfit = scene === 'work' ? null : readOutfits(char.id).find(row => row.scene === scene && row.description?.trim());
+  return asPersonaOutfits(outfit ? { outfit } : null);
+}
+
+export function buildStandingPersona(char, scene = 'work', readOutfits = listSceneOutfits) {
   return buildCharacterPersona(char, {
     variant: 'full', person: char.display_name,
-    outfits: asPersonaOutfits(outfit ? { outfit } : null),
+    outfits: resolveStandingOutfits(char, scene, readOutfits),
   });
 }

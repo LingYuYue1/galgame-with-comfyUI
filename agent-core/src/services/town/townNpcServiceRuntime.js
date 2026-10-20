@@ -16,7 +16,7 @@ import { createHash } from 'node:crypto';
 import { getDb, getSystemRules, getWorldSetting } from '../../db/index.js';
 import { getWorldIntegrationRule } from '../../builtinRules.js';
 import { config } from '../../config.js';
-import { chatSync } from '../../llm/llm-client.js';
+import { chatWithPreset } from '../presets/narrative.js';
 import { extractFirstJson, repairJson } from '../eventGenerator.js';
 import { generateImageRaw } from '../imageSkill.js';
 import { saveBase64Image } from '../imagePaths.js';
@@ -268,7 +268,7 @@ function updateSession(db, sessionId, patch) {
     .run(...values, Date.now(), sessionId);
 }
 
-async function generateServiceImage(prompt, { npc, kind, sessionId, options }) {
+async function generateServiceImage(prompt, { npc, kind, sessionId, options, ragQuery }) {
   const generate = options.image?.generateImageRaw || generateImageRaw;
   // onProgress 收到的是 { stage, phase, progress: 0~1, step, max, ... } 对象，
   // 必须换算成 0~100 的整数再广播；直接把对象当数字用会让前端算出 NaN%。
@@ -278,7 +278,7 @@ async function generateServiceImage(prompt, { npc, kind, sessionId, options }) {
     broadcast(TOWN_NPC_SERVICE_PROGRESS_EVENT, { sessionId, npcId: npc.id, kind, progress: percent });
   };
   const result = await generate(prompt, {
-    ragQuery: prompt,
+    ragQuery,
     artist: config.comfyui.eventArtist,
     width: config.comfyui.eventWidth,
     height: config.comfyui.eventHeight,
@@ -321,7 +321,7 @@ async function runPipeline(context, { npc, offer, kind, session, prior, options 
   const db = context.db;
   const sessionId = session.id;
   try {
-    const llm = options.llm?.chatSync || chatSync;
+    const llm = options.llm?.chatSync || chatWithPreset;
     const messages = buildMessages({
       npc,
       offer,
@@ -336,6 +336,7 @@ async function runPipeline(context, { npc, offer, kind, session, prior, options 
       text = await llm(messages, {
         temperature: 0.9,
         label: kind === 'work' ? '小镇打工趣事生成' : '小镇服务趣事生成',
+        lorebook:{personaTexts:[npcPersonaBlock(npc)],staticTexts:[OUTPUT_STRUCTURE],characterName:npc.display_name},
         response_format: { type: 'json_object' },
       });
     } catch {
@@ -349,11 +350,12 @@ async function runPipeline(context, { npc, offer, kind, session, prior, options 
       text = await llm(messages, {
         temperature: 0.7,
         label: kind === 'work' ? '小镇打工趣事生成（重试）' : '小镇服务趣事生成（重试）',
+        lorebook:{personaTexts:[npcPersonaBlock(npc)],staticTexts:[OUTPUT_STRUCTURE],characterName:npc.display_name},
       });
       payload = parseServicePayload(text);
     }
 
-    const genResult = await generateServiceImage(payload.prompt, { npc, kind, sessionId, options });
+    const genResult = await generateServiceImage(payload.prompt, { npc, kind, sessionId, options, ragQuery: payload.tale });
     if (!genResult?.success || !Array.isArray(genResult.images) || !genResult.images.length) {
       throw townError('SERVICE_IMAGE_FAILED');
     }

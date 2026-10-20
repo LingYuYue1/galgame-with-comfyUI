@@ -1,3 +1,4 @@
+import { chatWithPreset } from './presets/narrative.js';
 /**
  * 用户自己发朋友圈 + 角色来评论区互动
  *
@@ -11,7 +12,7 @@
 
 import { getDb, getSystemRules, getSystemRulesWithWorld, getWorldSetting } from '../db/index.js';
 import { recallMomentMemories, formatMomentMemories } from './momentMemoryRecall.js';
-import { chatSync } from '../llm/llm-client.js';
+import { chatSync } from './lorebook/runtime.js';
 import { config } from '../config.js';
 import { broadcast as broadcastToUnified } from './unifiedStreamBus.js';
 import { saveBase64Image } from './imagePaths.js';
@@ -85,7 +86,7 @@ export async function describeUserMomentImages(images = [], deps = {}) {
         ...imageParts,
       ],
     },
-  ], { temperature: 0.2, label: '用户朋友圈图片识别' });
+  ], { temperature: 0.2, label: '用户朋友圈图片识别', lorebook:false });
 
   return String(result || '').trim().replace(/^["']|["']$/g, '').slice(0, 300);
 }
@@ -230,8 +231,8 @@ export async function generateUserPostComment(character, post, historyComments, 
   if (memories.length) msgs.push({ role: 'system', content: formatMomentMemories(memories, displayName) });
   msgs.push({ role: 'user', content: task });
 
-  const chat = deps.chatSync || chatSync;
-  const result = await chat(msgs, { temperature: 0.7, maxTokens: 128, label: '用户朋友圈评论' });
+  const chat = deps.chatSync || chatWithPreset;
+  const result = await chat(msgs, { temperature: 0.7, maxTokens: 128, label: '用户朋友圈评论', lorebook:{personaTexts:[character.base_prompt],staticTexts:[commentRulesContext],characterName:displayName,history:[{role:'user',content:visibleContent},...historyComments.map(c=>({role:c.author_type==='character'?'assistant':'user',content:c.content}))],scenario:visibleContent} });
   return String(result || '').trim().replace(/^["']|["']$/g, '').slice(0, 200);
 }
 

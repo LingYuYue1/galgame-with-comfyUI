@@ -8,7 +8,7 @@ import { TOWN_BUSINESS_ROLES, inferTownBusinessKind, townBuildingKind } from './
 import { buildWalkGridFromLayers } from './townMapService.js';
 import { findPath } from './townPathfinding.js';
 import { broadcastTownMapUpdated } from './townBus.js';
-import { ensureTownCapabilities, defaultTownCapabilities, defaultTownLocationCapabilities, townCapabilities, upgradeTownNpcCapabilities, shouldHaveWorkPermission } from './townCapabilities.js';
+import { ensureTownCapabilities, defaultTownCapabilities, defaultTownLocationCapabilities, townCapabilities, townLocationCapabilities, upgradeTownNpcCapabilities, shouldHaveWorkPermission } from './townCapabilities.js';
 
 const parse = (value, fallback = {}) => { try { return JSON.parse(value) ?? fallback; } catch { return fallback; } };
 export function initializeTownNpcFunctions(db, npc) {
@@ -62,7 +62,7 @@ export function reconcileTownResponsibilities({ db = getDb(), allowFallback = fa
         while (locations.some(l => l.key === key)) key = `${base}_${suffix++}`;
         const id = db.prepare(`INSERT INTO town_locations(map_id,key,name,kind,grid_x,grid_y,radius,object_id,business_kind,capabilities_json)
           VALUES(?,?,?,'place',?,?,1,?,?,?)`).run(map.id, key, asset.name || key, entrance.x, entrance.y, object.id,
-          townBuildingKind(asset), JSON.stringify(townCapabilities(asset, defaultTownCapabilities(townBuildingKind(asset))))).lastInsertRowid;
+          townBuildingKind(asset), JSON.stringify(townLocationCapabilities(asset, defaultTownCapabilities(townBuildingKind(asset))))).lastInsertRowid;
         locations.push(db.prepare('SELECT * FROM town_locations WHERE id=?').get(id));
       }
       if (!mapUpdate) {
@@ -81,7 +81,7 @@ export function reconcileTownResponsibilities({ db = getDb(), allowFallback = fa
       location.business_kind = fromAsset && fromAsset !== 'none' ? fromAsset : townBuildingKind(location);
       db.prepare('UPDATE town_locations SET business_kind=? WHERE id=?').run(location.business_kind, location.id);
       ensureTownCapabilities(db, 'town_locations', location, asset
-        ? townCapabilities({ meta: parse(asset.meta_json) }, defaultTownLocationCapabilities(location.business_kind))
+        ? townLocationCapabilities({ meta: parse(asset.meta_json) }, defaultTownLocationCapabilities(location.business_kind))
         : defaultTownLocationCapabilities(location.business_kind));
     }
     // 角色的托管档案不参与岗位绑定：它们只是角色挂服务 / 打工项目的影子身份

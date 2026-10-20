@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { getDb, getSystemRules, getWorldSetting } from '../../db/index.js';
 import { getWorldIntegrationRule } from '../../builtinRules.js';
 import { config } from '../../config.js';
-import { chatSync } from '../../llm/llm-client.js';
+import { chatSync } from '../lorebook/runtime.js';
 import { extractFirstJson, repairJson } from '../eventGenerator.js';
 import { generateImageRaw } from '../imageSkill.js';
 import { saveBase64Image, imageUrlExists } from '../imagePaths.js';
@@ -250,7 +250,8 @@ function loadNpc(db, npcId) {
 
 async function requestStock(npc, plan, options = {}) {
   const llm = options.llm?.chatSync || chatSync;
-  const text = await llm(buildStockMessages(npc, plan), { temperature: 0.95, label: '小镇货架生成' });
+  const messages = buildStockMessages(npc, plan);
+  const text = await llm(messages, { temperature: 0.95, label: '小镇货架生成', lorebook:{personaTexts:[messages.at(-2).content],characterName:npc.display_name} });
   return parseStockPayload(text, plan);
 }
 

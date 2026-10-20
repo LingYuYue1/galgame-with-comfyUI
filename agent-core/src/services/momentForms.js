@@ -74,6 +74,16 @@ export const MOMENT_IMAGE_RULES = [
   '- 遵循下方生图格式与长度限制；优先保留人物和主要动作，少堆背景。不画无关字幕、水印或社交界面。',
 ].join('\n');
 
+/** 仅供抽中做梦/幻想的候选分支使用；是否采纳仍由当前日程决定。 */
+export const MOMENT_DREAM_IMAGE_RULES = [
+  '- **梦境配图（仅在采纳做梦/幻想动因后生效）**：每个 imagePrompt 都必须以 "A surreal dreamscape scene:" 开头，直接描绘正文中梦内的场景，不画现实中躺床睡觉的人，也不只在普通生活照末尾加 dreamy 标签。未采纳梦境时完全忽略本条，正常记录日程，不添加梦境前缀或梦幻效果。',
+  '- **可见的超现实意象**：围绕梦里同一个核心事件，具体写出至少两处相互关联的非现实变化，例如失重漂浮、巨大与微小的尺度反差、物体变成光或星屑、不可能的空间连接；写清什么在何处如何变化及角色的互动，不能只罗列 surreal / magical 等形容词。意象从角色人设和这场梦生长，不照抄示例或堆砌无关奇观。',
+  '- **梦幻光影**：用自然英文写明 ethereal soft lighting、hazy magical glow 或同义的可见光影表现，并结合梦的情绪选择柔和渐变色、微光粒子、发光边缘等具体细节，营造 dreamlike atmosphere；噩梦可用冷色、异样阴影与幽光，不强行甜美。保持人物和主体动作清楚。',
+  '- **梦内画面优先**：采纳后，现实时间、天气和 Environment reference 只约束醒着时的叙述，不覆盖梦内的天空、光线、空间和尺度；通用的“不把夸张比喻画成实物”不限制正文明确发生的梦内超现实事件。仍须保留角色辨识特征、生效外观和指定同行者，遵守生图格式与长度限制。多图共享同一梦境的意象、色调和光线，只推进相邻瞬间。',
+].join('\n');
+
+export const MOMENT_DREAM_IMAGE_REQUIREMENT = '若采纳做梦/幻想动因，以 A surreal dreamscape scene: 开头，描述正文梦内场景、至少两处关联的超现实变化及梦幻光影；若未采纳，正常描绘当前日程，不加梦境前缀或效果';
+
 /** 随机抽中的话题仅作为候选动因；日程优先与契合门槛由 MOMENT_SINGLE_FOCUS_RULE 规定，
  * 这里只给候选内容，不再复述规则，避免 user 层与 system 层口径打架。 */
 export function buildMomentMotiveDirective(description) {
@@ -119,7 +129,7 @@ export const MOMENT_IMAGE_FIELDS = ['imagePrompt', 'imagePrompt2', 'imagePrompt3
 export const CHINESE_NUM = ['', '一', '两', '三'];
 
 /** 用合法 JSON 展示完整字段结构，动态文本中的引号、换行、反斜杠不能破坏示例。 */
-export function buildMomentOutputFormat({ imageCount = 1, textRequirement = '中文口语，只围绕一个具体中心，用角色自己的语气表达' } = {}) {
+export function buildMomentOutputFormat({ imageCount = 1, textRequirement = '中文口语，只围绕一个具体中心，用角色自己的语气表达', imageRequirement = '' } = {}) {
   if (!Number.isInteger(imageCount) || imageCount < 1 || imageCount > MOMENT_IMAGE_FIELDS.length) {
     throw new RangeError('Moment image count must be an integer from 1 to 3');
   }
@@ -127,7 +137,7 @@ export function buildMomentOutputFormat({ imageCount = 1, textRequirement = '中
     text: `朋友圈正文：${textRequirement}；按本次形态与字数，非空，可只有表情，无标题`,
   };
   for (const [index, name] of MOMENT_IMAGE_FIELDS.slice(0, imageCount).entries()) {
-    example[name] = `第${index + 1}张照片：非空英文单段，独立写清场景、主体动作和光线，遵守生图格式及长度限制${index > 0 ? '；与首图连续，不写同上' : ''}`;
+    example[name] = `第${index + 1}张照片：非空英文单段，独立写清场景、主体动作和光线，遵守生图格式及长度限制${index > 0 ? '；与首图连续，不写同上' : ''}${imageRequirement ? `；${imageRequirement}` : ''}`;
   }
   return `输出格式（严格 JSON）：\n${JSON.stringify(example)}\n严格按示例字段输出，所有值为字符串并正确转义，不加字段或 JSON 以外的文字。`;
 }

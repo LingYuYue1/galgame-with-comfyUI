@@ -8,7 +8,7 @@
  */
 
 import { getDb, getSystemRules, getSystemRulesWithWorld, getWorldSetting, getGlobalRule } from '../../db/index.js';
-import { chatSync as defaultChatSync } from '../../llm/llm-client.js';
+import { chatWithPreset } from '../presets/narrative.js';
 import { generateImageRaw as defaultGenerateImageRaw } from '../imageSkill.js';
 import { saveBase64Image } from '../imagePaths.js';
 import { recordCompletedImageTask } from '../imageTaskRecorder.js';
@@ -95,7 +95,7 @@ function npcMomentForm(hour) {
  */
 export async function generateTownNpcMoment(npc, opts = {}) {
   const db = getDb();
-  const chatSync = opts.llm?.chatSync || defaultChatSync;
+  const chatSync = opts.llm?.chatSync || chatWithPreset;
   const generateImageRaw = opts.image?.generateImageRaw || defaultGenerateImageRaw;
 
   // 0. 并发保护：该镇民已有生成中的帖子（10 分钟视为僵尸帖）
@@ -187,8 +187,7 @@ ${weatherHint}`;
 
   let text = '', imagePrompt = '';
   try {
-    const result = await chatSync(msgs, { temperature: 0.8,
-      response_format: { type: 'json_object' }, label: '镇民朋友圈' });
+    const result = await chatSync(msgs, { temperature: 0.8, response_format: { type: 'json_object' }, label: '镇民朋友圈', lorebook:{personaTexts:[personaMsg],characterName:npc.display_name,characterDescription:personaMsg} });
     const parsed = parseMomentResponse(result);
     text = parsed.text;
     imagePrompt = parsed.imagePrompt || '';

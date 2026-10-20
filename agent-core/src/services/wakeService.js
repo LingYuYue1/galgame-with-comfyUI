@@ -8,6 +8,8 @@
 
 import { getDb, getSystemRules, getWorldSetting } from '../db/index.js';
 import { chatSync } from '../llm/llm-client.js';
+import { prepareNarrativePrompt } from './presets/narrative.js';
+import { buildConversationLorebookContext } from './lorebook/conversationContext.js';
 import { config } from '../config.js';
 import { splitText } from '../utils/sentenceSplitter.js';
 import {
@@ -23,7 +25,7 @@ import { getCurrentDream, markDreamShared } from './dreamService.js';
  */
 export async function processWakeUp(characterId, mode, attempts = null) {
   const db = getDb();
-  const char = db.prepare(`SELECT id, display_name, base_prompt FROM characters WHERE id = ?`).get(characterId);
+  const char = db.prepare(`SELECT id, name, display_name, base_prompt, short_prompt FROM characters WHERE id = ?`).get(characterId);
   if (!char) throw new Error(`Character ${characterId} not found`);
 
   const conversationId = `char_${characterId}`;
@@ -65,8 +67,12 @@ export async function processWakeUp(characterId, mode, attempts = null) {
 
   // ── 调用 LLM 生成回复 ──
   let fullReply;
+  let lorebookTurn;
   try {
-    fullReply = await chatSync(msgs, {
+    lorebookTurn = await prepareNarrativePrompt(msgs, {
+      ...buildConversationLorebookContext(db, {conversationId, character:char, kind:`wake:${mode}`, userName}), maxOutputTokens:512,
+    });
+    fullReply = await chatSync(lorebookTurn.messages, {
       temperature: 0.7,
       thinking: { type: 'disabled' },
       label: `wake-up:${char.display_name}:${mode}`,
@@ -93,6 +99,7 @@ export async function processWakeUp(characterId, mode, attempts = null) {
     INSERT INTO raw_messages (conversation_id, role, content)
     VALUES (?, 'assistant', ?)
   `).run(conversationId, fullReply);
+  lorebookTurn.commit();
 
   const msgIds = [];
   for (let i = 0; i < segments.length; i++) {
