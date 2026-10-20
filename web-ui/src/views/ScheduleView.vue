@@ -1036,6 +1036,10 @@ const regenTransitModes = ref<any[]>([])
 const regenDayType = ref('')
 const regenDayTypeOptions = ref<any[]>([])
 const regenDayPlans = ref<Array<{ dayType: string }>>([])
+// 今天算哪种日子（后端随 regenerate-options 返回）。
+// ★ 2026-10-20：弹窗默认选中它（仅当该角色已配这套），否则会出现
+//   「生成写进默认日历、今天实际读日型方案」→ 用户点完更新看不到任何变化。
+const regenTodayDayType = ref('')
 function dayTypeLabel(v: string) {
   return regenDayTypeOptions.value.find(o => o.value === v)?.label || v
 }
@@ -1246,6 +1250,13 @@ async function ensureRegenOptions(characterId?: number) {
     regenTransitModes.value = Array.isArray(d.transitModes) ? d.transitModes : []
     regenDayTypeOptions.value = Array.isArray(d.dayTypes) ? d.dayTypes.map((x: any) => ({ label: x.label, value: x.value })) : []
     regenDayPlans.value = Array.isArray(d.existingDayPlans) ? d.existingDayPlans : []
+    regenTodayDayType.value = String(d.todayDayType || '')
+    // ★ 2026-10-20：今天这套已配过 → 默认选中它。
+    //   不选的话本次生成写的是「默认日历」，而今天实际读的是日型方案，
+    //   用户会看到「更新成功但内容完全没变」。
+    if (!regenDayType.value && regenDayPlans.value.some((p: any) => p.dayType === regenTodayDayType.value)) {
+      regenDayType.value = regenTodayDayType.value
+    }
     regenAccessLabel.value = d.accessLabel || {}
     regenZoneLabel.value = d.zoneLabel || {}
     const groups: Array<{ region: string; areas: any[] }> = []
@@ -1283,9 +1294,14 @@ watch(showRegenerateModal, (v) => {
   //   它是用户花时间写的正文，必须记住；只在用户**成功生成过**或**主动关闭过**时才有值，
   //   所以不会出现"上次的方向赖着不走"的困扰（点「完全随机」仍不带走它）。
   regenerateDirection.value = String(prefs?.direction || '')
-  // 日子类型：**不记忆**上一次的选择（它描述的是「这次要生成哪一套」，不是持久偏好）；
-  //   默认留空 = 不区分。已配的方案由后端随 options 返回（regenDayPlans）。
-  regenDayType.value = ''
+  // 日子类型：**不记忆**上一次的选择（它描述的是「这次要生成哪一套」，不是持久偏好）。
+  //   ★ 2026-10-20 修「更新日程但内容没变」：默认选中**今天这套**。
+  //   角色配过 workday 方案、今天又是工作日时，留空会让本次生成写进默认日历，
+  //   而 `resolveScheduleTemplateFor` 优先读日型方案 → 今天的内容一个字节都不会变。
+  //   没配过日型的角色仍然留空（= 不区分，行为与从前一致）。
+  regenDayType.value = regenDayPlans.value.some((p: any) => p.dayType === regenTodayDayType.value)
+    ? regenTodayDayType.value
+    : ''
   ensureRegenOptions(charId)
   nextTick(() => regenerateTextareaRef.value?.focus())
 })
@@ -1631,8 +1647,17 @@ async function onRegenerate() {
 async function doRegenerate(direction, options) {
   if (!detailChar.value || detailRegenerating.value) return
   detailRegenerating.value = true
+  // 生成要过两轮 LLM（日程 + 着装标注），实测 1~2 分钟。先说明，避免被当成卡死。
+  toastFn?.('日程生成中，约需 1~2 分钟，请不要关闭页面', 'info')
   try {
-    try { await store.regenerateSchedule(detailChar.value.id, direction, options) } catch { return }
+    // ★ 2026-10-20：这里原来是 `catch { return }`，把失败完全吞掉 ——
+    //   用户只看到转圈停下、没有任何提示，误以为「生成了但没生效」。
+    try {
+      await store.regenerateSchedule(detailChar.value.id, direction, options)
+    } catch (err: any) {
+      toastFn?.('日程生成失败：' + (err?.message || '未知错误'), 'error')
+      return
+    }
     detailLoading.value = true
     try {
       const d = await store.fetchCharacterSchedule(detailChar.value.id)
