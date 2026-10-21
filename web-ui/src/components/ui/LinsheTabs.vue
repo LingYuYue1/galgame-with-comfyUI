@@ -163,6 +163,21 @@ function navigate(event, option) {
   display: none;
 }
 
+/* lg：大页签（设置页分组用，2026-10-21）
+   触控目标 ≥44px —— 这是 ui-ux-pro-max 检查清单的硬要求，
+   md 档 32px 在手机上偏小。目前只有设置页在用，不影响既有调用方。 */
+.ls-tabs--lg {
+  gap: 5px;
+  padding: 4px;
+  border-radius: var(--radius-lg);
+}
+.ls-tabs--lg .ls-tabs__item {
+  min-height: 44px;
+  padding: 10px 8px;
+  font-size: var(--fs-md);
+  border-radius: 10px;
+}
+
 .ls-tabs__item[aria-disabled='true'] {
   opacity: 0.55;
   pointer-events: none;

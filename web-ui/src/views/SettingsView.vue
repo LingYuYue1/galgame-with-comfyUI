@@ -8,9 +8,20 @@
       </div>
     </div>
 
-    <div class="settings-grid">
+    <!-- ★ 2026-10-21 分组页签（方案 A）：一次点击切组、不跳页、不加路由。
+         手机端 6 格等分不横滑；lg 档 44px 是触控目标下限。 -->
+    <linshe-tabs
+      v-model="activeGroup"
+      :options="SETTINGS_GROUPS"
+      size="lg"
+      class="settings-groups"
+      aria-label="设置分组"
+    />
+
+    <!-- 只有一张卡的组（模型 / 行为）占满整行：LLM 那张 300+ 行，挤半屏读起来很累 -->
+    <div class="settings-grid" :class="{ 'is-wide-single': activeGroup === 'model' || activeGroup === 'behavior' }">
       <!-- ComfyUI params: 对话配图 / 朋友圈配图 / 奇遇配图（Tab 切换） -->
-      <div class="card comfy-params-card">
+      <div v-show="activeGroup === 'image'" class="card comfy-params-card">
         <h3>画师串 & 分辨率</h3>
         <p class="fd">直接描述画面风格 或者 选择0~2个画风，英文逗号分隔，参考来源：<a href="https://anima.mooshieblob.com/" target="_blank" rel="noopener" class="ext-link">https://anima.mooshieblob.com/</a> · 分辨率越高出图越精细，代价是变慢。参考：5070ti 768×512 base约 7s/图|turbo 约2.5s/图</p>
 
@@ -117,7 +128,7 @@
 
 
       <!-- 测试画风：自由画面描述（LLM 完善提示词）或固定提示词测试 -->
-      <div class="card">
+      <div v-show="activeGroup === 'image'" class="card">
         <h3>图片实验室</h3>
         <p class="fd">可测试当前生图服务，使用对应画师串和分辨率发送生图请求，图片仅作预览不保存</p>
         <p class="fd">Anima文生图模型的数据库大约在2025年9月，过新的角色不识别，越久的角色特征越稳定</p>
@@ -278,7 +289,7 @@
         </template>
       </linshe-modal>
       <!-- LLM API 设置 -->
-      <div class="card llm-card" :class="{ 'llm-card-first': llmCardFirst }">
+      <div v-show="activeGroup === 'model'" class="card llm-card" :class="{ 'llm-card-first': llmCardFirst }">
         <div class="llm-card-header">
           <h3>LLM API 设置</h3>
           <!-- 每日免费鸡蛋：点击开启/关闭，免 Key 走 opencode zen 免费端点 -->
@@ -595,7 +606,7 @@
       </linshe-modal>
 
       <!-- 功能开关 -->
-      <div class="card">
+      <div v-show="activeGroup === 'behavior'" class="card">
         <h3>功能开关</h3>
 
         <div class="toggle-row theme-mode-row">
@@ -785,7 +796,7 @@ type="range" min="0" :max="MOMENT_FREQ_STEPS.length - 1" step="1"
       </div>
 
       <!-- 生图服务连接 -->
-      <div class="card image-connection-card">
+      <div v-show="activeGroup === 'image'" class="card image-connection-card">
         <h3>图片生成服务</h3>
         <linshe-tabs
           v-model="imageProvider"
@@ -949,7 +960,7 @@ type="range" min="0" :max="MOMENT_FREQ_STEPS.length - 1" step="1"
       </div>
 
       <!-- 聊天记忆 -->
-      <div class="card memory-settings-card">
+      <div v-show="activeGroup === 'memory'" class="card memory-settings-card">
         <div class="memory-settings-header">
           <div>
             <h3>聊天记忆</h3>
@@ -1001,7 +1012,7 @@ type="range" min="0" :max="MOMENT_FREQ_STEPS.length - 1" step="1"
       </div>
 
       <!-- MaiBot 桥接：入口卡片（复用「聊天记忆」入口样式） -->
-      <div class="card memory-settings-card maibot-settings-card">
+      <div v-show="activeGroup === 'memory'" class="card memory-settings-card maibot-settings-card">
         <div class="memory-settings-header">
           <div>
             <h3>MaiBot 桥接（需要邻舍v3.0.0以上支持）</h3>
@@ -1036,10 +1047,10 @@ type="range" min="0" :max="MOMENT_FREQ_STEPS.length - 1" step="1"
       </div>
 
       <!-- 数据清理：按时间清理生成的图片与内容记录 -->
-      <DataCleanupCard />
+      <DataCleanupCard v-show="activeGroup === 'data'" />
 
       <!-- 更新说明：重新查看历次更新内容（平时只在版本变化后自动弹一次） -->
-      <div class="card memory-settings-card">
+      <div v-show="activeGroup === 'data'" class="card memory-settings-card">
         <div class="memory-settings-header">
           <div>
             <h3>更新说明</h3>
@@ -1074,6 +1085,20 @@ type="range" min="0" :max="MOMENT_FREQ_STEPS.length - 1" step="1"
               <path d="m9 18 6-6-6-6" />
             </svg>
           </span>
+        </div>
+      </div>
+      <!-- ★ 2026-10-21 提示词模块：本期只做「看得见」的框架，清单在阶段 3 接入 -->
+      <div v-show="activeGroup === 'prompt'" class="card prompt-module-card">
+        <h3>提示词模块</h3>
+        <p class="fd">
+          把各条链路喂给 AI 的提示词，按「系统 + 顺序」列出来——看清它到底吃了什么、每层多少字、想改该去哪里改。
+          本期先做只读总览；开关与调序属于重构级，留到下一阶段。
+        </p>
+        <div class="empty">
+          <p class="prompt-empty-title">这一组还在施工</p>
+          <p class="prompt-empty-desc">
+            布局分组落定后，依次接入：聊天 · 朋友圈 · 日程 · 奇遇 · 媒体 · 报纸 · 小镇 · 生图
+          </p>
         </div>
       </div>
 </div>
@@ -1310,6 +1335,20 @@ function openChangelog() {
   if (showChangelogFn) showChangelogFn()
   else toastFn?.('更新说明弹窗未就绪，请刷新页面重试', 'info')
 }
+
+// ── 分组页签（2026-10-21，方案 A）──
+// 6 组按「我想改什么」划分，不按代码模块。手机端 6 格等分不横滑；
+// 标签控制在 2~4 字，390 宽下才放得下（全称放在 ARIA 里）。
+const SETTINGS_GROUPS = [
+  { value: 'image', label: '生图', title: '生图与画风' },
+  { value: 'model', label: '模型', title: '模型与链接' },
+  { value: 'behavior', label: '行为', title: '世界与行为' },
+  { value: 'prompt', label: '提示', title: '提示词模块' },
+  { value: 'memory', label: '记忆', title: '记忆与集成' },
+  { value: 'data', label: '数据', title: '数据与关于' },
+]
+// 默认落在「生图」——最常改的一组。用组件内状态而不是路由，切页签不该多一条历史记录。
+const activeGroup = ref('image')
 
 // ── 移动端滚动方向感知：下滑隐藏标题，上滑显示 ──
 const scrollEl = ref(null)
@@ -3168,6 +3207,14 @@ function resetTestPrompts() {
 /* 双列用 minmax(0,1fr)：格子默认 min-width:auto，生成图（最大 480px）会把列撑到
    内容宽度之外，设置页横向溢出、滚动后左列被顶出可视区（平板上「左侧被遮盖」的根因） */
 .settings-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+/* 分组页签（2026-10-21 方案 A）：lg 档 44px 高，6 格等分不横滑 */
+.settings-groups { margin-bottom: 16px; }
+/* 单卡组占满整行（模型 / 行为） */
+.settings-grid.is-wide-single { grid-template-columns: minmax(0, 1fr); }
+/* 提示词模块的空态（本期只是占位，等阶段 3 接入链路清单） */
+.prompt-module-card .empty { margin-top: 12px; }
+.prompt-empty-title { color: var(--text-primary); font-weight: 500; }
+.prompt-empty-desc { margin-top: 6px; color: var(--text-secondary); font-size: 13px; line-height: 1.6; }
 .memory-settings-card { gap: 0; }
 .maibot-settings-card .memory-settings-entry { margin-top: 14px; }
 .memory-settings-header h3 { margin-bottom: 4px; }
