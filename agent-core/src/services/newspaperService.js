@@ -453,14 +453,14 @@ export async function generateDailyNewspaper({ replace = false, backgroundImages
 
 async function generateNewsImage(prompt, { ragQuery, loras, character } = {}) {
   // 生图参数与朋友圈发帖保持同步（generateMomentImages）：画师优先角色单独设置、
-  // 分辨率用 moments 档、有 LoRA 时同样透传角色自定义工作流；scene 也沿用 'moments'
+  // 分辨率用自己的 paper 档（2026-10-21 从 moments 拆出，默认值仍等于朋友圈初值）、有 LoRA 时同样透传角色自定义工作流；scene 也沿用 'moments'
   //（全局 LoRA 面板里勾了「朋友圈」的条目对报纸配图同样生效——报纸 ≈ 全员可见的朋友圈）
   const charArtist = charArtistOverrideWithFallback(character);
   const genResult = await generateImageRaw(prompt, {
     ragQuery: ragQuery || prompt,
     artist: charArtist !== null ? charArtist : config.comfyui.momentsArtist,
-    width: config.comfyui.momentsWidth,
-    height: config.comfyui.momentsHeight,
+    width: config.comfyui.paperWidth,
+    height: config.comfyui.paperHeight,
     scene: 'moments',
     priority: 'low',
     ...(loras?.length ? { customWorkflow: character?.custom_workflow || null, loras } : {}),
@@ -518,7 +518,7 @@ async function generateAndStorePaperImage(row, task) {
       ? db.prepare('SELECT loras, artist_override, custom_workflow FROM characters WHERE id = ?').get(row.character_id)
       : null;
     const featuredLoras = parseCharacterLoras(character?.loras);
-    const resolution = `${config.comfyui.momentsWidth}x${config.comfyui.momentsHeight}`;
+    const resolution = `${config.comfyui.paperWidth}x${config.comfyui.paperHeight}`;
     const result = await generateNewsImage(task.image, {
       ragQuery: task.ragQuery,
       loras: task.hasLoras ? featuredLoras : [],

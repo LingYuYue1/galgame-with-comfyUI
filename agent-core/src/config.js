@@ -129,6 +129,29 @@ defaultTimeoutMs: parseInt(process.env.VECTOR_DEFAULT_TIMEOUT_MS, 10) || 120000,
     eventArtist: process.env.COMFYUI_EVENT_ARTIST || process.env.COMFYUI_MOMENTS_ARTIST || process.env.COMFYUI_ARTIST || '@ebora',
     eventWidth: parseInt(process.env.COMFYUI_EVENT_WIDTH, 10) || 1600,
     eventHeight: parseInt(process.env.COMFYUI_EVENT_HEIGHT, 10) || 1200,
+    // ── 以下为「原本硬编码、现在开放配置」的链路（2026-10-21 设置页整改）──
+    // 默认值一律等于改造前的硬编码值：不配置 = 行为完全不变（红线 4）。
+    // 报纸此前直接读 momentsWidth/Height（改朋友圈会连带改报纸），现拆为独立项，
+    // 默认仍取朋友圈的初值，所以升级后第一眼看到的尺寸与从前一致。
+    paperWidth: parseInt(process.env.COMFYUI_PAPER_WIDTH, 10) || parseInt(process.env.COMFYUI_MOMENTS_WIDTH, 10) || 1600,
+    paperHeight: parseInt(process.env.COMFYUI_PAPER_HEIGHT, 10) || parseInt(process.env.COMFYUI_MOMENTS_HEIGHT, 10) || 1200,
+    // 立绘：竖图。expressionStandingService 原写死 768×1536
+    standingWidth: parseInt(process.env.COMFYUI_STANDING_WIDTH, 10) || 768,
+    standingHeight: parseInt(process.env.COMFYUI_STANDING_HEIGHT, 10) || 1536,
+    // 道具 / 商品：itemService、lootService 原写死 512×512（小镇 NPC 存货不改）
+    itemWidth: parseInt(process.env.COMFYUI_ITEM_WIDTH, 10) || 512,
+    itemHeight: parseInt(process.env.COMFYUI_ITEM_HEIGHT, 10) || 512,
+    // 信箱：信纸与插图用这个尺寸，肖像自动取反（原 1200×900 / 900×1200）
+    mailWidth: parseInt(process.env.COMFYUI_MAIL_WIDTH, 10) || 1200,
+    mailHeight: parseInt(process.env.COMFYUI_MAIL_HEIGHT, 10) || 900,
+    // 聊天背景：dialogueBackground 原写死 1280×720
+    chatBgWidth: parseInt(process.env.COMFYUI_CHATBG_WIDTH, 10) || 1280,
+    chatBgHeight: parseInt(process.env.COMFYUI_CHATBG_HEIGHT, 10) || 720,
+    // 媒体画幅池：参与随机的画幅 key（见 mediaService.GALLERY_ASPECTS）。
+    // 空数组/null = 全选，与改造前「7 种全用」一致。
+    galleryPool: null,
+    // 媒体长边上限：0 = 不限（改造前就是从池里原尺寸抽，不看上限）
+    galleryMaxEdge: 0,
     qualityPrompt: process.env.COMFYUI_QUALITY_PROMPT || '',  // 质量提示词覆盖（留空=沿用工作流默认）
     negativePrompt: process.env.COMFYUI_NEGATIVE_PROMPT || '',  // 负面提示词覆盖（留空=沿用工作流默认）
     tlsVerify: process.env.COMFYUI_TLS_VERIFY !== 'false',
@@ -466,7 +489,31 @@ export function getNovelaiApiKey() {
   catch { return process.env.NOVELAI_API_KEY || ''; }
 }
 
-export function updateComfyConfig({ artist, width, height, url, momentsArtist, momentsWidth, momentsHeight, eventArtist, eventWidth, eventHeight, tlsVerify, qualityPrompt, negativePrompt, imageProvider, novelaiApiFormat, novelaiUrl, novelaiProxyUrl, novelaiModel, novelaiArtist, novelaiWidth, novelaiHeight, novelaiSteps, novelaiSampler, novelaiNoiseSchedule, novelaiGuidance, novelaiQualityPrompt, novelaiNegativePrompt, novelaiApiKey, clearNovelaiApiKey }) {
+/**
+ * 合法画幅 key —— 与 `data/galleryAspects.js` 的 GALLERY_ASPECTS 保持一致。
+ *
+ * ⚠ 这里**故意不 import** 那个模块：`test/llmConfig.test.js` 会把本文件的源码塞进
+ * `data:text/javascript,...` 里执行，data: URL 下**任何相对 import 都无法解析**
+ * （ERR_UNSUPPORTED_RESOLVE_REQUEST），整份测试会因此崩掉。
+ * 两边的一致性由 `test/imageSizeConfig.test.js` 兜底。
+ */
+export const GALLERY_ASPECT_KEYS = ['2:3', '3:4', '9:16', '1:1', '4:3', '3:2', '16:9'];
+
+/** 六条链路尺寸：config 字段 → system_settings 键（2026-10-21 新增） */
+const SIZE_FIELD_KEYS = {
+  paperWidth: 'comfy_paper_width',
+  paperHeight: 'comfy_paper_height',
+  standingWidth: 'comfy_standing_width',
+  standingHeight: 'comfy_standing_height',
+  itemWidth: 'comfy_item_width',
+  itemHeight: 'comfy_item_height',
+  mailWidth: 'comfy_mail_width',
+  mailHeight: 'comfy_mail_height',
+  chatBgWidth: 'comfy_chatbg_width',
+  chatBgHeight: 'comfy_chatbg_height',
+};
+
+export function updateComfyConfig({ artist, width, height, url, momentsArtist, momentsWidth, momentsHeight, eventArtist, eventWidth, eventHeight, paperWidth, paperHeight, standingWidth, standingHeight, itemWidth, itemHeight, mailWidth, mailHeight, chatBgWidth, chatBgHeight, galleryPool, galleryMaxEdge, tlsVerify, qualityPrompt, negativePrompt, imageProvider, novelaiApiFormat, novelaiUrl, novelaiProxyUrl, novelaiModel, novelaiArtist, novelaiWidth, novelaiHeight, novelaiSteps, novelaiSampler, novelaiNoiseSchedule, novelaiGuidance, novelaiQualityPrompt, novelaiNegativePrompt, novelaiApiKey, clearNovelaiApiKey }) {
   if (imageProvider !== undefined) {
     const provider = imageProvider === 'novelai' ? 'novelai' : 'comfyui';
     config.comfyui.imageProvider = provider;
@@ -566,6 +613,33 @@ export function updateComfyConfig({ artist, width, height, url, momentsArtist, m
   if (eventArtist !== undefined) { config.comfyui.eventArtist = eventArtist; persistSettingSync('comfy_event_artist', eventArtist); }
   if (eventWidth !== undefined) { config.comfyui.eventWidth = parseInt(eventWidth, 10) || config.comfyui.eventWidth; persistSettingSync('comfy_event_width', config.comfyui.eventWidth); }
   if (eventHeight !== undefined) { config.comfyui.eventHeight = parseInt(eventHeight, 10) || config.comfyui.eventHeight; persistSettingSync('comfy_event_height', config.comfyui.eventHeight); }
+
+  // ── 六条原本硬编码的链路尺寸（2026-10-21 设置页整改）──
+  // 统一 64~4096 校验；非法值保持原样、不写库，避免把配置写成 0。
+  const sizeInput = { paperWidth, paperHeight, standingWidth, standingHeight, itemWidth, itemHeight, mailWidth, mailHeight, chatBgWidth, chatBgHeight };
+  for (const [field, key] of Object.entries(SIZE_FIELD_KEYS)) {
+    const raw = sizeInput[field];
+    if (raw === undefined) continue;
+    const v = parseInt(raw, 10);
+    if (!Number.isInteger(v) || v < 64 || v > 4096) continue;
+    config.comfyui[field] = v;
+    persistSettingSync(key, v);
+  }
+  // 媒体画幅池：只收合法 key；空数组 / 非数组一律存 null（= 全部参与随机）。
+  // 必须 JSON.stringify —— setSetting 内部是 String(value)，数组会被压成 "4:3,16:9"，
+  // 读回时 JSON.parse 失败，等于丢失。
+  if (galleryPool !== undefined) {
+    const allowed = new Set(GALLERY_ASPECT_KEYS);
+    const picked = Array.isArray(galleryPool) ? galleryPool.filter(k => allowed.has(k)) : [];
+    config.comfyui.galleryPool = picked.length ? picked : null;
+    persistSettingSync('comfy_gallery_pool', JSON.stringify(config.comfyui.galleryPool));
+  }
+  // 长边上限：0 = 不限（改造前的行为）
+  if (galleryMaxEdge !== undefined) {
+    const v = Math.max(0, Math.min(4096, parseInt(galleryMaxEdge, 10) || 0));
+    config.comfyui.galleryMaxEdge = v;
+    persistSettingSync('comfy_gallery_max_edge', v);
+  }
   if (tlsVerify !== undefined) {
     config.comfyui.tlsVerify = tlsVerify === true || tlsVerify === 'true';
     persistEnv('COMFYUI_TLS_VERIFY', String(config.comfyui.tlsVerify));

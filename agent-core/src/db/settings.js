@@ -81,6 +81,21 @@ export const SETTING_TO_CONFIG = {
   comfy_event_artist:      { obj: 'comfyui',   key: 'eventArtist',     type: 'string'  },
   comfy_event_width:       { obj: 'comfyui',   key: 'eventWidth',      type: 'int'     },
   comfy_event_height:      { obj: 'comfyui',   key: 'eventHeight',     type: 'int'     },
+  // ── 原本硬编码、2026-10-21 起开放配置的链路 ──
+  comfy_paper_width:       { obj: 'comfyui',   key: 'paperWidth',      type: 'int'     },
+  comfy_paper_height:      { obj: 'comfyui',   key: 'paperHeight',     type: 'int'     },
+  comfy_standing_width:    { obj: 'comfyui',   key: 'standingWidth',   type: 'int'     },
+  comfy_standing_height:   { obj: 'comfyui',   key: 'standingHeight',  type: 'int'     },
+  // 表情包不在此列：它早就有独立的 emoji_width / emoji_height 键（emojiService 自己读），
+  // 只差设置页 UI，不要再造第二套。
+  comfy_item_width:        { obj: 'comfyui',   key: 'itemWidth',       type: 'int'     },
+  comfy_item_height:       { obj: 'comfyui',   key: 'itemHeight',      type: 'int'     },
+  comfy_mail_width:        { obj: 'comfyui',   key: 'mailWidth',       type: 'int'     },
+  comfy_mail_height:       { obj: 'comfyui',   key: 'mailHeight',      type: 'int'     },
+  comfy_chatbg_width:      { obj: 'comfyui',   key: 'chatBgWidth',     type: 'int'     },
+  comfy_chatbg_height:     { obj: 'comfyui',   key: 'chatBgHeight',    type: 'int'     },
+  comfy_gallery_pool:      { obj: 'comfyui',   key: 'galleryPool',     type: 'json'    },
+  comfy_gallery_max_edge:  { obj: 'comfyui',   key: 'galleryMaxEdge',  type: 'int'     },
   comfy_quality_prompt:    { obj: 'comfyui',   key: 'qualityPrompt',   type: 'string'  },
   comfy_negative_prompt:   { obj: 'comfyui',   key: 'negativePrompt',  type: 'string'  },
   feature_emotion:               { obj: 'features', key: 'emotion',          type: 'bool' },
@@ -252,6 +267,22 @@ export function loadSystemSettings(db) {
       applied++;
     }
   }
+  // 报纸尺寸 2026-10-21 从朋友圈拆出：**首次运行**把朋友圈当前值抄过去，之后两者独立。
+  // 改造前报纸直接读 momentsWidth/Height；拆开时若只取 env 默认值，已经手动把朋友圈
+  // 调小过的用户（本机就是 768×512）报纸会反而回到 1600×1200 —— 那是行为倒退。
+  // 只抄一次：库里已有 comfy_paper_width 就不再动，之后改朋友圈不会牵动报纸。
+  if (!rows.some(r => r.setting_key === 'comfy_paper_width')) {
+    const w = config.comfyui.momentsWidth || 1600;
+    const h = config.comfyui.momentsHeight || 1200;
+    config.comfyui.paperWidth = w;
+    config.comfyui.paperHeight = h;
+    try {
+      const ins = db.prepare(`INSERT OR REPLACE INTO system_settings (setting_key, setting_value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)`);
+      ins.run('comfy_paper_width', String(w));
+      ins.run('comfy_paper_height', String(h));
+    } catch { /* 只读或结构不同的库：内存里生效即可 */ }
+  }
+
   if (applied > 0) {
     console.log(`[db] system_settings: ${applied} keys applied to config`);
   }

@@ -63,7 +63,7 @@ export function listExpressionStandings(id) {
 }
 
 function snapshotConfig(char) {
-  return structuredClone({ ...captureImageGenerationConfig('portrait'), artist: charArtistOverride(char) ?? config.comfyui.momentsArtist, loras: parseCharacterLoras(char), ...(char.custom_workflow ? { customWorkflow: char.custom_workflow } : {}), width: 768, height: 1536 });
+  return structuredClone({ ...captureImageGenerationConfig('portrait'), artist: charArtistOverride(char) ?? config.comfyui.momentsArtist, loras: parseCharacterLoras(char), ...(char.custom_workflow ? { customWorkflow: char.custom_workflow } : {}), width: config.comfyui.standingWidth, height: config.comfyui.standingHeight });
 }
 /** One snapshot for the tavern manager, including characters with no saved slots. */
 export function listStandingOverview() {

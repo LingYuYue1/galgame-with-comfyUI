@@ -38,6 +38,8 @@ import { MEDIA_PUBLICATION_ORDER, publishMediaPostIfReady, isMediaPostPublished 
 //   与 BUG-04 同一条链路 —— URL 带 mtime 版本，客户端切页/刷新才不会拿旧缓存。
 import { withImageVersion } from '../utils/imageVersion.js';
 import { config } from '../config.js';
+import { GALLERY_ASPECTS } from '../data/galleryAspects.js';
+import { resolveGalleryAspects } from './galleryAspectResolver.js';
 import { extractFirstJson, repairJson } from './eventGenerator.js';
 import { buildCharacterPersona } from './characterPersona.js';
 import { charArtistOverrideWithFallback } from './characterImageOpts.js';
@@ -1289,15 +1291,10 @@ function pickRandomArtists(n) {
  * 尺寸按同一像素预算（长边 ~1600、约 1.9MP）给出，避免个别比例把显存吃爆。
  * 竖幅留给「全身/站立」类，横幅留给「横躺/侧卧」类（由抽取时按体位画幅倾向加权）。
  */
-export const GALLERY_ASPECTS = [
-  { key: '2:3', w: 1088, h: 1632 },
-  { key: '3:4', w: 1200, h: 1600 },
-  { key: '9:16', w: 972, h: 1728 },
-  { key: '1:1', w: 1440, h: 1440 },
-  { key: '4:3', w: 1600, h: 1200 },
-  { key: '3:2', w: 1632, h: 1088 },
-  { key: '16:9', w: 1728, h: 972 },
-];
+// 画幅池单独成模块（纯计算），避免测试 import 本文件时白白拉起 comfyClient 去连 ComfyUI。
+// 对外接口保持不变：调用方仍从 mediaService 拿 GALLERY_ASPECTS / resolveGalleryAspects。
+export { GALLERY_ASPECTS } from '../data/galleryAspects.js';
+export { resolveGalleryAspects } from './galleryAspectResolver.js';
 
 /** 横躺类体位（适合横幅）—— 按体位名/判定里出现的「卧/躺/侧」等字样加权 */
 const LYING_RE = /卧|躺|侧|睡|仰|俯|趴/;
@@ -1313,10 +1310,11 @@ const MAX_GALLERY_TAGS = 12;
 
 /** 抽 n 个比例：把池子洗成袋，抽完再续（保证同批内尽量不重复） */
 function pickRandomAspects(n) {
+  const aspects = resolveGalleryAspects();   // 池子每批算一次，别在循环里重复过滤
   const bag = [];
   const out = [];
   for (let i = 0; i < n; i++) {
-    if (!bag.length) bag.push(...GALLERY_ASPECTS);
+    if (!bag.length) bag.push(...aspects);
     out.push(bag.splice(Math.floor(Math.random() * bag.length), 1)[0]);
   }
   return out;
@@ -2064,7 +2062,7 @@ async function generateGalleryBatch(outlet, count, withCharacters) {
     const wantWide = isLying;
     const gotWide = aspects[i].w > aspects[i].h;
     if (wantWide !== gotWide) {
-      const alt = GALLERY_ASPECTS.filter(a => (a.w > a.h) === wantWide);
+      const alt = resolveGalleryAspects().filter(a => (a.w > a.h) === wantWide);
       if (alt.length) aspects[i] = alt[Math.floor(Math.random() * alt.length)];
     }
 

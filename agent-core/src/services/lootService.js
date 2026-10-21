@@ -11,6 +11,7 @@
  *  3. 生图串行排队。一次刷 4 张并行会把 ComfyUI 撑爆。
  *  4. 分页配置存在 system_settings（导入时写入），运行时后端不依赖外部文件是否存在。
  */
+import { config } from '../config.js';
 import { getDb, getSetting, setSetting } from '../db/index.js';
 import { generateImageRaw } from './imageSkill.js';
 import { saveBase64Image, imageUrlExists, deleteImageFileByUrl } from './imagePaths.js';
@@ -502,7 +503,7 @@ async function generateOneImage(catalogId) {
   db.prepare(`UPDATE loot_catalog SET image_status = 'generating', image_error = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(catalogId);
   try {
     const result = await generateImageRaw(imagePromptFor(row), {
-      scene: 'items', disableRAG: true, persistPreparation: false, width: 512, height: 512, artist: '@ebora',
+      scene: 'items', disableRAG: true, persistPreparation: false, width: config.comfyui.itemWidth, height: config.comfyui.itemHeight, artist: '@ebora',
     });
     if (!result.success || !result.images?.length) throw new Error(result.error || 'ComfyUI 未返回图片');
     const url = saveBase64Image('items', `loot_${row.tag}_${Date.now()}.png`, result.images[0].base64);

@@ -107,6 +107,18 @@ router.get('/', (req, res) => {
       eventArtist: config.comfyui.eventArtist,
       eventWidth: config.comfyui.eventWidth,
       eventHeight: config.comfyui.eventHeight,
+      paperWidth: config.comfyui.paperWidth,
+      paperHeight: config.comfyui.paperHeight,
+      standingWidth: config.comfyui.standingWidth,
+      standingHeight: config.comfyui.standingHeight,
+      itemWidth: config.comfyui.itemWidth,
+      itemHeight: config.comfyui.itemHeight,
+      mailWidth: config.comfyui.mailWidth,
+      mailHeight: config.comfyui.mailHeight,
+      chatBgWidth: config.comfyui.chatBgWidth,
+      chatBgHeight: config.comfyui.chatBgHeight,
+      galleryPool: config.comfyui.galleryPool,
+      galleryMaxEdge: config.comfyui.galleryMaxEdge,
       qualityPrompt: config.comfyui.qualityPrompt ?? '',
       negativePrompt: config.comfyui.negativePrompt ?? '',
       tlsVerify: config.comfyui.tlsVerify,
@@ -176,13 +188,13 @@ router.put('/group-summary-interval', (req, res) => {
 
 // PUT /api/config/comfy — 更新 ComfyUI 参数
 router.put('/comfy', (req, res) => {
-  const { artist, width, height, url, momentsArtist, momentsWidth, momentsHeight, eventArtist, eventWidth, eventHeight, tlsVerify, qualityPrompt, negativePrompt, imageProvider, novelaiApiFormat, novelaiUrl, novelaiProxyUrl, novelaiModel, novelaiArtist, novelaiWidth, novelaiHeight, novelaiSteps, novelaiSampler, novelaiNoiseSchedule, novelaiGuidance, novelaiQualityPrompt, novelaiNegativePrompt, novelaiApiKey, clearNovelaiApiKey } = req.body;
+  const { artist, width, height, url, momentsArtist, momentsWidth, momentsHeight, eventArtist, eventWidth, eventHeight, paperWidth, paperHeight, standingWidth, standingHeight, itemWidth, itemHeight, mailWidth, mailHeight, chatBgWidth, chatBgHeight, galleryPool, galleryMaxEdge, tlsVerify, qualityPrompt, negativePrompt, imageProvider, novelaiApiFormat, novelaiUrl, novelaiProxyUrl, novelaiModel, novelaiArtist, novelaiWidth, novelaiHeight, novelaiSteps, novelaiSampler, novelaiNoiseSchedule, novelaiGuidance, novelaiQualityPrompt, novelaiNegativePrompt, novelaiApiKey, clearNovelaiApiKey } = req.body;
   try {
     if (novelaiApiFormat !== undefined && !['official', 'native', 'relay'].includes(novelaiApiFormat)) throw new Error('NovelAI 接口协议无效');
     if (novelaiUrl !== undefined && String(novelaiUrl).trim()) validateNovelaiUrl(novelaiUrl);
     if (novelaiProxyUrl !== undefined && String(novelaiProxyUrl).trim()) validateNovelaiUrl(novelaiProxyUrl, '代理地址');
   } catch (error) { return res.status(400).json({ error: error.message }); }
-  updateComfyConfig({ artist, width, height, url, momentsArtist, momentsWidth, momentsHeight, eventArtist, eventWidth, eventHeight, tlsVerify, qualityPrompt, negativePrompt, imageProvider, novelaiApiFormat, novelaiUrl, novelaiProxyUrl, novelaiModel, novelaiArtist, novelaiWidth, novelaiHeight, novelaiSteps, novelaiSampler, novelaiNoiseSchedule, novelaiGuidance, novelaiQualityPrompt, novelaiNegativePrompt, novelaiApiKey, clearNovelaiApiKey });
+  updateComfyConfig({ artist, width, height, url, momentsArtist, momentsWidth, momentsHeight, eventArtist, eventWidth, eventHeight, paperWidth, paperHeight, standingWidth, standingHeight, itemWidth, itemHeight, mailWidth, mailHeight, chatBgWidth, chatBgHeight, galleryPool, galleryMaxEdge, tlsVerify, qualityPrompt, negativePrompt, imageProvider, novelaiApiFormat, novelaiUrl, novelaiProxyUrl, novelaiModel, novelaiArtist, novelaiWidth, novelaiHeight, novelaiSteps, novelaiSampler, novelaiNoiseSchedule, novelaiGuidance, novelaiQualityPrompt, novelaiNegativePrompt, novelaiApiKey, clearNovelaiApiKey });
   // URL 或 TLS 设置变更后立即重启 ComfyUI 客户端连接（使新地址/证书策略立即生效）
   if (url !== undefined || tlsVerify !== undefined) {
     restartComfyClient();

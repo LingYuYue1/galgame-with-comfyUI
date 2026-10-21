@@ -23,6 +23,7 @@
  *   - favor     → 复用 loadAffinity/saveAffinity 直接提升亲密度
  */
 
+import { config } from '../config.js';
 import { getDb, getSystemRules, getSystemRulesWithWorld, getWorldSetting } from '../db/index.js';
 import { getWorldIntegrationRule } from '../builtinRules.js';
 import { chatSync } from '../llm/llm-client.js';
@@ -391,8 +392,8 @@ async function generateItemImageAsync(itemId, imagePrompt) {
       scene: 'chat',
       disableRAG: true,
       persistPreparation: false,
-      width: 512,
-      height: 512,
+      width: config.comfyui.itemWidth,
+      height: config.comfyui.itemHeight,
       artist: '@ebora',
     });
     if (!result.success || !result.images?.length) {
@@ -427,7 +428,7 @@ export async function repairMissingItemImages({ limit = 100, onProgress } = {}) 
     const prompt = `game item icon, ${row.name}, ${row.description}, ${theme}, floating, glowing softly, no humans, simple background, best quality`;
     try {
       const result = await generateImageRaw(prompt, {
-        scene: 'items', disableRAG: true, persistPreparation: false, width: 512, height: 512, artist: '@ebora',
+        scene: 'items', disableRAG: true, persistPreparation: false, width: config.comfyui.itemWidth, height: config.comfyui.itemHeight, artist: '@ebora',
       });
       if (!result.success || !result.images?.length) throw new Error(result.error || 'ComfyUI 未返回图片');
       const filename = String(row.image_url).split('/').pop();
