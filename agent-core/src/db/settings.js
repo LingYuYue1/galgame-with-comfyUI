@@ -113,6 +113,13 @@ export const SETTING_TO_CONFIG = {
   feature_bgmMuted:                  { obj: 'features', key: 'bgmMuted',              type: 'bool' },
   feature_groupIdleBudget:           { obj: 'features', key: 'groupIdleBudget',        type: 'int'  },
   feature_deepThinkMode:             { obj: 'features', key: 'deepThinkMode',          type: 'bool' },
+  // ★ 2026-10-21 补登记：这三个前端早就有开关、DB 里也早就有值，但一直没进本表 ——
+  //   结果是"拨了存进 system_settings，重启时 config 不加载，开关静默复位"。
+  //   症状：角色自主旅游 / 剧情大纲注入 / 剧情线注入，用户以为开了，重启后其实是关的。
+  //   setSetting() 原本会打 "will NOT survive restart" 警告，但淹没在启动日志里没人看见。
+  feature_autoTravel:                { obj: 'features', key: 'autoTravel',            type: 'bool' },
+  feature_storyOutline:              { obj: 'features', key: 'storyOutline',          type: 'bool' },
+  feature_storyLines:                { obj: 'features', key: 'storyLines',            type: 'bool' },
   group_activity: { obj: 'groupChat', key: 'activity', type: 'int' },
   group_temperature:                 { obj: 'groupChat', key: 'temperature',           type: 'float' },
   group_summary_interval:            { obj: 'groupChat', key: 'summaryInterval',      type: 'int' },
