@@ -64,10 +64,7 @@
                 </linshe-button>
                 </div>
               </template>
-              <div class="fr">
-                <div class="fh"><label class="fl">宽度</label><linshe-input v-model.number="form[activeFields.width]" type="number" min="256" max="4096" @input="markDirty" /></div>
-                <div class="fh"><label class="fl">高度</label><linshe-input v-model.number="form[activeFields.height]" type="number" min="256" max="4096" @input="markDirty" /></div>
-              </div>
+              <p class="size-moved-hint">宽高已统一到下面的「生图尺寸」，每条链路各一张卡。</p>
               <div class="fpresets-head">
                 <span class="resolution-title">分辨率</span>
                 <span class="resolution-hint">不建议超过 1536×1536 个像素，人体崩坏概率会上升</span>
@@ -78,6 +75,68 @@
               </div>
             </div>
           </Transition>
+        </div>
+
+        <!-- 生图尺寸：10 条链路各一张卡（2026-10-21） -->
+        <div class="sizes-head">
+          <span class="sizes-title">生图尺寸</span>
+          <span class="sizes-hint">点数字直接改 · 左侧缩略框跟着变 · 默认值 = 改造前</span>
+        </div>
+        <div class="size-grid">
+          <div
+            v-for="s in SIZE_CARDS"
+            :key="s.id"
+            class="size-card"
+            :class="{ 'is-vertical': Number(form[s.w]) < Number(form[s.h]) }"
+          >
+            <div class="size-card-head">
+              <span class="size-thumb"><i :style="{ width: thumbOf(s).w + 'px', height: thumbOf(s).h + 'px' }"></i></span>
+              <span class="size-name">{{ s.name }}<small>{{ s.hint }}</small></span>
+            </div>
+            <div class="size-body">
+              <linshe-input class="size-num" v-model.number="form[s.w]" type="number" min="64" max="4096" step="8" @input="markDirty" />
+              <span class="size-x">×</span>
+              <linshe-input class="size-num" v-model.number="form[s.h]" type="number" min="64" max="4096" step="8" @input="markDirty" />
+            </div>
+            <div class="size-foot"><span>{{ ratioLabelOf(s) }}</span><b>{{ mpLabelOf(s) }}</b></div>
+          </div>
+
+          <!-- 表情包：走独立接口（emoji_width / emoji_height），范围 512–1024、步长 64 -->
+          <div class="size-card" :class="{ 'is-vertical': Number(emojiSize.height) < Number(emojiSize.width) }">
+            <div class="size-card-head">
+              <span class="size-thumb"><i :style="{ width: emojiThumb.w + 'px', height: emojiThumb.h + 'px' }"></i></span>
+              <span class="size-name">表情包<small>统一方形 · 512–1024 · 64 步进</small></span>
+            </div>
+            <div class="size-body">
+              <linshe-input class="size-num" v-model.number="emojiSize.width" type="number" min="512" max="1024" step="64" @input="markDirty" />
+              <span class="size-x">×</span>
+              <linshe-input class="size-num" v-model.number="emojiSize.height" type="number" min="512" max="1024" step="64" @input="markDirty" />
+            </div>
+            <div class="size-foot"><span>{{ emojiRatio }}</span><b>{{ emojiMp }}</b></div>
+          </div>
+
+          <!-- 媒体：不是固定宽高，而是从池里抽 -->
+          <div class="size-card is-media">
+            <div class="size-card-head">
+              <span class="size-thumb"><i class="is-dashed" style="width:22px;height:22px"></i></span>
+              <span class="size-name">媒体<small>画幅从池里随机抽</small></span>
+            </div>
+            <div class="media-line">
+              <span class="media-cap">长边上限 <b>{{ form.galleryMaxEdge ? form.galleryMaxEdge + 'px' : '不限' }}</b></span>
+              <linshe-button variant="chip" class="media-pool-btn" @click="poolOpen = !poolOpen">{{ poolOpen ? '收起 ▲' : '7 种 ▾' }}</linshe-button>
+            </div>
+            <div class="media-cap-row">
+              <linshe-input class="size-num" v-model.number="form.galleryMaxEdge" type="number" min="0" max="4096" step="64" @input="markDirty" />
+              <span class="media-cap-hint">0 = 不限</span>
+            </div>
+            <div v-show="poolOpen" class="media-pool">
+              <label v-for="a in GALLERY_ASPECTS" :key="a.key">
+                <input type="checkbox" :checked="isPoolOn(a.key)" @change="togglePool(a.key)" />
+                <span class="media-pool-key">{{ a.key }}</span>
+                <span class="media-pool-dim">{{ a.w }}×{{ a.h }}</span>
+              </label>
+            </div>
+          </div>
         </div>
 
         <div v-if="imageProvider !== 'novelai'" class="hiresfix-section">
@@ -1291,7 +1350,7 @@ import { ref, reactive, computed, onMounted, inject, watch, nextTick } from 'vue
 import { useRouter } from 'vue-router'
 import DeepseekSetup from '../components/DeepseekSetup.vue'
 import { canUseDeepseekSetup, initialLlmSetupMode, readLlmSetupPreference, writeLlmSetupPreference } from '../utils/llmSetup.js'
-import { getConfig, updateComfyConfig, updateLlmConfig, testLlmConnection, setLlmFreeEgg, fetchLlmModels, fetchLlmApiKey, updateFeatureFlag, imageProviderHealth, testStyle, testHires, updateProactiveFreq, updateEventFreq, updateMomentFreq, updateBackgroundConcurrency, updateDisturbMode, updateDisturbSettings, updateWeatherCity, getArtistFavorites, addArtistFavorite, deleteArtistFavorite, listCharacters, restoreWorkflow, getWorkflows, updateWorkflowMode, updateWorkflowScene, getLlmProfiles, addLlmProfile, deleteLlmProfile, activateLlmProfile, syncActiveLlmProfile, getMediaAuto, setMediaAuto } from '../api/index.js'
+import { getConfig, updateComfyConfig, updateLlmConfig, testLlmConnection, setLlmFreeEgg, fetchLlmModels, fetchLlmApiKey, updateFeatureFlag, imageProviderHealth, testStyle, testHires, updateProactiveFreq, updateEventFreq, updateMomentFreq, updateBackgroundConcurrency, updateDisturbMode, updateDisturbSettings, updateWeatherCity, getArtistFavorites, addArtistFavorite, deleteArtistFavorite, listCharacters, restoreWorkflow, getWorkflows, updateWorkflowMode, updateWorkflowScene, getLlmProfiles, addLlmProfile, deleteLlmProfile, activateLlmProfile, syncActiveLlmProfile, getMediaAuto, setMediaAuto, getEmojiFixedTags, updateEmojiFixedTags } from '../api/index.js'
 import { useSettingsStore } from '../stores/settings.js'
 import ImageLightbox from '../components/ImageLightbox.vue'
 import LinsheModal from '../components/ui/LinsheModal.vue'
@@ -1367,7 +1426,106 @@ function onSettingsScroll() {
   settingsLastScroll = el.scrollTop
 }
 
-const form = ref({ artist: '', width: 1600, height: 1200, momentsArtist: '', momentsWidth: 1600, momentsHeight: 1200, eventArtist: '', eventWidth: 1600, eventHeight: 1200 })
+// ── 生图尺寸（2026-10-21 整改）──
+// 原本只有对话 / 朋友圈 / 奇遇三条能改：报纸偷偷读朋友圈的尺寸、立绘 768×1536、
+// 道具 512²、信箱 1200×900、聊天背景 1280×720 全写死在代码里，媒体则是 7 选 1 随机。
+// 现在统一成一份可改的表，默认值一律等于改造前的硬编码值。
+const SIZE_DEFAULTS = {
+  paperWidth: 1600, paperHeight: 1200,
+  standingWidth: 768, standingHeight: 1536,
+  itemWidth: 512, itemHeight: 512,
+  mailWidth: 1200, mailHeight: 900,
+  chatBgWidth: 1280, chatBgHeight: 720,
+}
+
+/** 尺寸卡片：w / h 指向 form 里的字段名 */
+const SIZE_CARDS = [
+  { id: 'chat',     name: '对话配图',    hint: '聊天里随手发的照片',            w: 'width',         h: 'height' },
+  { id: 'moments',  name: '朋友圈',      hint: '角色日常配图',                  w: 'momentsWidth',  h: 'momentsHeight' },
+  { id: 'event',    name: '奇遇',        hint: '叙事事件插图',                  w: 'eventWidth',    h: 'eventHeight' },
+  { id: 'paper',    name: '报纸',        hint: '每日特稿配图 · 已与朋友圈拆开',  w: 'paperWidth',    h: 'paperHeight' },
+  { id: 'standing', name: '立绘',        hint: '角色全身像 · 竖图',             w: 'standingWidth', h: 'standingHeight' },
+  { id: 'item',     name: '道具 / 商品', hint: '背包与橱窗图标',                w: 'itemWidth',     h: 'itemHeight' },
+  { id: 'mail',     name: '信箱信纸',    hint: '来信纸面 · 肖像图自动取反',      w: 'mailWidth',     h: 'mailHeight' },
+  { id: 'chatbg',   name: '聊天背景',    hint: '对话背景图',                    w: 'chatBgWidth',   h: 'chatBgHeight' },
+]
+
+/** 媒体画幅（与后端 data/galleryAspects.js 一致） */
+const GALLERY_ASPECTS = [
+  { key: '2:3', w: 1088, h: 1632 },
+  { key: '3:4', w: 1200, h: 1600 },
+  { key: '9:16', w: 972, h: 1728 },
+  { key: '1:1', w: 1440, h: 1440 },
+  { key: '4:3', w: 1600, h: 1200 },
+  { key: '3:2', w: 1632, h: 1088 },
+  { key: '16:9', w: 1728, h: 972 },
+]
+
+const poolOpen = ref(false)
+/** 表情包尺寸：走自己的接口（emoji_width/emoji_height），不在 comfy 配置里 */
+const emojiSize = ref({ width: 512, height: 512 })
+const emojiThumb = computed(() => {
+  const W = Number(emojiSize.value.width) || 1
+  const H = Number(emojiSize.value.height) || 1
+  const k = THUMB_MAX / Math.max(W, H)
+  return { w: Math.max(4, Math.round(W * k)), h: Math.max(4, Math.round(H * k)) }
+})
+const emojiRatio = computed(() => {
+  const W = Number(emojiSize.value.width) || 0
+  const H = Number(emojiSize.value.height) || 0
+  if (!W || !H) return '—'
+  const g = gcdOf(W, H)
+  return `${W / g}:${H / g} ${W >= H ? '横' : '竖'}`
+})
+const emojiMp = computed(() => {
+  const W = Number(emojiSize.value.width) || 0
+  const H = Number(emojiSize.value.height) || 0
+  return `${((W * H) / 1e6).toFixed(2)} MP`
+})
+
+const form = ref({
+  artist: '', width: 1600, height: 1200,
+  momentsArtist: '', momentsWidth: 1600, momentsHeight: 1200,
+  eventArtist: '', eventWidth: 1600, eventHeight: 1200,
+  ...SIZE_DEFAULTS,
+  galleryPool: null,
+  galleryMaxEdge: 0,
+})
+
+const THUMB_MAX = 26
+const gcdOf = (a, b) => (b ? gcdOf(b, a % b) : a)
+function thumbOf(s) {
+  const W = Number(form.value[s.w]) || 1
+  const H = Number(form.value[s.h]) || 1
+  const k = THUMB_MAX / Math.max(W, H)
+  return { w: Math.max(4, Math.round(W * k)), h: Math.max(4, Math.round(H * k)) }
+}
+function ratioLabelOf(s) {
+  const W = Number(form.value[s.w]) || 0
+  const H = Number(form.value[s.h]) || 0
+  if (!W || !H) return '—'
+  const g = gcdOf(W, H)
+  return `${W / g}:${H / g} ${W >= H ? '横' : '竖'}`
+}
+function mpLabelOf(s) {
+  const W = Number(form.value[s.w]) || 0
+  const H = Number(form.value[s.h]) || 0
+  return `${((W * H) / 1e6).toFixed(2)} MP`
+}
+function isPoolOn(key) {
+  const pool = form.value.galleryPool
+  return !Array.isArray(pool) || !pool.length || pool.includes(key)
+}
+function togglePool(key) {
+  const cur = Array.isArray(form.value.galleryPool) && form.value.galleryPool.length
+    ? [...form.value.galleryPool]
+    : GALLERY_ASPECTS.map(a => a.key)
+  const i = cur.indexOf(key)
+  if (i >= 0) cur.splice(i, 1); else cur.push(key)
+  // 全部取消 = 回到「全选」：后端也是这个兜底，避免产出空池
+  form.value.galleryPool = cur.length ? cur : null
+  markDirty()
+}
 const globalLoras = ref([])
 const globalLoraModalVisible = ref(false)
 const hiresFixModalVisible = ref(false)
@@ -2360,7 +2518,16 @@ onMounted(async () => {
       eventArtist: data.comfy.eventArtist ?? data.comfy.momentsArtist ?? data.comfy.artist,
       eventWidth: data.comfy.eventWidth || 1600,
       eventHeight: data.comfy.eventHeight || 1200,
+      // 六条原本硬编码的链路：缺字段时回落改造前的值（默认不改行为）
+      ...Object.fromEntries(Object.entries(SIZE_DEFAULTS).map(([k, d]) => [k, data.comfy[k] || d])),
+      galleryPool: Array.isArray(data.comfy.galleryPool) ? data.comfy.galleryPool : null,
+      galleryMaxEdge: data.comfy.galleryMaxEdge || 0,
     }
+    // 表情包尺寸走独立接口
+    try {
+      const emojiData = await getEmojiFixedTags()
+      if (emojiData?.resolution) emojiSize.value = { ...emojiData.resolution }
+    } catch { /* 表情接口失败不影响设置页其它部分 */ }
     globalLoras.value = data.comfy.globalLora || []
     hiresSamplingMode.value = data.comfy.hiresSamplingMode ?? 'source'
     hiresGlobalLoraScale.value = data.comfy.hiresGlobalLoraScale ?? 1
@@ -2482,7 +2649,15 @@ async function saveComfy() {
     artist: form.value.artist, width: form.value.width, height: form.value.height,
     momentsArtist: form.value.momentsArtist, momentsWidth: form.value.momentsWidth, momentsHeight: form.value.momentsHeight,
     eventArtist: form.value.eventArtist, eventWidth: form.value.eventWidth, eventHeight: form.value.eventHeight,
+    ...Object.fromEntries(Object.keys(SIZE_DEFAULTS).map(k => [k, form.value[k]])),
+    galleryPool: form.value.galleryPool,
+    galleryMaxEdge: form.value.galleryMaxEdge,
   })
+  // 表情包不在 comfy 配置里，单独存（保留原有 tags / styleMode，只改分辨率）
+  try {
+    const cur = await getEmojiFixedTags()
+    await updateEmojiFixedTags(cur?.tags ?? '', cur?.styleMode, { ...emojiSize.value })
+  } catch { /* 表情尺寸保存失败不阻断 comfy 保存成功提示 */ }
   settingsStore.setComfySize(form.value.width, form.value.height)
   settingsStore.setEventSize(form.value.eventWidth, form.value.eventHeight)
   dirty.value = false; saved.value = true
@@ -4130,4 +4305,77 @@ function resetTestPrompts() {
   .theme-mode-row > div:first-child { flex: none; min-width: 0; }
   .theme-mode-options { justify-content: flex-start; flex: none; }
 }
+/* ══ 生图尺寸卡片（2026-10-21 设置页整改）══
+   十条链路各一张卡，缩略框按真实宽高比画；竖图左侧有珊瑚色竖条。
+   媒体卡整片浅橙 + 虚线左边，表示它跟别的不一样：不是固定宽高，而是从池里抽。 */
+.sizes-head {
+  display: flex; align-items: baseline; gap: 10px;
+  margin: 22px 0 12px; padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.sizes-title { font-size: 14px; font-weight: 500; color: var(--text-primary); }
+.sizes-hint { font-size: 11px; color: var(--text-tertiary); }
+.size-moved-hint { font-size: 12px; color: var(--text-tertiary); margin: 10px 0 0; }
+
+.size-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+
+.size-card {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: var(--card-paper-raised);
+  border: 1px solid var(--border-strong);
+  transition: border-color var(--dur-base) var(--ease-standard),
+              transform var(--dur-fast) var(--ease-standard),
+              box-shadow var(--dur-base) var(--ease-standard);
+}
+.size-card:hover { border-color: var(--accent); transform: translateY(-1px); box-shadow: var(--shadow-xs); }
+.size-card.is-vertical { border-left: 3px solid var(--accent); }
+
+.size-card-head { display: flex; align-items: center; gap: 9px; }
+.size-thumb { width: 26px; height: 26px; flex: 0 0 26px; display: flex; align-items: center; justify-content: center; }
+.size-thumb i {
+  display: block; border-radius: 2px;
+  background: rgba(var(--accent-rgb), .14);
+  border: 1px solid var(--accent);
+  transition: width var(--dur-base) var(--ease-standard), height var(--dur-base) var(--ease-standard);
+}
+.size-thumb i.is-dashed { border-style: dashed; }
+.size-name { font-size: 13px; color: var(--text-primary); line-height: 1.35; }
+.size-name small { display: block; font-size: 11px; color: var(--text-tertiary); }
+
+.size-body { display: flex; align-items: center; gap: 6px; }
+.size-num { flex: 1; min-width: 0; }
+.size-x { color: var(--text-tertiary); font-size: 12px; flex: 0 0 auto; }
+.size-foot { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-tertiary); }
+.size-foot b { font-weight: 400; color: var(--accent); }
+
+/* 媒体卡 */
+.size-card.is-media {
+  background: color-mix(in srgb, var(--accent) 9%, var(--card-paper-raised));
+  border-color: rgba(var(--accent-rgb), .45);
+  border-left: 3px dashed var(--accent);
+}
+.media-line { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.media-cap { font-size: 11px; color: var(--text-tertiary); }
+.media-cap b { font-weight: 400; color: var(--accent); }
+.media-pool-btn { font-size: 11px; flex: 0 0 auto; }
+.media-cap-row { display: flex; align-items: center; gap: 8px; }
+.media-cap-hint { font-size: 11px; color: var(--text-tertiary); flex: 0 0 auto; }
+.media-pool {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px;
+  padding: 10px; border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  border: 1px dashed var(--border-strong);
+}
+.media-pool label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--card-ink); cursor: pointer; }
+.media-pool input { accent-color: var(--accent); width: 15px; height: 15px; }
+.media-pool-key { font-weight: 500; }
+.media-pool-dim { color: var(--text-tertiary); font-size: 11px; }
+
+@media (max-width: 640px) {
+  .size-grid { grid-template-columns: 1fr; }
+  .size-card { padding: 12px; }
+}
+
 </style>
