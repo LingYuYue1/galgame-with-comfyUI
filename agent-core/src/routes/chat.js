@@ -43,6 +43,10 @@ import { invalidateGalleryCache } from '../services/galleryCache.js';
 import { saveBase64Image } from '../services/imagePaths.js';
 import { parseEmojiText, buildEmojiNote, getCharacterEmojiMap, getUserEmojiMap } from '../services/emojiService.js';
 import { withGalgameEmojiPreference } from '../services/chatModePrompt.js';
+// ★ 2026-10-21：聊天图片同样会被「重新生成」覆盖同一路径。
+//   只在**读取**时给 URL 拼 mtime 版本，不动库、不动写入链路，客户端切页/刷新才不会拿旧缓存。
+import { withImageVersions } from '../utils/imageVersion.js';
+
 import { getReplyDelay, formatScheduleContext, getCurrentActivity, isTempWoken, extendTempWake } from '../services/scheduleManager.js';
 import { detectAndApplyAppointment } from '../services/appointmentDetector.js';
 import { broadcast } from '../services/unifiedStreamBus.js';
@@ -68,6 +72,21 @@ import {
 } from '../services/replyPlanner.js';
 
 const router = Router();
+
+/**
+ * `messages.images` 存的是 JSON 字符串，前端按字符串 parse。
+ * 这里保持「字符串进、字符串出」，解析失败或非数组一律原样返回（绝不改变既有行为）。
+ */
+function versionedImagesJson(raw) {
+  if (!raw) return raw;
+  try {
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return raw;
+    return JSON.stringify(withImageVersions(arr));
+  } catch {
+    return raw;
+  }
+}
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -339,6 +358,8 @@ router.get('/characters/:id/messages', (req, res) => {
     ORDER BY m.id ASC
   `).all(conversationId).map(m => ({
     ...m,
+    // BUG-04 同链路：图片被覆盖后 URL 要带新版本，否则切角色/刷新会拿旧缓存
+    images: versionedImagesJson(m.images),
     created_at: toISODate(m.created_at),
   }));
 
@@ -382,7 +403,7 @@ router.get('/messages/:id', (req, res) => {
     'SELECT id, role, content, images, created_at FROM messages WHERE id = ?'
   ).get(req.params.id);
   if (!msg) return res.status(404).json({ error: 'not found' });
-  res.json({ ...msg, created_at: toISODate(msg.created_at) });
+  res.json({ ...msg, images: versionedImagesJson(msg.images), created_at: toISODate(msg.created_at) });
 });
 
 // POST /api/characters/:id/chat — 流式对话

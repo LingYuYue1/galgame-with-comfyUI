@@ -34,6 +34,9 @@ import { invalidateGalleryCache } from './galleryCache.js';
 import { recordCompletedImageTask } from './imageTaskRecorder.js';
 import { broadcast } from './unifiedStreamBus.js';
 import { MEDIA_PUBLICATION_ORDER, publishMediaPostIfReady, isMediaPostPublished } from './mediaPublication.js';
+// ★ 2026-10-21：媒体配图也能被「重新生成」覆盖同一路径（/media/posts/:id/regenerate-image），
+//   与 BUG-04 同一条链路 —— URL 带 mtime 版本，客户端切页/刷新才不会拿旧缓存。
+import { withImageVersion } from '../utils/imageVersion.js';
 import { config } from '../config.js';
 import { extractFirstJson, repairJson } from './eventGenerator.js';
 import { buildCharacterPersona } from './characterPersona.js';
@@ -668,7 +671,7 @@ function mapPostRow(r) {
         ? comment.author_avatar
         : mediaAvatarLibrary.resolve(r.outlet_id, comment.author),
     })),
-    image: r.image,
+    image: withImageVersion(r.image),
     // 配图状态：图库形态要用它区分「排队生图中」与「生成失败」（否则两种都是空白格）
     image_status: r.image_status || null,
     image_error: r.image_error || null,

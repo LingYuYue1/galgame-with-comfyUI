@@ -911,8 +911,12 @@ export const useChatStore = defineStore('chat', () => {
       if (data.images?.length) {
         // 避免与 rawToMessages 加载时重复：检查最后一个气泡是否已经是同一批图片的 image_gen
         const lastMsg = messages.value[messages.value.length - 1];
+        // ★ 2026-10-21：历史消息走 GET 时 URL 会带 `?v=<mtime>`（图片被覆盖后换版本），
+        //   而这里对比的 `data.images` 来自 SSE 推送（裸 URL）—— 比较必须剥掉 query，
+        //   否则会被判成「不是同一批图」而重复插一个 image_gen 气泡。
+        const bareUrl = (u) => String(u || '').split('?')[0];
         const alreadyHas = lastMsg?.type === 'image_gen' && lastMsg.images?.length === data.images.length
-          && lastMsg.images.every((img, i) => img.url === data.images[i]);
+          && lastMsg.images.every((img, i) => bareUrl(img.url) === bareUrl(data.images[i]));
         if (!alreadyHas) {
           messages.value.push({
             id: uid(),

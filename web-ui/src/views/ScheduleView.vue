@@ -1739,7 +1739,12 @@ async function confirmRegenerateWithDirection() {
 /** 完全随机：不加方向、不带任何约束（与功能上线前的行为一致） */
 async function confirmRegenerateRandom() {
   showRegenerateModal.value = false
-  doRegenerate()
+  // ★ 2026-10-21 用户决定：随机也落到「今天这套」日型上。
+  //   只补 dayType，方向 / 区域 / 强度等一律不传 —— 随机性不变。
+  //   不补的话，角色配过日型时点「完全随机」今天的内容永远不变
+  //   （改的是默认日历，而今天读的是日型方案）。
+  const hasTodayPlan = regenDayPlans.value.some((p: any) => p.dayType === regenTodayDayType.value)
+  doRegenerate(undefined, hasTodayPlan ? { dayType: regenTodayDayType.value } : undefined)
 }
 
 async function onCardPeek(id: number) {
