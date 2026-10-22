@@ -21,6 +21,7 @@ import { submitWorkflow, apiToGui } from './comfyClient.js';
 import { config, getNovelaiApiKey } from '../config.js';
 import { generateNovelaiImage } from './novelaiClient.js';
 import { acquireSlot, releaseSlot } from './llmConcurrency.js';
+import { buildAnchorLines } from './characterAnchor.js';
 import { prepareImagePrompt } from './imagePromptPreparer.js';
 
 const _limitEnabled = () => config.features.serializeBackgroundLLM;
@@ -524,6 +525,33 @@ let processingLow = false;
 let lastHighTime = 0;
 const QUIET = 180_000;        // 高优任务后 180s 内不派发低优
 
+/**
+ * 把角色锚点拼到提示词最前（纯函数，**导出只为测试**）。
+ *
+ * 抽出来的原因：`generateImageRaw` 在测试里会被 `testGuardBlocksComfy()` 提前短路，
+ * 直接测调用拿不到最终提示词。锚点注入是这次改造的核心，必须能单独验。
+ *
+ * @param {string} promptRefined RAG 之后的提示词
+ * @param {object} opts 含 anchors / 无 anchors
+ * @returns {{finalPrompt:string, anchorText:string}}
+ */
+export function applyAnchors(promptRefined, opts = {}) {
+  const prompt = String(promptRefined || '');
+  const list = Array.isArray(opts.anchors) ? opts.anchors : null;
+  if (!list || !list.length) return { finalPrompt: prompt, anchorText: '' };
+  if (config.comfyui.anchorInjection === false) return { finalPrompt: prompt, anchorText: '' };
+  let anchorText = '';
+  try {
+    anchorText = buildAnchorLines(list).join('\n');
+  } catch (err) {
+    // 锚点取不到不该让整张图失败 —— 宁可不注入，也要出图
+    console.warn('[imageSkill] 锚点解析失败，本次不注入:', err.message);
+    return { finalPrompt: prompt, anchorText: '' };
+  }
+  if (!anchorText) return { finalPrompt: prompt, anchorText: '' };
+  return { finalPrompt: `${anchorText}\n${prompt}`, anchorText };
+}
+
 async function _execute(rawPrompt, opts) {
   activeTaskCount++;
   let slotAcquired = false;
@@ -544,17 +572,33 @@ async function _execute(rawPrompt, opts) {
     if (preparation.timeOfDay) {
       console.log(`[image] 时段锚点 ${preparation.timeOfDay.label}(${preparation.timeOfDay.key}) scene=${opts.promptScene || opts.scene || 'chat'}`);
     }
-    opts.onPromptPrepared?.(preparation.promptRefined);
+    /**
+     * ★ 角色锚点强制注入（2026-10-22）
+     *
+     * 为什么在这一层做（而不是继续靠 persona 喂给 LLM）：
+     *   锚点原来是"给 LLM 的素材"，靠它转述进提示词 —— 少写一句、换个词（"深棕+粉渐变"写成"粉"），
+     *   代码层完全无从纠正。实测花火在朋友圈/奇遇被画成整头粉，就是转述损耗。
+     *   放在这里，无论上游怎么写，最终送给 ComfyUI 的提示词一定带锚点。
+     *
+     * 位置：RAG 之后、提交之前。RAG 的检索与改写不受影响，锚点也不会被它改写掉。
+     * 顺序：锚点在**最前**（模型对开头更敏感，也避免被场景词挤到后面）。
+     * 开关：config.comfyui.anchorInjection（默认开），关掉即回到改造前。
+     */
+    const { finalPrompt, anchorText } = applyAnchors(preparation.promptRefined, opts);
+
+    opts.onPromptPrepared?.(finalPrompt);
     if (_limitEnabled()) {
       await acquireSlot();
       slotAcquired = true;
     }
-    const result = await submitWithRetry(preparation.promptRefined, opts);
+    const result = await submitWithRetry(finalPrompt, opts);
     return {
       ...result,
       promptOriginal: preparation.promptOriginal,
       promptRagQuery: preparation.ragQuery,
-      promptRefined: preparation.promptRefined,
+      // 落库的是**最终提示词**（含锚点段），便于事后查"这张图当时用的哪份锚点"
+      promptRefined: finalPrompt,
+      anchorUsed: anchorText,
       promptKnowledgeIds: preparation.retrieval.knowledgeIds,
       promptKnowledgeVersion: preparation.retrieval.knowledgeVersion,
       promptRetrievalMode: preparation.retrieval.mode,

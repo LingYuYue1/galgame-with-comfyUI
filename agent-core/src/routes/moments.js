@@ -500,6 +500,17 @@ async function generateMomentImages(character, imagePrompts, opts = {}) {
     }
 
     const charArtist = charArtistOverrideWithFallback(character, otherChars);
+    /**
+     * ★ 角色锚点（2026-10-22）：由代码拼进提示词最前，不再依赖 LLM 转述。
+     * 为什么朋友圈要先接：花火"锚点深棕、出图整头粉"就是在这条链路实报的。
+     * 多人同框时第一个人整段、其余精简并按左右标位置（见 buildAnchorLines）。
+     */
+    const anchorList = [
+      { characterId: character.id, slot: 'self' },
+      ...otherChars
+        .filter(c => c?.id)
+        .map((c, i) => ({ characterId: c.id, slot: 'other', side: i % 2 === 0 ? 'left' : 'right' })),
+    ];
     // 多图模式串行出图：单张失败只丢那一张，不影响其他张和发帖
     for (let i = 0; i < imagePrompts.length; i++) {
       try {
@@ -510,6 +521,7 @@ async function generateMomentImages(character, imagePrompts, opts = {}) {
           height,
           scene: 'moments',
           priority: manual ? 'high' : 'low',
+          anchors: anchorList,
           // ★ 时段锚点：把画面钉在帖子发布的真实时刻（用户在凌晨发的帖不该画成大白天）。
           timeOfDay: at,
           ...loraOpts,
@@ -536,6 +548,7 @@ async function generateMomentImages(character, imagePrompts, opts = {}) {
           style: charArtist !== null ? charArtist : config.comfyui.momentsArtist,
           resolution: `${width}x${height}`,
           workflowTemplate: genResult.wfMode,
+          anchorRef: genResult.anchorUsed || null,
           db,
         });
       } catch (err) {

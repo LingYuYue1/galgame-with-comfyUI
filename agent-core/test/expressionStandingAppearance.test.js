@@ -12,19 +12,36 @@ const outfits = [
   { scene: 'sleep', name: '睡衣', description: '蓝色睡裙，赤脚' },
 ];
 
-test('default appearance uses the character card without reading outfits or the current schedule', () => {
-  const persona = buildStandingPersona(char, undefined, () => { throw new Error('must not look up outfits'); });
-  assert.match(persona, /银发蓝瞳，穿白色制服/);
-  assert.doesNotMatch(persona, /旧制服|睡裙/);
+/**
+ * ★ 2026-10-22 口径变更（用户定：以 character_outfits.body 为生图唯一基准）
+ * 原测试写的是「默认形象用人物卡、**不读**服装」，那是锚点工程之前的口径 ——
+ * 当时 body 还没成为真源，读服装反而会串。现在反过来：默认形象**必须**读常服那套，
+ * 且用的是 appearance:'anchor'（不拼人物卡旧外观段）。
+ */
+test('默认形象读「常服」那一套，且不再拼人物卡旧外观段', () => {
+  let lookedUp = 0;
+  const persona = buildStandingPersona(char, undefined, () => { lookedUp += 1; return outfits; });
+  assert.equal(lookedUp > 0, true, '默认形象必须去读服装（否则又退回人物卡旧描述）');
+  assert.match(persona, /不应覆盖人物卡的旧制服/, '常服那套没进人格');
+  assert.doesNotMatch(persona, /银发蓝瞳/, '人物卡旧外观段应当被 anchor 模式剔除');
+  assert.doesNotMatch(persona, /睡裙/, '不该串进别的套');
 });
 
-test('each explicit scene injects only its own outfit through characterPersona', () => {
-  for (const scene of ['casual', 'home', 'sleep']) {
+test('角色没有任何服装行时才退回人物卡外观段（兜底仍在）', () => {
+  const persona = buildStandingPersona(char, undefined, () => []);
+  assert.match(persona, /银发蓝瞳，穿白色制服/);
+});
+
+test('每个显式场景只注入自己那套（含 work）', () => {
+  for (const scene of ['work', 'casual', 'home', 'sleep']) {
     const selected = outfits.find(row => row.scene === scene);
     const persona = buildStandingPersona(char, scene, id => { assert.equal(id, char.id); return outfits; });
-    assert.ok(persona.includes(selected.description));
-    assert.match(persona, /基础外观（仅用于填补/);
-    for (const other of outfits.filter(row => row.scene !== scene)) assert.ok(!persona.includes(other.description));
+    assert.ok(persona.includes(selected.description), `${scene} 没注入自己那套`);
+    // anchor 模式下没有「基础外观」段（人物卡旧外观被剔除），但着装裁定要在
+    assert.match(persona, /着装裁定/);
+    for (const other of outfits.filter(row => row.scene !== scene)) {
+      assert.ok(!persona.includes(other.description), `${scene} 串进了 ${other.scene} 的衣服`);
+    }
   }
 });
 

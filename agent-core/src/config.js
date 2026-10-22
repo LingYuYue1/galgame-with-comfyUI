@@ -159,6 +159,9 @@ defaultTimeoutMs: parseInt(process.env.VECTOR_DEFAULT_TIMEOUT_MS, 10) || 120000,
     chatBgHeight: parseInt(process.env.COMFYUI_CHATBG_HEIGHT, 10) || 720,
     // 媒体画幅池：参与随机的画幅 key（见 mediaService.GALLERY_ASPECTS）。
     // 空数组/null = 全选，与改造前「7 种全用」一致。
+    // ★ 角色锚点强制注入（2026-10-22）：把 character_outfits.body 由代码拼进提示词最前，
+    //   不再依赖 LLM 转述。默认开；出问题可一键关掉回到改造前行为。
+    anchorInjection: process.env.COMFYUI_ANCHOR_INJECTION !== 'false',
     galleryPool: null,
     // 媒体自定义画幅：与 7 种预设一起进池，形状 [{ w, h }]；null = 没有自定义
     galleryCustom: null,
@@ -528,7 +531,7 @@ const SIZE_FIELD_KEYS = {
   chatBgHeight: 'comfy_chatbg_height',
 };
 
-export function updateComfyConfig({ artist, width, height, url, momentsArtist, momentsWidth, momentsHeight, eventArtist, eventWidth, eventHeight, paperArtist, standingArtist, mailArtist, chatBgArtist, itemArtist, mediaArtist, paperWidth, paperHeight, standingWidth, standingHeight, itemWidth, itemHeight, mailWidth, mailHeight, chatBgWidth, chatBgHeight, galleryPool, galleryCustom, galleryMaxEdge, tlsVerify, qualityPrompt, negativePrompt, imageProvider, novelaiApiFormat, novelaiUrl, novelaiProxyUrl, novelaiModel, novelaiArtist, novelaiWidth, novelaiHeight, novelaiSteps, novelaiSampler, novelaiNoiseSchedule, novelaiGuidance, novelaiQualityPrompt, novelaiNegativePrompt, novelaiApiKey, clearNovelaiApiKey }) {
+export function updateComfyConfig({ artist, width, height, url, momentsArtist, momentsWidth, momentsHeight, eventArtist, eventWidth, eventHeight, paperArtist, standingArtist, mailArtist, chatBgArtist, itemArtist, mediaArtist, paperWidth, paperHeight, standingWidth, standingHeight, itemWidth, itemHeight, mailWidth, mailHeight, chatBgWidth, chatBgHeight, galleryPool, galleryCustom, galleryMaxEdge, anchorInjection, tlsVerify, qualityPrompt, negativePrompt, imageProvider, novelaiApiFormat, novelaiUrl, novelaiProxyUrl, novelaiModel, novelaiArtist, novelaiWidth, novelaiHeight, novelaiSteps, novelaiSampler, novelaiNoiseSchedule, novelaiGuidance, novelaiQualityPrompt, novelaiNegativePrompt, novelaiApiKey, clearNovelaiApiKey }) {
   if (imageProvider !== undefined) {
     const provider = imageProvider === 'novelai' ? 'novelai' : 'comfyui';
     config.comfyui.imageProvider = provider;
@@ -674,6 +677,11 @@ export function updateComfyConfig({ artist, width, height, url, momentsArtist, m
     }
     config.comfyui.galleryCustom = list.length ? list : null;
     persistSettingSync('comfy_gallery_custom', JSON.stringify(config.comfyui.galleryCustom));
+  }
+  // 角色锚点强制注入开关
+  if (anchorInjection !== undefined) {
+    config.comfyui.anchorInjection = anchorInjection === true || anchorInjection === 'true';
+    persistSettingSync('comfy_anchor_injection', String(config.comfyui.anchorInjection));
   }
   // 长边上限：0 = 不限（改造前的行为）
   if (galleryMaxEdge !== undefined) {

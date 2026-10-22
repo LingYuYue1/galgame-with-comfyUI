@@ -43,7 +43,19 @@ export async function completeStandingOutfit(char, scene, design = generateScene
 // The detail card's default appearance lives in base_prompt; missing scene outfits use that too.
 export function resolveStandingOutfits(char, scene = 'work', readOutfits = listSceneOutfits) {
   normalizeStandingOutfitScene(scene);
-  const outfit = scene === 'work' ? null : readOutfits(char.id).find(row => row.scene === scene && row.description?.trim());
+  /**
+   * ★ 2026-10-22 修洞：原来 `scene === 'work' ? null : ...` —— work 直接返回 null，
+   *   于是立绘「默认」永远不注入锚点，只用人物卡里那段旧中文外观（用户实报：花火画成粉发）。
+   *
+   *   现在 work 和其它场景一样，取"常服那一套"。这与头像的口径一致
+   *   （`sceneOutfitParam(id,'work')`）—— 同一个「固定用常服做基准形象」不该有两个实现。
+   *
+   *   没有常服行时仍返回 null（退回人物卡外观段），行为与改造前一致。
+   */
+  // ⚠ 只认 description：`body` 是各套共用的身体描述，每行都有值 ——
+  //   拿它当"这套配了没"的判据，会让"没填衣服"的套也变成已配置，注入一条只有身体的空服装。
+  const outfit = readOutfits(char.id).find(row =>
+    row.scene === scene && row.description?.trim());
   return asPersonaOutfits(outfit ? { outfit } : null);
 }
 
@@ -51,5 +63,7 @@ export function buildStandingPersona(char, scene = 'work', readOutfits = listSce
   return buildCharacterPersona(char, {
     variant: 'full', person: char.display_name,
     outfits: resolveStandingOutfits(char, scene, readOutfits),
+    // 立绘是生图链路：只吃锚点（body + 该套服装），不拼人物卡里那段旧中文外观 —— 见角色锚点审计
+    appearance: 'anchor',
   });
 }

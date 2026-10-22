@@ -78,7 +78,9 @@ test('★ 立绘槽位只有四套（不含「全身」/nude），顺序固定',
     `立绘不得含私密场景「${PRIVATE_SCENE}」（修复前 OUTFIT_SCENES 整表 map → 5 格）`);
   assert.ok(!STANDING_SCENE_KEYS.includes('nude'), '裸体/全身槽必须被排除');
   // 枚举本身仍是五套（服装通道要用全身）—— 只收立绘，不动服装
-  assert.equal(OUTFIT_SCENES.length, 5, 'OUTFIT_SCENES 应保持五套（服装通道依赖它）');
+  // 服装枚举 2026-10-22 扩到 8 套（+运动/泳装/情趣），但**立绘仍是四套** —— 见 STANDING_SCENE_KEYS
+  assert.equal(OUTFIT_SCENES.length, 8, '服装通道用了全部枚举');
+  assert.deepEqual(STANDING_SCENE_KEYS, ['work', 'casual', 'home', 'sleep'], '立绘不该跟着服装枚举一起膨胀');
   // 标签口径：四套的中文名（「工装」已改名「常服」）
   assert.deepEqual(
     STANDING_SCENE_KEYS.map(k => STANDING_SCENE_LABELS[k]),

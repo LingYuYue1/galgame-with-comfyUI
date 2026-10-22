@@ -192,6 +192,8 @@ function initSchema(db) {
       status TEXT DEFAULT 'pending' CHECK(status IN ('pending','running','done','failed')),
       output_paths TEXT DEFAULT '[]',
       error_message TEXT,
+      -- 2026-10-22：本次注入的角色锚点文本（NULL = 该链路不涉及角色 / 关闭了锚点注入）
+      anchor_ref TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       finished_at DATETIME
     );

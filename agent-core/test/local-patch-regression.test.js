@@ -90,8 +90,9 @@ const atHour = (h) => { const d = new Date(); d.setHours(h, 0, 0, 0); return get
 // 外观分层
 // ─────────────────────────────────────────────────────────
 
-test('外观五态：枚举含裸体，且 work 已改名为「常服」', () => {
-  assert.equal(OUTFIT_SCENES.length, 5);
+test('服装枚举：含裸体，work 已改名为「常服」，2026-10-22 加了三套（运动/泳装/情趣）', () => {
+  assert.equal(OUTFIT_SCENES.length, 8);
+  for (const k of ['sport', 'swim', 'lingerie']) assert.ok(OUTFIT_SCENES.some(s => s.key === k), `缺 ${k}`);
   assert.ok(OUTFIT_SCENES.some(s => s.key === PRIVATE_SCENE));
   assert.equal(OUTFIT_SCENES.find(s => s.key === 'work').label, '常服');
 });
@@ -182,24 +183,28 @@ test('planOutfitTargets：只有「有服装描述」的才算已填，带了 bo
   );
 });
 
-test('planOutfitTargets：已填的那些会被排除；全空则返回四套（不含裸体）', () => {
+test('planOutfitTargets：已填的那些会被排除；全空则返回五套（不含裸体/泳装/情趣）', () => {
   assert.deepEqual(planOutfitTargets([{ scene: 'work', description: 'x' }], ['work', 'home']), ['home']);
-  // 一套都没填（只给了身体，走 baseAppearance）→ 四套全生成
-  const FOUR = ['work', 'casual', 'home', 'sleep'];
-  assert.deepEqual(planOutfitTargets([], []), FOUR);
-  assert.deepEqual(planOutfitTargets([{ scene: 'work', body: 'b', description: '' }], []), FOUR);
+  // 一套都没填（只给了身体，走 baseAppearance）→ 五套全生成
+  // （2026-10-22：运动装让模型代写没问题；泳装/情趣不代写，见下一个测试）
+  const FIVE = ['work', 'casual', 'home', 'sleep', 'sport'];
+  assert.deepEqual(planOutfitTargets([], []), FIVE);
+  assert.deepEqual(planOutfitTargets([{ scene: 'work', body: 'b', description: '' }], []), FIVE);
 });
 
-test('planOutfitTargets：裸体永远不是生成目标（即使被显式要求）', () => {
-  // 它的描述是系统常量，让 LLM 生成纯属浪费、还可能把常量写坏
-  assert.deepEqual(planOutfitTargets([], ['nude']), ['work', 'casual', 'home', 'sleep']);
+test('planOutfitTargets：裸体/泳装/情趣永远不是生成目标（即使被显式要求）', () => {
+  // 裸体的描述是系统常量；泳装/情趣让模型代写容易写出不合场合的版本
+  assert.deepEqual(planOutfitTargets([], ['nude']), ['work', 'casual', 'home', 'sleep', 'sport']);
   assert.deepEqual(planOutfitTargets([], ['nude', 'home']), ['home']);
+  assert.deepEqual(planOutfitTargets([], ['swim']), ['work', 'casual', 'home', 'sleep', 'sport']);
+  assert.deepEqual(planOutfitTargets([], ['lingerie']), ['work', 'casual', 'home', 'sleep', 'sport']);
   assert.deepEqual(planOutfitTargets([{ scene: 'home', description: 'x' }], ['nude', 'sleep']), ['sleep']);
 });
 
 test('planOutfitTargets：忽略非法场景名，且全部已填时返回空', () => {
   assert.deepEqual(planOutfitTargets([], ['不存在的场景', 'home']), ['home']);
-  const allFilled = ['nude', 'work', 'casual', 'home', 'sleep'].map(s => ({ scene: s, description: 'x' }));
+  // 2026-10-22：可生成清单多了 sport，全填满时要连它一起填，否则它会作为"未填"被返回
+  const allFilled = ['nude', 'work', 'casual', 'home', 'sleep', 'sport'].map(s => ({ scene: s, description: 'x' }));
   assert.deepEqual(planOutfitTargets(allFilled, []), []);
 });
 

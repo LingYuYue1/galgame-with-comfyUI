@@ -44,6 +44,11 @@ export const OUTFIT_SCENES = [
   { key: 'casual', label: '私服', defaultName: '便装', desc: '上街、社交、休闲外出时穿的便装' },
   { key: 'home', label: '居家', defaultName: '居家服', desc: '在家中休息、做家务时穿的宽松舒适衣物。**脚上必须是一双室内拖鞋（indoor slippers）**——居家不等于赤脚（赤脚只属睡衣那套）；也不要用外出鞋（运动鞋/靴子/高跟鞋）' },
   { key: 'sleep', label: '睡衣', defaultName: '睡衣', desc: '睡觉时穿的睡衣或内衣，**赤脚、不穿鞋袜**。**睡眠时段强制使用这一套**' },
+  // ── 2026-10-22 新增三套（用户要求：运动 / 泳装 / 情趣）──
+  // ⚠ 后两套属于「只在日程显式标注时才用」，见 EXPLICIT_ONLY_SCENES —— 漏了它角色会穿泳装上班。
+  { key: 'sport', label: '运动装', defaultName: '运动装', desc: '健身、跑步、球类、登山等运动场合穿。便于活动的运动上衣与运动裤/短裤，配运动鞋；不要出现居家拖鞋或睡衣材质' },
+  { key: 'swim', label: '泳装', defaultName: '泳装', desc: '游泳、海边、温泉浴场等水上场合穿。泳衣/泳裤与必要的沙滩外搭（如防晒衬衫、沙滩裙）；**只在水上场合用，不做日常穿着**' },
+  { key: 'lingerie', label: '情趣', defaultName: '情趣内衣', desc: '私密场景穿着的内衣类衣物（丝质、蕾丝、吊带、连体等），与「全身」同级；**不是睡衣的替代，只在日程显式标注时使用**' },
 ];
 
 /**
@@ -53,11 +58,34 @@ export const OUTFIT_SCENES = [
  */
 export const PRIVATE_SCENE = 'nude';
 
+/**
+ * ★「只在日程**显式标注**时才用」的场景集合 —— **兜底绝不能落到这里**。
+ *
+ * 为什么单独立一个集合（2026-10-22）：
+ * 之前只有 `nude` 一套需要挡，所以用单值常量判断。现在泳装、情趣同样"不能在街上穿"，
+ * 而兜底逻辑是"日程没标 outfit 就取第一套白天服装" —— 一旦它们进了候选池，
+ * 角色就会穿着泳装/情趣去上班。**以后再加任何不能在日常生活中穿的服装，都要往这里加。**
+ *
+ * 注意：这套集合**只用于兜底与自动补全**，不限制用户显式标注。
+ */
+export const EXPLICIT_ONLY_SCENES = new Set([PRIVATE_SCENE, 'swim', 'lingerie']);
+
 /** 场景 key → 默认服装名（界面保存时自动写入，用户看不到这个字段） */
 export const DEFAULT_NAME_BY_SCENE = Object.fromEntries(OUTFIT_SCENES.map(s => [s.key, s.defaultName]));
 
 const SCENE_KEYS = OUTFIT_SCENES.map(s => s.key);
 const LABEL_BY_KEY = Object.fromEntries(OUTFIT_SCENES.map(s => [s.key, s.label]));
+
+/**
+ * 新场景的「什么时候穿」——只用于**日程标注提示词**。
+ * 常服/私服/居家/睡衣靠 `## 一、住所内/外` 那套规则就够了，不需要逐条讲；
+ * 运动/泳装/情趣则必须明说，否则模型会拿它们当日常服装用。
+ */
+const SPECIAL_SCENE_GUIDE = {
+  sport: '健身、跑步、球类、登山等运动场合',
+  swim: '游泳、海边、温泉浴场等水上场合；日常外出不标',
+  lingerie: '私密空间里的亲密场景；不代替睡衣，睡眠时段仍用睡衣',
+};
 
 /**
  * 拼出「注入用的自包含外观文本」= 身体 + 该套服装。
@@ -84,7 +112,8 @@ export function listSceneOutfits(characterId) {
   const rows = getDb().prepare(
     `SELECT id, name, description, scene, body FROM character_outfits
      WHERE character_id = ? AND scene IS NOT NULL AND scene != ''
-     ORDER BY CASE scene WHEN 'nude' THEN 0 WHEN 'work' THEN 1 WHEN 'casual' THEN 2 WHEN 'home' THEN 3 WHEN 'sleep' THEN 4 ELSE 9 END, id ASC`
+     ORDER BY CASE scene WHEN 'nude' THEN 0 WHEN 'work' THEN 1 WHEN 'casual' THEN 2 WHEN 'home' THEN 3 WHEN 'sleep' THEN 4
+                   WHEN 'sport' THEN 5 WHEN 'swim' THEN 6 WHEN 'lingerie' THEN 7 ELSE 9 END, id ASC`
   ).all(characterId);
   return rows.map(r => ({
     ...r,
@@ -427,7 +456,9 @@ export function planOutfitTargets(seeds, wanted = []) {
     rows.filter(s => String(s.description || '').trim()).map(s => s.scene),
   );
   // 可生成的场景：**排除全身** —— 它的描述是系统常量，不需要（也不该）让 LLM 生成
-  const generable = SCENE_KEYS.filter(s => s !== PRIVATE_SCENE);
+  // 可让 LLM 代写的场景：排除「只在显式标注时用」的几套 —— 泳装/情趣的文案
+  // 交给用户自己写更准，模型容易写成不合场合的版本
+  const generable = SCENE_KEYS.filter(s => !EXPLICIT_ONLY_SCENES.has(s));
   const want = (Array.isArray(wanted) ? wanted : []).filter(s => generable.includes(s));
   return (want.length ? want : generable).filter(s => !filled.has(s));
 }
@@ -627,7 +658,8 @@ export function getSceneOutfitForNow(characterId, date = new Date(), override = 
 
   const sleepOutfit = outfits.find(o => o.scene === 'sleep') || null;
   // 「白天可兜底」的服装：排除睡眠、也排除私密全身
-  const dayOutfits = outfits.filter(o => o.scene !== 'sleep' && o.scene !== PRIVATE_SCENE);
+  // 兜底候选：排除睡眠，以及「只在显式标注时用」的几套（全身/泳装/情趣）
+  const dayOutfits = outfits.filter(o => o.scene !== 'sleep' && !EXPLICIT_ONLY_SCENES.has(o.scene));
   const byName = new Map(outfits.map(o => [o.name, o]));
   const byId = new Map(outfits.map(o => [String(o.id), o]));
 
@@ -789,7 +821,7 @@ export function buildOutfitAnnotateLayer(characterId, opts = {}) {
   const casualName = outfits.find(o => o.scene === 'casual')?.name;
   const homeName = outfits.find(o => o.scene === 'home')?.name;
   // 「白天的服装」要排除睡眠与全身 —— 把它列进这里等于教模型"白天可以光着"
-  const dayNames = outfits.filter(o => o.scene !== 'sleep' && o.scene !== PRIVATE_SCENE)
+  const dayNames = outfits.filter(o => o.scene !== 'sleep' && !EXPLICIT_ONLY_SCENES.has(o.scene))
     .map(o => `"${o.name}"`).join(' / ') || '（无）';
 
   // 示例用角色真实拥有的服装名，避免出现"示例里写了 A、可选清单里没有 A"的自相矛盾
@@ -813,6 +845,20 @@ export function buildOutfitAnnotateLayer(characterId, opts = {}) {
 - 洗完澡接着过日常时，别忘了**从浴室出来那一段重新标上衣服**（居家或外出）。
 - 用不到就完全不出现这个值 —— 不要为了"丰富"而给角色安排这段时段。` : '';
 
+  // 运动/泳装/情趣：只对角色真的配了的场景讲，没配就别提（免得提示词带偏）
+  const specialBlock = (() => {
+    const rows = outfits.filter(o => SPECIAL_SCENE_GUIDE[o.scene]);
+    if (!rows.length) return '';
+    const lines = rows.map(o => `- 「${o.name}」（${LABEL_BY_KEY[o.scene] || o.scene}）：${SPECIAL_SCENE_GUIDE[o.scene]}`);
+    return `
+
+### 二点六、这几套只在特定场合用（严格）
+${lines.join('\n')}
+判定要点：
+- 没有对应活动的时段**不要**标它们，也不要为了"丰富"而安排。
+- 这类场合结束后要回到日常，记得标回常服或私服 —— 别让角色穿着上面列的特殊服装去上班。`;
+  })();
+
   return `## 着装标注（额外要求）
 这个角色在一天中会换衣服。可选服装如下：
 ${list}
@@ -830,7 +876,7 @@ ${list}
 1. **入睡** → 标"${sleepName || '睡衣'}"（睡眠时段的 outfit 必须是它）。
 2. **睡醒起床** → 标一套白天的衣服。
 3. **从住所出门**（去任何"住所外"的地方）→ 标一套**外出**的（常服或私服）。
-4. **从外面回到住所** → 标"${exHome}"。${nudeBlock}
+4. **从外面回到住所** → 标"${exHome}"。${nudeBlock}${specialBlock}
 
 ### 三、写完自检（逐时段过，发现矛盾就补标）
 - 某个"住所外"的时段，穿的却是**居家服或睡衣** → ✗ 错。在这一段补标一套外出服。

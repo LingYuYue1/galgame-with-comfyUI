@@ -37,7 +37,17 @@ import { OUTFIT_SCENES, PRIVATE_SCENE } from './outfitScene.js';
  * 立绘独占的场景集 = `OUTFIT_SCENES` **去掉私密场景（「全身」）**，顺序沿用枚举
  * （work / casual / home / sleep）。过滤而不是另抄一份字面量：套名/标签仍以 outfitScene 为单一真源。
  */
-export const STANDING_SCENES = OUTFIT_SCENES.filter(s => s.key !== PRIVATE_SCENE);
+/**
+ * 立绘只做这四套。
+ *
+ * 为什么是**显式白名单**而不是"整表减掉 nude"（2026-10-22）：
+ * 服装枚举后来加了 运动/泳装/情趣 三套，如果继续用 filter 推导，立绘面板会突然多出三格，
+ * 每个角色凭空多三张要画的图。立绘要的是**基准形象**，四套足够；
+ * 新衣服只在剧情配图里"按需拿取"（用户原话），不强制出立绘。
+ * 以后要加立绘槽位，在这里显式加，别靠推导。
+ */
+const STANDING_SCENE_KEYS = ['work', 'casual', 'home', 'sleep'];
+export const STANDING_SCENES = OUTFIT_SCENES.filter(s => STANDING_SCENE_KEYS.includes(s.key));
 const SCENE_KEYS = STANDING_SCENES.map(s => s.key);
 const LABEL_BY_KEY = Object.fromEntries(STANDING_SCENES.map(s => [s.key, s.label]));
 

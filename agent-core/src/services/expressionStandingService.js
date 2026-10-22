@@ -127,7 +127,7 @@ export async function generateStandingPrompts(char, slots, requirement, persona,
   return parseStandingPrompts(raw, slots);
 }
 
-async function commitImage(id, slot, buffer, { removeBg = true, source = true, prompt = null, workflowTemplate = null } = {}) {
+async function commitImage(id, slot, buffer, { removeBg = true, source = true, prompt = null, workflowTemplate = null, anchorRef = null } = {}) {
   const previous = ensureSlot(id, slot); // Deleted characters must never be resurrected by a late job.
   const sourceBuffer = buffer;
   let image = sharp(buffer, { limitInputPixels: 67108864 });
@@ -171,6 +171,7 @@ async function commitImage(id, slot, buffer, { removeBg = true, source = true, p
           outputPaths: [url],
           resolution: `${info.width}x${info.height}`,
           workflowTemplate,
+          anchorRef,
           db: getDb(),
         });
       } catch (err) {
@@ -270,10 +271,15 @@ export function startStandingBatch(id, { slotIds, requirement = '', outfitScene 
           const opts = JSON.parse(row.config_json);
           // 最终阀门：不论提示词来自本次生成、库里复用还是用户手改，进 ComfyUI 前一律补上固定前置（solo 开头）。
           const framedPrompt = frameStandingPrompt(prompt);
-          const result = await imageGenerator(framedPrompt, { ...opts, scene: 'portrait', workflowScene: null, promptScene: 'avatar', priority: 'high', disableRAG: true, alreadyPrepared: true, persistPreparation: false });
+          const result = await imageGenerator(framedPrompt, {
+            ...opts, scene: 'portrait', workflowScene: null, promptScene: 'avatar',
+            priority: 'high', disableRAG: true, alreadyPrepared: true, persistPreparation: false,
+            // ★ 角色锚点：钉死当前这一套服装（立绘是基准形象，不能按"此刻"漂）
+            anchors: [{ characterId: id, slot: 'self', scene: outfitScene }],
+          });
           if (!result.success || !result.images?.length) throw new Error(result.error || '未返回立绘图片');
           // prompt 传进 commitImage：落图成功时顺手写 image_tasks（BUG-04）
-          await commitImage(id, slot.id, decodeImage(result.images[0].base64), { prompt: framedPrompt, workflowTemplate: result.wfMode || null });
+          await commitImage(id, slot.id, decodeImage(result.images[0].base64), { prompt: framedPrompt, workflowTemplate: result.wfMode || null, anchorRef: result.anchorUsed || null });
         },
         failed: (slot, error) => {
           control.failures++;

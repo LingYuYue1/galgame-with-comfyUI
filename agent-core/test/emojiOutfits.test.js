@@ -40,8 +40,11 @@ test('default and each explicit emoji outfit ignore the sleeping schedule', asyn
     const appearance = messages[3].content;
     assert.match(appearance, /Silver hair/);
     assert.ok(appearance.includes(scene === 'work' ? 'white uniform' : clothes[scene]));
+    // 2026-10-22：work 不再是"只读人物卡"，它会注入常服那套 —— 所以"自己那套当然在"，
+    // 只检查别的套有没有串进来。
     for (const [other, description] of Object.entries(clothes)) {
-      if (other !== scene || scene === 'work') assert.ok(!appearance.includes(description));
+      if (other === scene) continue;
+      assert.ok(!appearance.includes(description), `${other} 的衣服串进了 ${scene}`);
     }
   }
   assert.deepEqual((await capture(char)).messages, (await capture(char, { outfitScene: 'work' })).messages);
@@ -51,8 +54,11 @@ test('missing and blank outfits require a choice; fallback never reads the sched
   const { char } = fixture();
   db.prepare("UPDATE character_outfits SET description='  ' WHERE character_id=? AND scene='casual'").run(char.id);
   await assert.rejects(capture(char, { outfitScene: 'casual' }), error => error.status === 409);
+  // 「使用默认外观」= 不注入任何场景服装。原来靠"默认也不注入"来判等，
+  // 但 2026-10-22 起 work 会注入常服，判等不再成立 —— 直接断言"没有任何服装注入"更准确。
   const fallback = await capture(char, { outfitScene: 'casual', missingOutfitPolicy: 'fallback' });
-  assert.equal(fallback.messages[3].content, (await capture(char)).messages[3].content);
+  assert.ok(!fallback.messages[3].content.includes('【限时服饰'),
+    '选「使用默认外观」时不该注入任何服装');
 });
 
 test('automatic outfit completion is saved before prompting; existing outfits are preserved', async () => {

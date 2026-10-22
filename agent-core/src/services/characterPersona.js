@@ -243,20 +243,46 @@ export function buildCharacterPersona(character, opts = {}) {
   const person = typeof opts.person === 'string' ? opts.person : null;
   const joiner = typeof opts.joiner === 'string' ? opts.joiner : '\n';
   const outfits = resolveOutfits(character, opts.outfits);
+  /**
+   * 外观正文的来源（2026-10-22 新增，用户定：以 `character_outfits.body` 为生图唯一基准）
+   * - 'card'  （默认，**聊天/叙事用**）：人设 + 人物卡「## 你的外观」段（现状不变）
+   * - 'anchor'（**生图用**）：丢掉人物卡外观正文，只留锚点注入块（body + 场景服装）
+   * - 'none'  ：连注入也不要，纯人设
+   *
+   * 为什么要分流而不是直接删：那段中文是角色"知道自己长什么样"的唯一依据，
+   * 聊天里删了会说自相矛盾的话；生图里留着又会被模型偶尔照抄（花火粉发的成因之一）。
+   */
+  const appearanceMode = ['anchor', 'none'].includes(opts.appearance) ? opts.appearance : 'card';
 
   if (variant === 'full') {
     const base = String(character?.base_prompt || character?.short_prompt || '');
-    const appearance = extractAppearanceSection(base);
-    const injected = injectOutfitsIntoAppearance(appearance, buildOutfitInjectionBlocks(outfits));
-    let result;
-    if (appearance) {
-      result = base.slice(0, base.length - appearance.length) + injected;
-    } else if (injected) {
-      result = `${base.trimEnd()}\n\n${injected}`;
-    } else {
-      result = base;
+    const blocks = buildOutfitInjectionBlocks(outfits);
+
+    if (appearanceMode === 'card') {
+      const appearance = extractAppearanceSection(base);
+      const injected = injectOutfitsIntoAppearance(appearance, blocks);
+      let result;
+      if (appearance) {
+        result = base.slice(0, base.length - appearance.length) + injected;
+      } else if (injected) {
+        result = `${base.trimEnd()}\n\n${injected}`;
+      } else {
+        result = base;
+      }
+      return toThirdPerson(result, person);
     }
-    return toThirdPerson(result, person);
+
+    // ── anchor / none：**不拼人物卡外观正文** ──
+    const { before, after } = splitAppearanceSection(base);
+    if (appearanceMode === 'none') {
+      const stripped = [before.trimEnd(), after.trim()].filter(Boolean).join('\n\n').trim();
+      return toThirdPerson(stripped || base, person);
+    }
+    // anchor 但角色一套服装都没有 → 别把外观也剥掉，退回原卡（保住兜底）
+    if (!blocks) return toThirdPerson(base, person);
+    const injected = injectOutfitsIntoAppearance('', blocks);
+    const merged = [before.trimEnd(), injected, after.trim()].filter(Boolean).join('\n\n');
+    return toThirdPerson(merged || base, person);
   }
 
   // short variant

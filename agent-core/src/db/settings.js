@@ -102,6 +102,7 @@ export const SETTING_TO_CONFIG = {
   comfy_mail_height:       { obj: 'comfyui',   key: 'mailHeight',      type: 'int'     },
   comfy_chatbg_width:      { obj: 'comfyui',   key: 'chatBgWidth',     type: 'int'     },
   comfy_chatbg_height:     { obj: 'comfyui',   key: 'chatBgHeight',    type: 'int'     },
+  comfy_anchor_injection:  { obj: 'comfyui',   key: 'anchorInjection', type: 'bool'    },
   comfy_gallery_pool:      { obj: 'comfyui',   key: 'galleryPool',     type: 'json'    },
   comfy_gallery_custom:    { obj: 'comfyui',   key: 'galleryCustom',   type: 'json'    },
   comfy_gallery_max_edge:  { obj: 'comfyui',   key: 'galleryMaxEdge',  type: 'int'     },

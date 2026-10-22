@@ -8,6 +8,7 @@ export function recordCompletedImageTask({
   style = null,
   resolution = null,
   workflowTemplate = null,
+  anchorRef = null,
   db = getDb(),
 }) {
   const paths = Array.isArray(outputPaths) ? outputPaths.filter(Boolean) : [];
@@ -15,8 +16,8 @@ export function recordCompletedImageTask({
   const result = db.prepare(`
     INSERT INTO image_tasks (
       conversation_id, prompt_original, prompt_refined, style, resolution,
-      workflow_template, status, output_paths, finished_at
-    ) VALUES (?, ?, ?, ?, COALESCE(?, '1024x1024'), ?, 'done', ?, datetime('now'))
+      workflow_template, anchor_ref, status, output_paths, finished_at
+    ) VALUES (?, ?, ?, ?, COALESCE(?, '1024x1024'), ?, ?, 'done', ?, datetime('now'))
   `).run(
     conversationId,
     promptOriginal,
@@ -24,6 +25,7 @@ export function recordCompletedImageTask({
     style,
     resolution,
     workflowTemplate,
+    anchorRef ? String(anchorRef) : null,
     JSON.stringify(paths),
   );
   return Number(result.lastInsertRowid);
