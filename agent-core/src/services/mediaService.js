@@ -3090,7 +3090,17 @@ async function generateMediaImage(prompt, character = null, opts = {}) {
   if (typeof opts === 'string') opts = { priority: opts };
   const charArtist = charArtistOverrideWithFallback(character);
   const ownArtist = typeof opts.artist === 'string' && opts.artist.trim() ? opts.artist.trim() : null;
-  const loras = parseCharacterLoras(character?.loras);
+  /**
+   * ★ 2026-10-22 夜间修正（用户实报"同框第二个人画得不像"）：
+   *   原来只挂 `character` 一个人的 LoRA —— 而 `character` 只是 castIds 里的**第一个**。
+   *   同框的另一个人（符玄）既没有完整锚点、**也没有她的 LoRA**，只能靠模型自由发挥。
+   *   现在把 `opts.extraLoras`（其余出镜角色的 LoRA）合并进来，按 path 去重。
+   */
+  const extraLoras = Array.isArray(opts.extraLoras) ? opts.extraLoras : [];
+  const loras = [...parseCharacterLoras(character?.loras), ...extraLoras]
+    .filter((l, i, arr) => l?.path && arr.findIndex(x => x?.path === l.path) === i);
+  // 多角色同框时不再套单人自定义工作流（与朋友圈 otherChars 的口径一致）
+  const customWorkflow = extraLoras.length > 0 ? null : (character?.custom_workflow || null);
   // 优先级：本条专用（图库随机画师串） > 角色单独画师串 > 全局
   const finalArtist = ownArtist !== null ? ownArtist : (charArtist !== null ? charArtist : config.comfyui.momentsArtist);
   const w = Number(opts.width) > 0 ? Number(opts.width) : config.comfyui.momentsWidth;
@@ -3111,7 +3121,7 @@ async function generateMediaImage(prompt, character = null, opts = {}) {
      */
     ...(Array.isArray(opts.anchors) && opts.anchors.length ? { anchors: opts.anchors } : {}),
     ...(neg ? { negativePrompt: neg } : {}),
-    ...(loras.length ? { customWorkflow: character?.custom_workflow || null, loras } : {}),
+    ...(loras.length ? { customWorkflow, loras } : {}),
   });
   if (!result?.success || !result.images?.length) return null;
   const img = result.images[0];
@@ -3166,15 +3176,16 @@ async function fillPendingImagesNow(limit, postIds = null, priority = 'low') {
       const gal = payload?.gallery || payload?.photos || null;
       // ★ 出镜角色（图库条目里 author_type 是 anonymous，但画面里是这些角色）：
       //   必须挂她们的 LoRA，否则画出来的人根本不像那个角色。
-      const castId = p.character_id || gal?.castIds?.[0] || null;
-      const character = castId
-        ? db.prepare('SELECT id, loras, artist_override, custom_workflow FROM characters WHERE id = ?').get(castId)
-        : null;
       /**
        * ★ 角色锚点（阶段 6，2026-10-22）：出镜的**每一个**角色都注入整段外观。
        * 来源是 payload 里本来就有的 `castIds`（图库 2 女体位会有两个）。
-       * 第 1 个是 self（整段），第 2 个起 compact + 位置词 —— 与
+       * 第 1 个是 self（整段），第 2 个起 other + 位置词 —— 与
        * `GIRL_POSITION_REFS` / 体位模板里的 `the girl 1|2` 用同一套词。
+       *
+       * ★ 2026-10-22 夜间修正：锚点从"第 2 个起精简"改成**全部整段**。
+       *   用户实报同框第二个人（符玄）画得不像 —— 精简版只剩发型+金簪，
+       *   脸型/瞳色/体型/衣服全丢；而且她**连 LoRA 都没挂**（原来只取 castIds[0]）。
+       *   现在 LoRA 也按 castIds 全量合并。
        */
       const castIds = [
         ...(p.character_id ? [p.character_id] : []),
@@ -3182,6 +3193,16 @@ async function fillPendingImagesNow(limit, postIds = null, priority = 'low') {
       ]
         .map(Number)
         .filter((id, i, arr) => Number.isInteger(id) && arr.indexOf(id) === i);
+      const castCharacters = castIds.length
+        ? db.prepare(
+          `SELECT id, loras, artist_override, custom_workflow FROM characters WHERE id IN (${castIds.map(() => '?').join(',')})`,
+        ).all(...castIds)
+        : [];
+      // 第 1 个出镜角色当主角（画师串/workflow 由它决定），其余只贡献 LoRA
+      const character = castCharacters.find(c => c.id === castIds[0]) || null;
+      const extraLoras = castCharacters
+        .filter(c => c.id !== castIds[0])
+        .flatMap(c => parseCharacterLoras(c.loras));
       const anchors = castIds.map((id, i) => ({
         characterId: id,
         slot: i === 0 ? 'self' : 'other',
@@ -3194,6 +3215,7 @@ async function fillPendingImagesNow(limit, postIds = null, priority = 'low') {
         negative: gal?.negative || null,
         priority,
         anchors,
+        extraLoras,
       });
       if (!result) {
         updatePostImage(p.id, { status: 'failed', error: 'ComfyUI 未返回图片' });

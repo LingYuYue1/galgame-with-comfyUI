@@ -91,14 +91,16 @@ function stripIdentityPrefix(text) {
  *
  * @param {string} text resolveAnchor().text
  * @param {object} [opts]
- * @param {boolean} [opts.compact=false] 精简版（多人同框时第二个角色起用）：
- *        只留「发型 + 瞳色」，约 100 字符 —— 两个 400 字符的锚点会互相稀释。
- * @param {number} [opts.maxLen=450] 硬上限保护（现有 body 最长 411，正常不会触发）
+ * @param {boolean} [opts.compact=false] 精简版，**默认不用**：
+ *        只留「发型 + 瞳色」，约 100 字符。
+ *        ⚠ 2026-10-22 夜间用户实报后改了口径 —— 见 `buildAnchorLines` 里的说明：
+ *        精简会让她"少了脸和衣服"，画出来完全是另一个人；宁可长，不可缺。
+ * @param {number} [opts.maxLen=900] 硬上限保护（实测最长锚点 737 字符，900 留足余量）
  * @param {string} [opts.side] 'left' / 'right' —— 多人同框时标明位置，避免特征串味
  * @returns {string}
  */
 export function buildAnchorLine(text, opts = {}) {
-  const { compact = false, maxLen = 450, side = '' } = opts;
+  const { compact = false, maxLen = 900, side = '' } = opts;
   let s = String(text || '').trim().replace(/\s+/g, ' ');
   if (!s) return '';
 
@@ -126,8 +128,11 @@ export function buildAnchorLine(text, opts = {}) {
 
   if (!side) return s;
   const pos = side === 'left' ? 'the girl on the left' : 'the girl on the right';
-  // 已有身份前缀（`Name (Series), ...`）时不再加位置词，避免读起来打架
-  if (/\([^()]{1,80}\)/.test(s.slice(0, 80))) return s;
+  // ★ 2026-10-22 夜间修正：**身份前缀不再阻止位置词**。
+  //   原来"已有 `Name (Series)` 就不加位置词"，是为了避免读起来打架；
+  //   但媒体/体位模板要靠位置词区分同框的两人，缺了它就分不清谁是谁。
+  //   现在位置词放最前，与身份前缀并存：
+  //   `the girl on the left, Fu Xuan (Honkai: Star Rail), long bright pink hair…`
   return `${pos}, ${s}`;
 }
 
@@ -151,7 +156,21 @@ export function buildAnchorLines(list = []) {
       ...(item?.now != null ? { now: toDate(item.now) } : {}),
     });
     if (!anchor?.text) return '';
-    return buildAnchorLine(anchor.text, { compact: i > 0, side: item?.side || '' });
+    /**
+     * ★★ 2026-10-22 夜间修正（用户实报"图左侧的人不是符玄，差距挺大"）
+     *
+     * 原设计：多人同框时第 2 个起 `compact: true`，只留「发型 + 瞳色」，
+     * 理由是"两个 400 字符的锚点会互相稀释"。
+     *
+     * **这个权衡是错的**，实测数据：
+     *   花火 569 字 → 113 字（丢 80%）；符玄 737 字 → 134 字（丢 82%）。
+     * 符玄精简后只剩「粉发 + 金簪 + 额间宝石」，脸型、瞳色、体型、**衣服**全没了 ——
+     * 模型只能自由发挥，画出来就是"另一个粉发女孩"。
+     *
+     * 判据订正：**稀释只是权重降低，缺字段是直接画错**。宁可长，不可缺。
+     * 现在默认整段；只有调用方显式传 `compact: true` 才精简（留给极端多人图）。
+     */
+    return buildAnchorLine(anchor.text, { compact: item?.compact === true, side: item?.side || '' });
   }).filter(Boolean);
 }
 

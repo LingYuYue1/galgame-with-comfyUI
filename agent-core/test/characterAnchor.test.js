@@ -3,7 +3,8 @@
  *
  * 钉住三件事：
  *  ① `resolveAnchor` 优先吃 `character_outfits.body`，没有服装行才退回人物卡外观段
- *  ② `buildAnchorLine` 的两种形态（整段 / 多人精简）与长度保护
+ *  ② `buildAnchorLine` 的整段/精简两形态、长度保护、位置词
+ *     （★ 2026-10-22 夜间订正：多人同框**默认整段**，精简只在显式 compact:true 时用）
  *  ③ `buildCharacterPersona({appearance})` 的三种分流 —— 生图只吃锚点，聊天仍读人物卡
  */
 import test from 'node:test';
@@ -120,7 +121,11 @@ test('appearance:\'anchor\' 但角色没有服装行 → 退回原卡，别把�
   assert.ok(out.includes('栗色短发'), '没有锚点时应该保住兜底外观');
 });
 
-test('buildAnchorLines：第一个整段、第二个精简', () => {
+test('★ buildAnchorLines：多人同框**每人都是整段**（2026-10-22 夜间订正）', () => {
+  // 订正原因（用户实报"图左侧的人不是符玄，差距挺大"）：
+  //   原来第 2 人起 compact，只留发型+瞳色（符玄 737 字 → 134 字，丢 82%），
+  //   脸型/瞳色/体型/衣服全没 → 模型只能自由发挥，画出来是另一个粉发女孩。
+  //   判据订正：**稀释只是权重降低，缺字段是直接画错**。宁可长，不可缺。
   const a = makeCharacter();
   addOutfit(a, 'work', { description: 'jacket' });
   const b = makeCharacter();
@@ -128,8 +133,20 @@ test('buildAnchorLines：第一个整段、第二个精简', () => {
   const lines = buildAnchorLines([{ characterId: a }, { characterId: b, side: 'right' }]);
   assert.equal(lines.length, 2);
   assert.ok(lines[0].includes('dark brown'));
-  assert.ok(lines[1].startsWith('the girl on the right'));
-  assert.ok(lines[1].length < lines[0].length, '第二人应该是精简版');
+  assert.ok(lines[1].startsWith('the girl on the right'), '位置词仍在（区分同框的两人）');
+  assert.ok(lines[1].includes('hoodie'), '★ 第二人的衣服必须保留 —— 这就是之前丢的东西');
+  assert.ok(lines[1].includes('fair skin'), '体型/肤色也要保留');
+  assert.ok(
+    Math.abs(lines[1].length - lines[0].length) < 200,
+    `两人长度应该接近（整段对整段），实得 ${lines[0].length} vs ${lines[1].length}`,
+  );
+});
+
+test('buildAnchorLines：显式 compact:true 时才精简（留给极端多人图）', () => {
+  const a = makeCharacter();
+  addOutfit(a, 'work', { description: 'jacket' });
+  const lines = buildAnchorLines([{ characterId: a, compact: true }]);
+  assert.ok(lines[0].length < 200, `显式 compact 才该短，实得 ${lines[0].length}`);
 });
 
 test('buildCharacterAppearanceSection 仍可用（聊天侧走它，不受 appearance 开关影响）', () => {
