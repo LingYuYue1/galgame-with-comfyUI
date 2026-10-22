@@ -1922,12 +1922,19 @@ async function judgeImageNeed(conversationId) {
 async function triggerImageGeneration(conversationId, prompt, assistantMsgId, taskId, send, crossRefCharIds = [], ragQuery = '') {
   const db = getDb();
 
+  /**
+   * ★ 阶段 4（2026-10-22）：charId 提到函数作用域 —— LoRA 与角色锚点共用同一个身份。
+   *
+   * 对话配图是"她此刻在说话"的画面，从来没有锚点注入：人物卡外观段在 base_prompt 里，
+   * 靠 LLM 转述，于是同一句话的配图可能这次深棕下次粉。锚点这条路必须走代码。
+   */
+  const parsedCharId = parseInt(String(conversationId).replace(/^char_/, ''), 10);
+
   // 查找角色 lora 设置
   let loraOpts = {};
   try {
-    const charId = parseInt(String(conversationId).replace(/^char_/, ''), 10);
-    if (!Number.isNaN(charId)) {
-      const char = db.prepare('SELECT custom_workflow, loras, artist_override FROM characters WHERE id = ?').get(charId);
+    if (!Number.isNaN(parsedCharId)) {
+      const char = db.prepare('SELECT custom_workflow, loras, artist_override FROM characters WHERE id = ?').get(parsedCharId);
       if (char) {
         const loras = _parseLoras(char);
         if (loras.length > 0 || char.custom_workflow || charArtistOverride(char) !== null) {
@@ -1937,7 +1944,7 @@ async function triggerImageGeneration(conversationId, prompt, assistantMsgId, ta
           const charArtist = charArtistOverride(char);
           if (charArtist !== null) opts.artist = charArtist;
           loraOpts = opts;
-          console.log(`[chat] Lora enabled for char ${charId}:${opts.customWorkflow ? ' custom=' + opts.customWorkflow : ''}${opts.loras ? ` ${opts.loras.length} lora(s) — ${opts.loras.map(l => l.path).join(', ')}` : ''}`);
+          console.log(`[chat] Lora enabled for char ${parsedCharId}:${opts.customWorkflow ? ' custom=' + opts.customWorkflow : ''}${opts.loras ? ` ${opts.loras.length} lora(s) — ${opts.loras.map(l => l.path).join(', ')}` : ''}`);
         }
       }
     }
@@ -1947,7 +1954,7 @@ async function triggerImageGeneration(conversationId, prompt, assistantMsgId, ta
 
   // 合并交叉引用角色 LoRA（去重，主角色优先）
   if (crossRefCharIds.length > 0) {
-    const crossChars = crossRefCharIds.map(id => db.prepare('SELECT loras, artist_override FROM characters WHERE id = ?').get(id)).filter(Boolean);
+    const crossChars = crossRefCharIds.map(id => db.prepare('SELECT id, loras, artist_override FROM characters WHERE id = ?').get(id)).filter(Boolean);
     const crossLoras = crossChars.flatMap(c => _parseLoras(c));
     if (crossLoras.length > 0) {
       const allLoras = [...(loraOpts.loras || []), ...crossLoras];
@@ -1966,6 +1973,19 @@ async function triggerImageGeneration(conversationId, prompt, assistantMsgId, ta
     }
   }
 
+  /**
+   * ★ 角色锚点（施工阶段 4）：主角色整段，交叉引用角色精简 + 标左右
+   *   —— 与朋友圈同口径（那条链路先接、已实拍验证）。
+   * 画的是"她此刻说话的这一刻"，穿什么由日程决定 → scene 走默认 auto。
+   */
+  const anchorList = Number.isNaN(parsedCharId) ? [] : [
+    { characterId: parsedCharId, slot: 'self' },
+    ...(Array.isArray(crossRefCharIds) ? crossRefCharIds : [])
+      .map(Number)
+      .filter(id => Number.isInteger(id) && id !== parsedCharId)
+      .map((id, i) => ({ characterId: id, slot: 'other', side: i % 2 === 0 ? 'left' : 'right' })),
+  ];
+
   try {
     const result = await generateImage(prompt, {
       scene: 'chat',
@@ -1974,6 +1994,7 @@ async function triggerImageGeneration(conversationId, prompt, assistantMsgId, ta
       //   把光照钉在当前时段 —— 凌晨聊天不再画出白天光。
       timeOfDay: new Date(),
       ragTimeoutMs: RAG_TIMEOUT_FAST_MS,
+      ...(anchorList.length ? { anchors: anchorList } : {}),
       onProgress: (p) => {
         if (p.stage === 'retrying') {
           send('generate_retrying', { taskId, attempt: p.attempt, maxRetries: p.maxRetries });
@@ -2607,6 +2628,12 @@ async function handleDreamTalkReply(res, characterId, conversationId, userMsgId,
         scene: 'chat',
         ragQuery: `${config.user.nickname || '用户'}: ${userMessage}\n${character.display_name || '角色'}: ${talk}`,
         ragTimeoutMs: RAG_TIMEOUT_FAST_MS,
+        /**
+         * ★ 角色锚点（施工阶段 4）：梦话发生在**睡眠中**，所以钉死 `sleep` 那一套（睡衣），
+         *   而不是 auto —— auto 会按钟点取装，凌晨以外的时间醒来一句梦话就穿常服入梦。
+         *   这条链路一直给了角色 LoRA，说明画面里本来就有她。
+         */
+        ...(characterId ? { anchors: [{ characterId, slot: 'self', scene: 'sleep' }] } : {}),
         onProgress: (p) => {
           if (p.stage === 'retrying') {
             send('generate_retrying', { taskId: genTaskId, attempt: p.attempt, maxRetries: p.maxRetries });
@@ -2640,8 +2667,8 @@ async function handleDreamTalkReply(res, characterId, conversationId, userMsgId,
         }
       }
 
-      db.prepare(`UPDATE image_tasks SET status = 'done', prompt_original = ?, prompt_refined = ?, output_paths = ?, finished_at = datetime('now') WHERE id = ?`)
-        .run(finalPrompt, result.promptRefined || finalPrompt, JSON.stringify(urls), genTaskId);
+      db.prepare(`UPDATE image_tasks SET status = 'done', prompt_original = ?, prompt_refined = ?, output_paths = ?, anchor_ref = ?, finished_at = datetime('now') WHERE id = ?`)
+        .run(finalPrompt, result.promptRefined || finalPrompt, JSON.stringify(urls), result.anchorUsed || null, genTaskId);
 
       invalidateGalleryCache();
 

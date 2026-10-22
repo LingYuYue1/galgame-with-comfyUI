@@ -270,6 +270,7 @@ function updateSession(db, sessionId, patch) {
 
 async function generateServiceImage(prompt, { npc, kind, sessionId, options, ragQuery }) {
   const generate = options.image?.generateImageRaw || generateImageRaw;
+  // ★ 无本作角色（阶段 4，2026-10-22）：小镇服务业 NPC 的营业画面，不注入角色锚点。
   // onProgress 收到的是 { stage, phase, progress: 0~1, step, max, ... } 对象，
   // 必须换算成 0~100 的整数再广播；直接把对象当数字用会让前端算出 NaN%。
   const onProgress = p => {

@@ -205,6 +205,7 @@ ${weatherHint}`;
   if (!imagePrompt) imagePrompt = `${npc.display_name}, a townsfolk, in the small town, daily scene`;
 
   // 4. 配图（镇民无 LoRA，走朋友圈画师；与角色帖同结构必出图，生图失败才降级为无图帖）
+  //    ★ 无本作角色（阶段 4，2026-10-22）：这是镇民的朋友圈，不是本作角色的，不注入锚点。
   const imageUrls = [];
   try {
     const genResult = await generateImageRaw(imagePrompt, {

@@ -649,10 +649,13 @@ router.post('/:characterId/peek/retake', async (req, res) => {
     try {
       // ★ 时段锚点（F-15）：优先用前端透传的活动时刻（「再拍一张」须与原图同时段），
       //   老客户端不带活动上下文时回退「当前活动」；都没有则不注入（行为同旧版）。
-      let timeOfDay = req.body?.activity?.startTime || '';
-      if (!timeOfDay) {
-        try { timeOfDay = getCurrentActivity(characterId)?.startTime || ''; } catch { timeOfDay = ''; }
+      // ★ 阶段 4（2026-10-22）：同一个 activity 也交给角色锚点 —— 重拍必须是「那一段」的那套衣服，
+      //   不能因为此刻换了装就换衣服（与 getSceneOutfitForNow 的"指定活动绝不看当前时刻"同一条判据）。
+      let activityCtx = req.body?.activity || null;
+      if (!activityCtx) {
+        try { activityCtx = getCurrentActivity(characterId) || null; } catch { activityCtx = null; }
       }
+      const timeOfDay = activityCtx?.startTime || '';
 
       const result = await generateImage(prompt, {
         artist: config.comfyui.eventArtist,
@@ -662,6 +665,7 @@ router.post('/:characterId/peek/retake', async (req, res) => {
         priority: 'high',
         timeOfDay: timeOfDay || undefined,
         ragTimeoutMs: RAG_TIMEOUT_FAST_MS,
+        anchors: [{ characterId: character.id, slot: 'self', activity: activityCtx }],
         ...(() => {
           const chLoras = _parseLoras(character.loras);
           const opts = {};
@@ -685,9 +689,9 @@ router.post('/:characterId/peek/retake', async (req, res) => {
         const img = result.images[0];
         const imageUrl = savePeekImage(img.base64, img.filename || 'comfy');
         if (imageUrl) {
-          db.prepare(`INSERT INTO image_tasks (conversation_id, prompt_original, prompt_refined, status, output_paths, workflow_template, finished_at)
-            VALUES (?, ?, ?, 'done', ?, ?, datetime('now'))`)
-            .run(`char_${character.id}_schedule_peek_retake`, prompt, result.promptRefined || prompt, JSON.stringify([imageUrl]), getLastWorkflowMode());
+          db.prepare(`INSERT INTO image_tasks (conversation_id, prompt_original, prompt_refined, status, output_paths, workflow_template, anchor_ref, finished_at)
+            VALUES (?, ?, ?, 'done', ?, ?, ?, datetime('now'))`)
+            .run(`char_${character.id}_schedule_peek_retake`, prompt, result.promptRefined || prompt, JSON.stringify([imageUrl]), getLastWorkflowMode(), result.anchorUsed || null);
         }
         broadcast('schedule_peek_ready', {
           character_id: character.id,
@@ -957,6 +961,9 @@ router.post('/:characterId/peek', async (req, res) => {
         // ★ 时段锚点（F-15）：把配图钉在该活动所属时段 —— 凌晨活动不再画成白天。
         //   activity.startTime 为 'HH:MM'（锚点函数直接支持）；缺失则不注入（行为同旧版）。
         timeOfDay: activity.startTime || undefined,
+        // ★ 角色锚点（施工阶段 4）：这一段的衣服由日程那一行决定（activity 一并传下去，
+        //   让 getSceneOutfitForNow 走"指定活动"分支，而不是拿此刻的钟点选装）。
+        anchors: [{ characterId: character.id, slot: 'self', activity }],
         ...(() => {
           const chLoras = _parseLoras(character.loras);
           const opts = {};
@@ -981,9 +988,9 @@ router.post('/:characterId/peek', async (req, res) => {
         const img = result.images[0];
         const imageUrl = savePeekImage(img.base64, img.filename || 'comfy');
         if (imageUrl) {
-          db.prepare(`INSERT INTO image_tasks (conversation_id, prompt_original, prompt_refined, status, output_paths, workflow_template, finished_at)
-            VALUES (?, ?, ?, 'done', ?, ?, datetime('now'))`)
-            .run(`char_${character.id}_schedule_peek`, generatedPrompt, result.promptRefined || generatedPrompt, JSON.stringify([imageUrl]), getLastWorkflowMode());
+          db.prepare(`INSERT INTO image_tasks (conversation_id, prompt_original, prompt_refined, status, output_paths, workflow_template, anchor_ref, finished_at)
+            VALUES (?, ?, ?, 'done', ?, ?, ?, datetime('now'))`)
+            .run(`char_${character.id}_schedule_peek`, generatedPrompt, result.promptRefined || generatedPrompt, JSON.stringify([imageUrl]), getLastWorkflowMode(), result.anchorUsed || null);
         }
         broadcast('schedule_peek_ready', {
           character_id: character.id,

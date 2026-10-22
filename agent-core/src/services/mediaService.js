@@ -3113,6 +3113,12 @@ async function generateMediaImage(prompt, character = null, opts = {}) {
     height: h,
     scene: 'moments',
     priority: opts.priority || 'low',
+    /**
+     * ⬜ **阶段 6 待接**（2026-10-22）：媒体配图此刻**没有**锚点注入。
+     * 这里的 `character` 只是"借她的画师串/LoRA"，画面主体常常是媒体虚构人物；
+     * 什么时候该画她、什么时候该画别人，要靠媒体系统自己的判定（现为 `buildSubjectRef` 的 64 字符发型串）。
+     * 阶段 6 的任务就是把这套判定并进 `anchors`，同时删掉 `buildSubjectRef`。
+     */
     ...(neg ? { negativePrompt: neg } : {}),
     ...(loras.length ? { customWorkflow: character?.custom_workflow || null, loras } : {}),
   });

@@ -582,6 +582,8 @@ async function generateTownNpcMomentImages(npc, imagePrompts, opts = {}) {
   try {
     for (let i = 0; i < imagePrompts.length; i++) {
       try {
+        // ★ 无本作角色（阶段 4，2026-10-22）：这是**镇民**的朋友圈，npc 不是本作角色，
+        //   没有服装/外观锚点可注入（同 services/town 下的所有链路）。
         const genResult = await generateImageRaw(imagePrompts[i], {
           ragQuery: text,
           artist: config.comfyui.momentsArtist,

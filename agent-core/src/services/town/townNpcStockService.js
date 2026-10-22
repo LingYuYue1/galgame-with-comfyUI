@@ -310,6 +310,7 @@ async function generateStockImageAsync(stockId, options = {}) {
   const row = db.prepare('SELECT * FROM town_npc_stock WHERE id = ?').get(stockId);
   if (!row) return;
   const generate = options.generateImageRaw || generateImageRaw;
+  // ★ 无本作角色（阶段 4，2026-10-22）：镇民小店库存图（`no humans` 静物），不注入角色锚点。
   const prompt = row.image_prompt
     || `game item icon, ${row.custom_name}, floating, glowing softly, no humans, simple background, best quality`;
   const onProgress = p => {

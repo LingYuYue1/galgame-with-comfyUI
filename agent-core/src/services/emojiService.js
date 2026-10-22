@@ -549,6 +549,13 @@ export async function generateEmojiImage(row, char, artist = '@ebora') {
     priority: 'high',
     disableRAG: true,        // prompt 已由创造助手定稿，不再走 RAG 改写
     persistPreparation: false,
+    /**
+     * ★ 角色锚点（施工阶段 4，2026-10-22）：表情包画的是**她本人**做出某个表情的那一刻，
+     *   一张表情包认不出是谁，这套图就废了。用一个角色的整段锚点（不做 compact）——
+     *   只有一个角色，不存在"两个锚点互相稀释"的问题。
+     * 场景走 auto：情绪发生在当下，穿什么由日程决定。
+     */
+    ...(characterId ? { anchors: [{ characterId, slot: 'self' }] } : {}),
     ...getEmojiResolution(),
     artist: finalArtist,
     ...(loras.length > 0 ? { loras } : {}),

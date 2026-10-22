@@ -125,6 +125,11 @@ async function runGiftPipeline(id, { item, characterId, options }) {
       height: config.comfyui.eventHeight,
       scene: GIFT_SCENE,
       priority: 'high',
+      /**
+       * ★ 角色锚点（施工阶段 4，2026-10-22）：礼物叙事的画面是**她收到礼物的那一刻**，
+       * 这条链路一直按奇遇的分辨率/画师串出图，说明画面本来就是剧情照。场景走 auto。
+       */
+      ...(character?.id ? { anchors: [{ characterId: character.id, slot: 'self' }] } : {}),
       onProgress,
     });
     const image = Array.isArray(result?.images) ? result.images[0] : null;

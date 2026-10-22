@@ -1479,6 +1479,13 @@ ${buildCharacterPersona(char, { variant: 'full', outfits: avatarOutfits })}
       artist: avatarArtist !== null ? avatarArtist : config.comfyui.momentsArtist,
       width: 768,
       height: 768,
+      /**
+       * ★ 角色锚点（施工阶段 4，2026-10-22）：头像原来只把「常服那一套」喂给 LLM，
+       * 由它写进提示词 —— 写偏一个词（深棕+粉渐变发尾 → 粉发），头像就换了个人。
+       * 这里用**显式 `work` 场景**：头像必须稳定可辨认，不能按当前钟点变睡衣/居家服。
+       * ⚠ 阶段 5 待办：persona 侧（avatarOutfits）此刻仍在注入外观，届时切 `appearance:'none'` 收掉重复。
+       */
+      anchors: [{ characterId: char.id, slot: 'self', scene: 'work' }],
       loras: charLoras.length > 0 ? charLoras : undefined,
       ...(char.custom_workflow ? { customWorkflow: char.custom_workflow } : {}),
       onProgress: (p) => {
@@ -1626,7 +1633,7 @@ router.post('/:id/generate-standing', async (req, res) => {
  * 只写暂存文件，不落库；落库由 commitStandingImage 或确认覆盖时执行。
  * @returns {Promise<{filename: string, promptRefined: string, sourceFilename: string}>}
  */
-async function runStandingGeneration(char, promptText, { stageBase, onProgress }) {
+async function runStandingGeneration(char, promptText, { stageBase, onProgress, scene = null } = {}) {
   // 出图：朋友圈画师串口径（角色单独画师串优先），固定 1:2 竖幅 768x1536
   console.log(`[generate-standing] Step 2/2: generating image at 768x1536...`);
   const charLoras = _parseCharLoras(char.loras);
@@ -1640,6 +1647,13 @@ async function runStandingGeneration(char, promptText, { stageBase, onProgress }
     priority: 'high',
     disableRAG: true,
     ragTimeoutMs: RAG_TIMEOUT_FAST_MS,
+    /**
+     * ★ 角色锚点（施工阶段 4，2026-10-22）：立绘是「这张脸就是她」的最后一道关口。
+     * 显式场景：默认形象钉 `work`（常服，与 sceneOutfitParam 的口径一致），
+     * 场景立绘（renderSceneStandingImage）钉它自己那套 —— **绝不能走 auto**，
+     * 否则同一天不同钟点生成的四套立绘会互相穿错衣服。
+     */
+    anchors: [{ characterId: char.id, slot: 'self', scene: scene || 'work' }],
     artist: standingArtist !== null ? standingArtist : config.comfyui.momentsArtist,
     width: 768,
     height: 1536,
@@ -1856,7 +1870,8 @@ router.delete('/:id/standing', (req, res) => {
 async function renderSceneStandingImage(char, promptText, scene) {
   const stageBase = path.join(getPendingDir(), `standing-${char.id}-${scene}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   fs.mkdirSync(path.dirname(stageBase), { recursive: true });
-  const staged = await runStandingGeneration(char, promptText, { stageBase });
+  // scene 传下去 → 锚点钉这一套（不传就会默认常服，四套立绘会互相穿错）
+  const staged = await runStandingGeneration(char, promptText, { stageBase, scene });
 
   // 该场景原本**显式**存的图（兜底的默认立绘不算 —— 那是 standing_url，不能动）
   const oldRow = getSceneStandingRow(char.id, scene);

@@ -456,6 +456,15 @@ async function generateNewsImage(prompt, { ragQuery, loras, character } = {}) {
   // 分辨率用自己的 paper 档（2026-10-21 从 moments 拆出，默认值仍等于朋友圈初值）、有 LoRA 时同样透传角色自定义工作流；scene 也沿用 'moments'
   //（全局 LoRA 面板里勾了「朋友圈」的条目对报纸配图同样生效——报纸 ≈ 全员可见的朋友圈）
   const charArtist = charArtistOverrideWithFallback(character);
+  /**
+   * ★ 角色锚点（施工阶段 4，2026-10-22）：特稿画面以本期主角为主。
+   *
+   * 只有「特稿」会带 character（普通新闻条目 / 世界状态画面里没有角色，见 collectImageTasks），
+   * 所以这里 `character?.id` 存在就等于"这张图画的是她"。
+   * 锚点由 applyAnchors 拼在提示词最前，不再靠 LLM 从那 400 字里转述发色。
+   */
+  const anchors = character?.id ? [{ characterId: character.id, slot: 'self' }] : [];
+  // ★ 角色锚点（阶段 4）：`anchors` 用展开形式条件注入，见上面 anchors 的构造。
   const genResult = await generateImageRaw(prompt, {
     ragQuery: ragQuery || prompt,
     artist: charArtist !== null ? charArtist : (config.comfyui.paperArtist || config.comfyui.momentsArtist),
@@ -463,6 +472,7 @@ async function generateNewsImage(prompt, { ragQuery, loras, character } = {}) {
     height: config.comfyui.paperHeight,
     scene: 'moments',
     priority: 'low',
+    ...(anchors.length ? { anchors } : {}),
     ...(loras?.length ? { customWorkflow: character?.custom_workflow || null, loras } : {}),
   });
   if (!genResult?.success || !genResult.images?.length) return null;
@@ -471,6 +481,7 @@ async function generateNewsImage(prompt, { ragQuery, loras, character } = {}) {
   return {
     url,
     refinedPrompt: genResult.promptRefined || prompt,
+    anchorUsed: genResult.anchorUsed || '',
     wfMode: genResult.wfMode,
     artist: charArtist !== null ? charArtist : (config.comfyui.paperArtist || config.comfyui.momentsArtist),
   };
@@ -515,7 +526,7 @@ async function generateAndStorePaperImage(row, task) {
   try {
     // 特稿画面以主角为主，带角色 LoRA；角色已被删除时退化为无 LoRA 的普通插画
     const character = row.character_id
-      ? db.prepare('SELECT loras, artist_override, custom_workflow FROM characters WHERE id = ?').get(row.character_id)
+      ? db.prepare('SELECT id, loras, artist_override, custom_workflow FROM characters WHERE id = ?').get(row.character_id)
       : null;
     const featuredLoras = parseCharacterLoras(character?.loras);
     const resolution = `${config.comfyui.paperWidth}x${config.comfyui.paperHeight}`;
@@ -534,6 +545,7 @@ async function generateAndStorePaperImage(row, task) {
       style: result.artist,
       resolution,
       workflowTemplate: result.wfMode,
+      anchorRef: result.anchorUsed,
       db,
     });
     if (task.key === 'character_event') {

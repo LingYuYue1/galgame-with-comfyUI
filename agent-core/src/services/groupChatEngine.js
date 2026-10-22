@@ -667,6 +667,17 @@ async function generateGroupImage(group, speaker, prompt, targetMsgId, emit, opt
     const resolutionOverrides = options.useMomentsResolution
       ? { width: config.comfyui.momentsWidth, height: config.comfyui.momentsHeight }
       : {};
+    /**
+     * ★ 角色锚点（施工阶段 4，2026-10-22）：群聊图里至少有一个发图的人（speaker），
+     *   prompt 里点名的其他成员也算 —— 与 LoRA 完全同口径（那边早就按名字匹配上了）。
+     *   缺了锚点就是"LoRA 给了、脸自由发挥"，正是朋友圈实报过的花火变粉。
+     */
+    const anchorList = [
+      ...(speaker?.id ? [{ characterId: speaker.id, slot: 'self' }] : []),
+      ...(matchedCharacters || [])
+        .filter(c => c?.id && c.id !== speaker?.id)
+        .map((c, i) => ({ characterId: c.id, slot: 'other', side: i % 2 === 0 ? 'left' : 'right' })),
+    ];
     const result = await generateImage(preparedPrompt, {
       ragQuery: options.ragQuery,
       scene: 'group',
@@ -674,6 +685,7 @@ async function generateGroupImage(group, speaker, prompt, targetMsgId, emit, opt
       promptScene: 'chat',
       ragTimeoutMs: options.ragTimeoutMs,
       priority: options.priority,
+      ...(anchorList.length ? { anchors: anchorList } : {}),
       onProgress: (p) => {
         if (p.stage === 'retrying') emit('generate_retrying', { taskId, msg_id: targetMsgId, attempt: p.attempt, maxRetries: p.maxRetries });
         else emit('generate_progress', { taskId, msg_id: targetMsgId, ...p });
@@ -693,8 +705,8 @@ async function generateGroupImage(group, speaker, prompt, targetMsgId, emit, opt
       urls.push(saveBase64Image('chat', filename, img.base64));
     }
     db.prepare(`UPDATE messages SET images = ? WHERE id = ?`).run(JSON.stringify(urls), targetMsgId);
-    db.prepare(`UPDATE image_tasks SET status='done', output_paths=?, workflow_template=?, finished_at=datetime('now') WHERE id=?`)
-      .run(JSON.stringify(urls), result.wfMode, taskId);
+    db.prepare(`UPDATE image_tasks SET status='done', output_paths=?, workflow_template=?, anchor_ref=?, finished_at=datetime('now') WHERE id=?`)
+      .run(JSON.stringify(urls), result.wfMode, result.anchorUsed || null, taskId);
     // 相册缓存失效（cache 已下沉到 services，直接静态导入）
     try {
       invalidateGalleryCache();

@@ -504,6 +504,7 @@ async function generateOneImage(catalogId) {
   try {
     const result = await generateImageRaw(imagePromptFor(row), {
       scene: 'items', disableRAG: true, persistPreparation: false, width: config.comfyui.itemWidth, height: config.comfyui.itemHeight, artist: config.comfyui.itemArtist || '@ebora',
+      // ★ 无角色链路（阶段 4，2026-10-22）：战利品/橱窗商品卡是静物图，画面里没有人 → 不注入锚点。
     });
     if (!result.success || !result.images?.length) throw new Error(result.error || 'ComfyUI 未返回图片');
     const url = saveBase64Image('items', `loot_${row.tag}_${Date.now()}.png`, result.images[0].base64);

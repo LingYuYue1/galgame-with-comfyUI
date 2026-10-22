@@ -526,13 +526,29 @@ ${customKeyUnderstanding}
   const selfLoras = _parseCharLoras(character.loras);
   let otherChars = [];
   if (multiPerson) {
-    const otherChar = db.prepare('SELECT loras, artist_override FROM characters WHERE id = ?').get(multiPerson.otherId);
+    // ★ 2026-10-22：id 是锚点必需字段（`anchors` 只认 characterId）
+    const otherChar = db.prepare('SELECT id, loras, artist_override FROM characters WHERE id = ?').get(multiPerson.otherId);
     if (otherChar) otherChars = [otherChar];
   }
   const otherLoras = otherChars.flatMap(c => _parseCharLoras(c.loras));
   const allLoras = [...selfLoras, ...otherLoras];
 
   const originalEventPrompt = eventData.prompt;
+  /**
+   * ★ 角色锚点（施工阶段 4，2026-10-22）
+   *
+   * 奇遇是「花火变粉」的第二案发现场：锚点原来只作为素材喂给 LLM，靠它转述进提示词，
+   * 写漏一个词（"深棕+粉渐变发尾"→"粉发"）代码层无从纠正。这里改成代码直接拼在提示词最前。
+   *
+   * 场景用默认 `auto`：奇遇讲的是"此刻正在发生的生活"，穿什么由日程决定，
+   * 与朋友圈（不传 scene）同口径。
+   */
+  const eventAnchors = [
+    { characterId: character.id, slot: 'self' },
+    ...otherChars
+      .filter(c => c?.id)
+      .map((c, i) => ({ characterId: c.id, slot: 'other', side: i % 2 === 0 ? 'left' : 'right' })),
+  ];
   let imageUrl = null;
   try {
     const charArtist = charArtistOverrideWithFallback(character, otherChars);
@@ -544,6 +560,7 @@ ${customKeyUnderstanding}
       scene: 'events',
       priority: options.manual ? 'high' : 'low',
       loras: allLoras,
+      anchors: eventAnchors,
       ...(!multiPerson && character.custom_workflow ? { customWorkflow: character.custom_workflow } : {}),
     });
     if (genResult.success && genResult.images.length > 0) {
@@ -559,6 +576,7 @@ ${customKeyUnderstanding}
         style: charArtist !== null ? charArtist : config.comfyui.eventArtist,
         resolution: `${config.comfyui.eventWidth}x${config.comfyui.eventHeight}`,
         workflowTemplate: genResult.wfMode,
+        anchorRef: genResult.anchorUsed,
         db,
       });
       console.log(`[eventGen] Image generated for ${character.display_name}: ${imageUrl}`);
@@ -909,14 +927,14 @@ ${timeTag2}${weatherHint}${multiPersonImageNote2}
   const branchOtherChars = [];
   let branchOtherLoras = [];
   if (multiPerson2) {
-    const otherChar = db.prepare('SELECT loras, artist_override FROM characters WHERE id = ?').get(multiPerson2.otherId);
+    const otherChar = db.prepare('SELECT id, loras, artist_override FROM characters WHERE id = ?').get(multiPerson2.otherId);
     if (otherChar) { branchOtherChars.push(otherChar); branchOtherLoras = _parseCharLoras(otherChar.loras); }
   }
   let branchCrossRefLoras = [];
   const crossRefIdsForLora = JSON.parse(event.referenced_character_ids || '[]');
   if (crossRefIdsForLora.length > 0) {
     branchCrossRefLoras = crossRefIdsForLora.flatMap(id => {
-      const c = db.prepare('SELECT loras, artist_override FROM characters WHERE id = ?').get(id);
+      const c = db.prepare('SELECT id, loras, artist_override FROM characters WHERE id = ?').get(id);
       if (c) branchOtherChars.push(c);
       return c ? _parseCharLoras(c.loras) : [];
     });
@@ -930,6 +948,18 @@ ${timeTag2}${weatherHint}${multiPersonImageNote2}
   });
 
   const originalBranchPrompt = branchData.prompt;
+  /**
+   * ★ 角色锚点（施工阶段 4）：与 LoRA 同一口径 —— 凡是给了 LoRA 的角色都注入锚点。
+   *
+   * 为什么把交叉引用角色也带上：`branchCrossRefLoras` 早就给她们上了角色 LoRA，
+   * 也就是说画面里本来就会出现她们；只给 LoRA 不给锚点，等于"人来、脸自由发挥"。
+   */
+  const branchAnchors = [
+    { characterId: character.id, slot: 'self' },
+    ...branchOtherChars
+      .filter(c => c?.id && c.id !== character.id)
+      .map((c, i) => ({ characterId: c.id, slot: 'other', side: i % 2 === 0 ? 'left' : 'right' })),
+  ];
   let imageUrl = null;
   try {
     const charArtist = charArtistOverrideWithFallback(character, branchOtherChars);
@@ -940,6 +970,7 @@ ${timeTag2}${weatherHint}${multiPersonImageNote2}
       height: config.comfyui.eventHeight, scene: 'events',
       priority: 'high',
       loras: branchAllLoras,
+      anchors: branchAnchors,
       ...(!multiPerson2 && character.custom_workflow ? { customWorkflow: character.custom_workflow } : {}),
     });
     if (genResult.success && genResult.images.length > 0) {
@@ -955,6 +986,7 @@ ${timeTag2}${weatherHint}${multiPersonImageNote2}
         style: charArtist !== null ? charArtist : config.comfyui.eventArtist,
         resolution: `${config.comfyui.eventWidth}x${config.comfyui.eventHeight}`,
         workflowTemplate: genResult.wfMode,
+        anchorRef: genResult.anchorUsed,
         db,
       });
       console.log(`[eventGen] Branch image generated: ${imageUrl}`);

@@ -41,6 +41,8 @@ export async function generateDialogueBackground(character, requirement) {
     artist: charArtistOverride(character) ?? (config.comfyui.chatBgArtist || config.comfyui.artist),
     width: config.comfyui.chatBgWidth, height: config.comfyui.chatBgHeight,
     // 不带角色 LoRA，避免纯场景被角色特征污染；全局画风仍沿用聊天范围。
+    // ★ 无角色链路（阶段 4，2026-10-22）：画面是空场景，prompt 首词即 `no humans`，
+    //   negative 里还压了 people/character/face —— 故**不注入角色锚点**（锚点会把人画进来）。
     negativePrompt: [config.comfyui.negativePrompt, 'people, person, character, human, face, body, text, watermark, interface'].filter(Boolean).join(', '),
   });
   if (!result.success || !result.images?.[0]?.base64) throw new Error(result.error || '背景图片生成失败');

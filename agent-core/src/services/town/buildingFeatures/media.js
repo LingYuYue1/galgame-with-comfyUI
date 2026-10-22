@@ -98,6 +98,7 @@ export function parseMediaOutput(text) {
 export async function generatePortraitImage({ imagePrompt, generateImageRaw: injectedRaw, saveBase64Image: injectedSave }) {
   const { generateImageRaw } = await import('../../imageSkill.js');
   const raw = injectedRaw || generateImageRaw;
+  // ★ 无本作角色（阶段 4，2026-10-22）：小镇建筑作品/展陈图，不注入角色锚点。
   const result = await raw(imagePrompt, { scene: 'building_features', disableRAG: true });
   if (!result?.success || !result.images?.length) throw townError('GENERATION_FAILED');
   const { saveBase64Image } = await import('../../imagePaths.js');

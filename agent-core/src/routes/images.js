@@ -252,6 +252,9 @@ router.post('/test-style', async (req, res) => {
 
     const loras = [];
     const crossBlocks = [];
+    // ★ 阶段 4（2026-10-22）：把匹配到的角色 id 一并带回 —— 自由描述这条分支要走角色锚点，
+    //   否则"实验室画出来的她"和"朋友圈画出来的她"还是两张脸。
+    const matchedCharIds = [];
     const matched = matchAll(desc);
     if (matched.length > 0) {
       const db = getDb();
@@ -260,6 +263,7 @@ router.post('/test-style', async (req, res) => {
       ).filter(Boolean);
       crossBlocks.push(...chars.map(c => `[${c.display_name}]\n${buildImageCrossRefInfo(c)}`));
       loras.push(...chars.flatMap(c => parseLoras(c)));
+      matchedCharIds.push(...chars.map(c => c.id));
     }
     // 画面描述里提到用户本人时同样注入其资料（用户不是角色：没有 id、没有 LoRA）
     if (matchUser(desc)) {
@@ -280,7 +284,7 @@ router.post('/test-style', async (req, res) => {
     const raw = await chatSync(msgs, { temperature: 0.7, thinking: { type: 'disabled' }, label: '画风测试' });
     const prompt = extractImagePromptResponse(raw);
     if (!prompt) throw new Error('模型未返回有效的提示词');
-    return { prompt, loras };
+    return { prompt, loras, charIds: matchedCharIds };
   };
 
   const CHAT_PROMPT_DEFAULT = `1girl, solo, kiana kaslana(honkai impact 3rd), herrscher of finality, voluminous white hair, gradient hair, blue eyes with purple cross-shaped pupils, side ahoge, ponytail, floating hair, white cat ears, cat tail, soft breasts, hair ornament, sailor uniform, one hand on hip, other hand making peace sign near face, classroom, open window, cherry blossoms, cherry blossom petals drifting indoors, direct eye contact, facing viewer, kiana kaslana (honkai impact 3rd) as the herrscher of finality, with voluminous, glossy white hair and blue eyes featuring purple cross-shaped pupils like a starry sky, side ahoge, gradient hair, nekomusume, white cat ears, cat tail, ponytail, floating hair, soft breasts, hair ornament, background is a classroom with an open window, cherry blossom tree outside, petals drifting into the classroom, kiana standing with one hand on her hip and the other making a peace sign near her face, wearing a sailor uniform`;
@@ -301,10 +305,11 @@ router.post('/test-style', async (req, res) => {
   let prompt;
   let generatedPrompt = null;
   let sceneLoras = [];
+  let sceneCharIds = [];
   if (freeScene) {
     const tPrompt = performance.now();
     try {
-      ({ prompt, loras: sceneLoras } = await generateScenePrompt(freeScene));
+      ({ prompt, loras: sceneLoras, charIds: sceneCharIds } = await generateScenePrompt(freeScene));
     } catch (err) {
       console.error('[test-style] scene prompt generation error:', err.message);
       return finish({ success: false, error: '提示词生成失败: ' + err.message }, 500);
@@ -338,6 +343,22 @@ router.post('/test-style', async (req, res) => {
       // 实验室沿用 event 模式名；LoRA 过滤与工作流配置使用 events 场景。
       scene: isEvent ? 'events' : mode,
       persistPreparation: false,
+      /**
+       * ★ 角色锚点（施工阶段 4，2026-10-22）—— **只在自由描述新生成时注入**，两个边界：
+       *   · 自由描述分支：prompt 是 LLM 现生成的，画面里识别到的角色直接钉锚点；
+       *   · 手填 / 复用分支**不注入**：前端「回车重测」会把上一轮的**最终提示词**（已含锚点段）
+       *     原样回填（SettingsView.runGeneratedPromptTest），这里再拼一次就是两份锚点。
+       *   所以判据不是"有没有角色"，而是"这段 prompt 是不是已经过锚点注入"。
+       */
+      ...(freeScene && sceneCharIds.length
+        ? {
+          anchors: sceneCharIds.map((id, i) => ({
+            characterId: id,
+            slot: i === 0 ? 'self' : 'other',
+            side: i % 2 === 0 ? 'left' : 'right',
+          })),
+        }
+        : {}),
       onPromptPrepared: (preparedPrompt) => {
         generatedPrompt = preparedPrompt;
         send('prompt', { generatedPrompt, stage: 'generating' });
@@ -721,6 +742,12 @@ async function startImageEditTask(action, url) {
       };
       if (params.charLoras?.length > 0) genOpts.loras = params.charLoras;
       if (params.charCustomWorkflow) genOpts.customWorkflow = params.charCustomWorkflow;
+      /**
+       * ⚠ 这条链路**刻意不传 anchors**（阶段 4 的例外，2026-10-22）：
+       * `promptText` 取自 image_tasks 的最终提示词，新版图里**锚点段已经在里面了**。
+       * 再注入一次＝同一份锚点叠两遍（提示词被灌水，画风也会被推偏）。
+       * 语义上这里是"照原样重画"，本来就不该改写原提示词。
+       */
       const result = await generateImageRaw(promptText, genOpts);
       if (!result.success || !result.images?.length) {
         throw new Error(result.error || 'Image generation failed');

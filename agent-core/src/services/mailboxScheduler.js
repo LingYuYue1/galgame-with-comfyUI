@@ -107,10 +107,24 @@ async function processReply(db, letter) {
     const genOverrides = {};
     const charArtist = charArtistOverride(letter);
     if (charArtist !== null) genOverrides.artist = charArtist;
+    /**
+     * ★ 角色锚点（施工阶段 4，2026-10-22）：**只给画面里有她的两张**。
+     *
+     * 三张图的语义不同（见 generateReplyData 的 JSON 模板）：
+     *   · paper        信纸静物，要求「大面积留白、中间无装饰」——明确没有角色，**不注入**
+     *   · portrait     她写信时的第三人称照片，画面主角就是她 —— 注入
+     *   · illustration 从回信里取的一个场景/意象画面 —— 与 LoRA 同口径注入
+     *                 （三张图一直都给角色 LoRA，说明产品意图是"这三张都可能有她"；
+     *                  只给 LoRA 不给锚点＝人来了、脸自由发挥）
+     *
+     * 场景走默认 `auto`：写信这件事发生在当下，穿什么由日程决定。
+     */
+    const selfAnchor = charId ? [{ characterId: charId, slot: 'self' }] : [];
     const [paperResult, portraitResult, illustrationResult] = await Promise.all([
+      // 信纸：留白静物，画面里没有角色 —— 不传 anchors
       generateImageSafe(data.paperPrompt, charLoras, charCustomWorkflow, { width: config.comfyui.mailWidth, height: config.comfyui.mailHeight, disableRAG: true, ...genOverrides }),
-      generateImageSafe(data.portraitPrompt, charLoras, charCustomWorkflow, { width: config.comfyui.mailHeight, height: config.comfyui.mailWidth, disableRAG: true, ...genOverrides }),
-      generateImageSafe(data.illustrationPrompt, charLoras, charCustomWorkflow, { width: config.comfyui.mailWidth, height: config.comfyui.mailHeight, disableRAG: true, ...genOverrides }),
+      generateImageSafe(data.portraitPrompt, charLoras, charCustomWorkflow, { width: config.comfyui.mailHeight, height: config.comfyui.mailWidth, disableRAG: true, anchors: selfAnchor, ...genOverrides }),
+      generateImageSafe(data.illustrationPrompt, charLoras, charCustomWorkflow, { width: config.comfyui.mailWidth, height: config.comfyui.mailHeight, disableRAG: true, anchors: selfAnchor, ...genOverrides }),
     ]);
 
     if (!paperResult || !portraitResult || !illustrationResult) {
@@ -141,6 +155,7 @@ async function processReply(db, letter) {
         style: config.comfyui.mailArtist || config.comfyui.momentsArtist,
         resolution,
         workflowTemplate: generated.wfMode,
+        anchorRef: generated.anchorUsed,
         db,
       });
     }
@@ -434,6 +449,8 @@ function validate(parsed) {
 async function generateImageSafe(prompt, charLoras, charCustomWorkflow, overrides = {}) {
   if (!prompt) return null;
   try {
+    // ★ 角色锚点（阶段 4）：本函数只是出图封装，`anchors` 由调用方经 overrides 传入
+    //   （信纸那张不传，肖像/插图传，见 processReply 里的 selfAnchor）。
     const result = await generateImage(prompt, {
       artist: config.comfyui.momentsArtist,
       loras: charLoras,
@@ -445,6 +462,7 @@ async function generateImageSafe(prompt, charLoras, charCustomWorkflow, override
       return {
         image: result.images[0],
         promptRefined: result.promptRefined || prompt,
+        anchorUsed: result.anchorUsed || '',
         wfMode: result.wfMode,
       };
     }

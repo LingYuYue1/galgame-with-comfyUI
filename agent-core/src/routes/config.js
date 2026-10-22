@@ -1169,6 +1169,8 @@ router.post('/world-settings/:id/cover/generate', async (req, res) => {
 
     send('stage', { stage: 'generating' });
     // 尺寸固定 1216×832（用户指定）：SDXL 系的 19:13，横向横幅，正好铺星图卡片
+    // ★ 无角色链路（阶段 4，2026-10-22）：世界封面是纯风景，`loras: []` 明确不要角色的脸，
+    //   所以也不注入角色锚点。
     const result = await generateImage(prompt, {
       width: 1216,
       height: 832,

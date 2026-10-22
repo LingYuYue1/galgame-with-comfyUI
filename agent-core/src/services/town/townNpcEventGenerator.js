@@ -293,6 +293,7 @@ ${timeTag}${locationLine}
   }
 
   // 3. 生图（镇民无 LoRA，走事件画师）
+  //    ★ 无本作角色（阶段 4，2026-10-22）：小镇 NPC 不是本作角色，没有服装/外观锚点可注入。
   const originalEventPrompt = eventData.prompt;
   let imageUrl = null;
   try {
@@ -545,6 +546,7 @@ ${npcPersonaBlock(npc, playerName, playerAppearance)}` },
     }
 
     // 3. 生图
+    //    ★ 无本作角色（阶段 4）：分支图同样是小镇 NPC 的剧情照，不注入角色锚点。
     const originalBranchPrompt = branchData.prompt;
     let imageUrl = null;
     try {

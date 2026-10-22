@@ -320,6 +320,11 @@ async function generateDiaryImages({ character, content, prompts, onProgress }) 
       priority: 'high',
       loras: charLoras,
       customWorkflow,
+      /**
+       * ★ 角色锚点（施工阶段 4，2026-10-22）：日记配图画的是她自己的一天。
+       * 场景 auto —— 日记回顾的是今天，穿什么按日程（写成哪段就用哪段的衣服口径）。
+       */
+      ...(character?.id ? { anchors: [{ characterId: character.id, slot: 'self' }] } : {}),
       onProgress: (p) => {
         const cur = typeof p?.progress === 'number' ? Math.min(1, Math.max(0, p.progress)) : 0;
         onProgress?.({ stage: 'image', imageIndex: index, progress: Math.min(1, (finished + cur) / prompts.length) });

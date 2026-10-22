@@ -684,6 +684,11 @@ ${motiveName}
       promptScene: 'proactive',
       priority: 'low',
       ...loraOpts,
+      /**
+       * ★ 角色锚点（施工阶段 4，2026-10-22）：主动私聊的配图是"她此刻想给你看的一幕"，
+       * 画面里一定有她。场景 auto —— 与聊天配图同口径，按当下日程选装。
+       */
+      ...(character?.id ? { anchors: [{ characterId: character.id, slot: 'self' }] } : {}),
       width: config.comfyui.momentsWidth,
       height: config.comfyui.momentsHeight,
     });

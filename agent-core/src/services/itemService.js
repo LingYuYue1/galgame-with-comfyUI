@@ -395,6 +395,7 @@ async function generateItemImageAsync(itemId, imagePrompt) {
       width: config.comfyui.itemWidth,
       height: config.comfyui.itemHeight,
       artist: config.comfyui.itemArtist || '@ebora',
+      // ★ 无角色链路（阶段 4，2026-10-22）：道具图标是静物，画面里没有人 → 不注入角色锚点。
     });
     if (!result.success || !result.images?.length) {
       throw new Error(result.error || 'ComfyUI 未返回图片');
@@ -429,6 +430,7 @@ export async function repairMissingItemImages({ limit = 100, onProgress } = {}) 
     try {
       const result = await generateImageRaw(prompt, {
         scene: 'items', disableRAG: true, persistPreparation: false, width: config.comfyui.itemWidth, height: config.comfyui.itemHeight, artist: config.comfyui.itemArtist || '@ebora',
+        // ★ 无角色链路（阶段 4）：修图用的提示词自带 `no humans`，画面里没有人 → 不注入锚点。
       });
       if (!result.success || !result.images?.length) throw new Error(result.error || 'ComfyUI 未返回图片');
       const filename = String(row.image_url).split('/').pop();

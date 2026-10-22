@@ -51,6 +51,8 @@ export function createMediaAvatarLibrary({
         // One ComfyUI request per prompt; no duplicate pass and no persistent task history.
         for (const prompt of prompts) {
           try {
+            // ★ 无本作角色（阶段 4，2026-10-22）：媒体内容的**虚构 NPC 头像库**，
+            //   是给媒体条目随手配的读者形象，不是本作角色 → 不注入角色锚点。
             const result = await generate(prompt, opts);
             if (!result?.success || !result.images?.[0]?.base64) throw new Error(result?.error || 'ComfyUI 未返回图片');
             const image = save('media_avatars', `avatar_${randomUUID()}.png`, result.images[0].base64);
