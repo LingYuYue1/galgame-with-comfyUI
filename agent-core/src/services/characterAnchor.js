@@ -6,7 +6,7 @@
  *   · `sceneOutfitParam(id,'work')`      （头像用，吃 body）
  *   · `resolveStandingOutfits(id,'work')`（立绘用，**work 返回 null → 退回人物卡旧外观段**）
  *   · `getSceneOutfitForNow(id)`          （剧情配图用，按日程选装）
- *   · `buildSubjectRef(char)`             （媒体用，只取发型 64 字符）
+ *   · `buildSubjectRef(char)`             （媒体用，只取发型 64 字符 —— **2026-10-22 已删**）
  * 四个口径不一致，于是"立绘默认形象和朋友圈里的她不是一个人"这种问题必然出现。
  *
  * 本模块把它们收敛成 `resolveAnchor()`，其它地方只许调它。

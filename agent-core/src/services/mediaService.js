@@ -53,7 +53,6 @@ import {
   PHOTO_CATEGORIES, CITYSCAPE_FRAMES, PHOTO_ATMOSPHERE, SELFIE_VIEWS,
   FOOD_ITEMS, POSTER_TOPICS, PHOTO_ASPECTS, PHOTO_QUALITY_SUFFIX, PHOTO_NEGATIVE,
 } from '../data/photoScenes.js';
-import { listSceneOutfits } from './outfitScene.js';
 import { deriveBuild } from './characterBuild.js';
 // T5：媒体操作日志 —— 删除/创建类操作留审计痕迹（曾有一条真实产物消失无法追溯）
 import { recordMediaOp } from './mediaOpLog.js';
@@ -1360,6 +1359,12 @@ export function resolvePoseVariants(prompt) {
  *        **不改写**体位原文，所以逐字校准过的体位提示词不会被污染。
  * @returns {{prompt:string, frame:string, negative:string}}
  */
+/**
+ * 同框女方的位置指代（阶段 6）：与 `characterAnchor.buildAnchorLine` 的 `side` 词一致 ——
+ * 指代说"是哪位"，锚点说"长什么样"，两者用同一套词才不会各说各的。
+ */
+export const GIRL_POSITION_REFS = ['the girl', 'the girl on the left', 'the girl on the right'];
+
 export function buildPoseImagePrompt(pose, opts = {}) {
   const frame = (pose.frames && pose.frames.length)
     ? pose.frames[Math.floor(Math.random() * pose.frames.length)]
@@ -1432,47 +1437,16 @@ export function preferPetitePool(pool, pose) {
 }
 
 /**
- * 由角色的**英文身体描述**提出一个英文画面指代，如
- * `the girl with long black hair styled in twin tails`。
+ * ⚠ **已删除**（2026-10-22，阶段 6）：这里原来是 `buildSubjectRef(character)` ——
+ * 从 `character_outfits.body` 抠出含发型的那一段、截到 64 字符，拼成
+ * `the girl with long dark brown hair with pink gradient tips tied into two high`。
  *
- * ★ 为什么不能直接用 `display_name`：提示词是**纯英文**的（生图规则明写
- *   "ALL text in English. No Chinese characters anywhere"），而角色名多为中文
- *   （「海丽娜·格林特」）—— 直接塞进去会产生中英混排的坏提示词。
- *   《体位生图参考》本身也建议用外观指代（`the white-haired girl`）来区分同框的多个女方。
- *
- * 取 `character_outfits.body`（该列本就是英文 danbooru 风格），截到第一个逗号为止。
- * 读不到就退化为编号泛称（`the girl 2`），仍是合法英文。
- *
- * ★ 2026-10-07：`body` 现在可能带「角色名 (作品名)」身份前缀（拆分修复后**保留**该前缀，
- *   供生图识别角色）。取外观指代时**必须先剥掉它**，否则两种坏法都出现过：
- *     · 前缀独占第一段（`Stelle (Honkai: Star Rail), short hair…`）→ 第一段不含 hair
- *       → 本函数直接返回 null，**发型描述整段丢失**；
- *     · 前缀与特征同段（`Stelle (…) has short hair…`）→ 拼出
- *       `the girl with Stelle (Honkai: Star Rail) has short hair…` 这种病句。
- *   剥前缀后**扫描所有分段找含 hair 的那一段**（不再只看第一段），两难都解。
+ * 为什么删：① 只取发型，瞳色/体型/发饰全丢；② 64 字符硬截会切出 `...two high` 这种断尾；
+ * ③ 它是全项目最后一条"人工拼角色外观"的老路 —— 别处早已统一到 `characterAnchor`。
+ * 现在外观由 `generateMediaImage(..., { anchors })` 代码级整段注入，
+ * 媒体自己只用**位置指代**（`GIRL_POSITION_REFS`）区分同框的几个人。
+ * 需要外观请调 `characterAnchor.resolveAnchor`，不要在这里再造一份。
  */
-export function buildSubjectRef(character) {
-  if (!character) return null;
-  let body = '';
-  try {
-    body = String(listSceneOutfits(character.id)?.find(r => r.body && String(r.body).trim())?.body || '');
-  } catch { /* 无 DB / 无该行：走兜底 */ }
-  // 剥掉开头的身份前缀：「角色名 (作品名) [has/is/with]」
-  const stripped = body
-    .replace(/^\s*[^,()]{1,60}\s*\([^()]{1,60}\)\s*(?:has|have|is|with)?\s*[,]?\s*/i, '')
-    // 裸名形态（原创角色，无作品名括号）：仅当该段不像外观特征词时才剥（避免误吃 "short hair has…"）
-    .replace(/^\s*([^,]{1,60}?)\s+(?:has|have|is)\s+/i, (all, name) =>
-      /hair|eyes?|skin|build|figure|height|complexion|tail|ears?|horns?|dress|skirt|shirt|jacket|coat|uniform/i.test(name)
-        ? all : '')
-    .trim();
-  // 扫描所有分段找含发型的那一段（前缀可能是独立一段，也可能与特征同段）
-  const hairClause = stripped.split(',').map(c => c.trim()).find(c => /hair/i.test(c));
-  if (hairClause) {
-    const phrase = hairClause.length > 64 ? hairClause.slice(0, 64).trim() : hairClause;
-    return `the girl with ${phrase.replace(/^with\s+/i, '')}`;
-  }
-  return null;
-}
 
 /**
  * 图库条目的输出格式约束。
@@ -1895,9 +1869,18 @@ function buildCityscapeItem(frame, atmosphere, mapScenes) {
   };
 }
 
-/** 美少女自拍：`{subject}` 用角色外观指代填充；无角色时退化为 the girl */
+/**
+ * 美少女自拍：`{subject}` 用中性指代填充。
+ *
+ * ★ 2026-10-22（阶段 6）：原来这里填 `buildSubjectRef(cast)` —— 从 `character_outfits.body`
+ *   抠发型那一段、截到 64 字符，拼成 `the girl with long dark brown hair with pink gradient…`。
+ *   那条路有两个硬伤：① 只取发型，瞳色/体型/发饰全丢；② 64 字符硬截，
+ *   实测会切出 `...two high` 这种断尾。
+ *   现在外观全部交给 `anchors`（`generateMediaImage` 注入，代码级、整段），
+ *   这里只留中性指代，不再自带一份"残缺外观"。
+ */
 function buildSelfieItem(view, atmosphere, cast) {
-  const ref = (cast && buildSubjectRef(cast)) || 'the girl';
+  const ref = 'the girl';
   const prompt = `${view.en.replace('{subject}', ref)}, ${atmosphere.en}, ${PHOTO_QUALITY_SUFFIX}`;
   return {
     category: 'selfie',
@@ -2057,8 +2040,12 @@ async function generateGalleryBatch(outlet, count, withCharacters) {
     for (let k = 0; k < need && bag.length; k++) {
       picked.push(bag.splice(Math.floor(Math.random() * bag.length), 1)[0]);
     }
-    // ★ 画面指代用**英文外观描述**（不能塞中文角色名 —— 提示词是纯英文的）
-    const refs = picked.map(c => buildSubjectRef(c));
+    // ★ 画面指代用**位置词**（不能塞中文角色名 —— 提示词是纯英文的）。
+    //   2026-10-22（阶段 6）：原来用 `buildSubjectRef` 抠发型当指代，为的是区分同框的两名女方；
+    //   现在区分改由**锚点的位置词**承担（`buildAnchorLines` 给第二个角色加
+    //   `the girl on the left/right`），这里的指代只要与锚点同一套词即可 ——
+    //   指代负责"说的是哪位"，锚点负责"她长什么样"，两件事不再混在一个 64 字符的串里。
+    const refs = picked.map((_, i) => GIRL_POSITION_REFS[i] || `the girl ${i + 1}`);
     const subject = refs[0] || 'the girl';
 
     // 横躺类体位更可能配横幅：若抽到的比例方向与体位不合，就换一个同池的
@@ -3093,6 +3080,9 @@ export async function generateMediaBatch({ outletId = null, count = DEFAULT_BATC
  * @param {number} [opts.height] - 本条专用高
  * @param {string} [opts.negative] - 本条专用负向提示词（体位参考里的「负向」，
  *        用来压制该体位最常见的畸形，如同手同脚、多肢、男脸）
+ * @param {Array<{characterId:number, slot?:string, side?:'left'|'right'}>} [opts.anchors]
+ *        出镜角色的锚点（阶段 6，2026-10-22）。传了就用代码注入的整段外观；
+ *        不传则这张图里没有本作角色（纯风景/静物/海报）。
  */
 async function generateMediaImage(prompt, character = null, opts = {}) {
   // ★ 合并 v3.8.3 归一：补图通道按第三参传优先级字符串（'low'/'high'），
@@ -3114,11 +3104,12 @@ async function generateMediaImage(prompt, character = null, opts = {}) {
     scene: 'moments',
     priority: opts.priority || 'low',
     /**
-     * ⬜ **阶段 6 待接**（2026-10-22）：媒体配图此刻**没有**锚点注入。
-     * 这里的 `character` 只是"借她的画师串/LoRA"，画面主体常常是媒体虚构人物；
-     * 什么时候该画她、什么时候该画别人，要靠媒体系统自己的判定（现为 `buildSubjectRef` 的 64 字符发型串）。
-     * 阶段 6 的任务就是把这套判定并进 `anchors`，同时删掉 `buildSubjectRef`。
+     * ★ 角色锚点（阶段 6，2026-10-22）：出镜角色的外观由代码整段注入。
+     * 原来走 `buildSubjectRef`：从 `character_outfits.body` 抠发型、截到 64 字符 ——
+     * 瞳色/体型/发饰全丢，还会切出 `...two high` 这种断尾。
+     * 画面里没有本作角色时（风景/静物/海报）不传，不硬塞一段"她"。
      */
+    ...(Array.isArray(opts.anchors) && opts.anchors.length ? { anchors: opts.anchors } : {}),
     ...(neg ? { negativePrompt: neg } : {}),
     ...(loras.length ? { customWorkflow: character?.custom_workflow || null, loras } : {}),
   });
@@ -3177,14 +3168,32 @@ async function fillPendingImagesNow(limit, postIds = null, priority = 'low') {
       //   必须挂她们的 LoRA，否则画出来的人根本不像那个角色。
       const castId = p.character_id || gal?.castIds?.[0] || null;
       const character = castId
-        ? db.prepare('SELECT loras, artist_override, custom_workflow FROM characters WHERE id = ?').get(castId)
+        ? db.prepare('SELECT id, loras, artist_override, custom_workflow FROM characters WHERE id = ?').get(castId)
         : null;
+      /**
+       * ★ 角色锚点（阶段 6，2026-10-22）：出镜的**每一个**角色都注入整段外观。
+       * 来源是 payload 里本来就有的 `castIds`（图库 2 女体位会有两个）。
+       * 第 1 个是 self（整段），第 2 个起 compact + 位置词 —— 与
+       * `GIRL_POSITION_REFS` / 体位模板里的 `the girl 1|2` 用同一套词。
+       */
+      const castIds = [
+        ...(p.character_id ? [p.character_id] : []),
+        ...(Array.isArray(gal?.castIds) ? gal.castIds : []),
+      ]
+        .map(Number)
+        .filter((id, i, arr) => Number.isInteger(id) && arr.indexOf(id) === i);
+      const anchors = castIds.map((id, i) => ({
+        characterId: id,
+        slot: i === 0 ? 'self' : 'other',
+        ...(i === 0 ? {} : { side: i % 2 === 0 ? 'right' : 'left' }),
+      }));
       const result = await generateMediaImage(p.image_prompt, character, {
         artist: gal?.artist || null,
         width: gal?.width || null,
         height: gal?.height || null,
         negative: gal?.negative || null,
         priority,
+        anchors,
       });
       if (!result) {
         updatePostImage(p.id, { status: 'failed', error: 'ComfyUI 未返回图片' });

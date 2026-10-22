@@ -10,6 +10,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getDb } from '../src/db/index.js';
 import { resolveAnchor, buildAnchorLine, buildAnchorLines } from '../src/services/characterAnchor.js';
+import { GIRL_POSITION_REFS } from '../src/services/mediaService.js';
 import { buildCharacterPersona, buildCharacterAppearanceSection } from '../src/services/characterPersona.js';
 
 let seq = 0;
@@ -138,4 +139,25 @@ test('buildCharacterAppearanceSection 仍可用（聊天侧走它，不受 appea
   const sec = buildCharacterAppearanceSection(char);
   assert.ok(sec.includes('你的外观'));
   assert.ok(sec.includes('dark brown'), '外观段应含注入的 body');
+});
+
+test('★ 阶段 6：媒体的位置指代与锚点 side 词必须是同一套', () => {
+  // 媒体图库（2 女体位）用 `the girl 1` / `the girl 2` 区分同框两人，
+  // 替换词来自 mediaService.GIRL_POSITION_REFS；而"哪个是哪个"由锚点的 side 词给出。
+  // 两处是独立字面量 —— 一旦有人只改一边，"指代说左边、锚点指右边"就会错位。
+  // 这条把两处钉在一起：拿媒体的词，去比锚点的输出。
+  const a = makeCharacter();
+  addOutfit(a, 'work', { description: 'black jacket' });
+  const b = makeCharacter();
+  addOutfit(b, 'work', { description: 'white dress' });
+  const lines = buildAnchorLines([
+    { characterId: a, slot: 'self' },
+    { characterId: b, slot: 'other', side: 'left' },
+  ]);
+  assert.equal(lines.length, 2);
+  assert.ok(
+    lines[1].startsWith(GIRL_POSITION_REFS[1]),
+    `媒体指代 ${GIRL_POSITION_REFS[1]} 与锚点第二个角色的位置词不一致：${lines[1].slice(0, 60)}`,
+  );
+  assert.ok(!lines[0].startsWith('the girl on the'), '第一人不带位置词（整段 + 身份前缀）');
 });
