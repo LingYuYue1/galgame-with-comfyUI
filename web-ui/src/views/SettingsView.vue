@@ -4587,53 +4587,72 @@ function resetTestPrompts() {
 /* ══ 生图工作区：左功能列表 + 右详情（2026-10-22）══
    起因：尺寸给 10 条链路开了入口，画师串只有 3 组；报纸/立绘/信箱的画师串
    隐式跟着朋友圈走，界面上看不见。左列表把继承关系标出来，右侧一次专注一条。 */
+/* 「托盘 + 纸面」两层：外层是浅色托盘，右侧详情是一张浮起的圆角纸。
+   之前是带边框的左右分栏（直线 + 左边条高亮），像 IDE 侧边栏，与邻舍的软圆角语言不合。 */
 .img-ws {
   display: grid;
-  grid-template-columns: 196px minmax(0, 1fr);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  overflow: hidden;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 6px;
+  padding: 6px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-sunken);
   margin-top: 4px;
 }
 .img-nav {
-  background: var(--bg-sunken);
-  border-right: 1px solid var(--border);
-  padding: 10px 0;
+  background: transparent;
+  padding: 4px 2px;
   max-height: 620px;
   overflow-y: auto;
 }
-.img-nav-sec { padding: 3px 0 10px; }
-.img-nav-sec + .img-nav-sec { border-top: 1px solid var(--border); padding-top: 9px; }
+.img-nav-sec { padding: 2px 0 8px; }
+.img-nav-sec + .img-nav-sec {
+  border-top: 1px dashed var(--border);
+  margin-top: 5px; padding-top: 8px;
+}
 .img-nav-label {
-  display: block; padding: 0 14px 5px;
-  font-size: 10.5px; letter-spacing: .14em; color: var(--text-tertiary);
+  display: block; padding: 0 10px 5px;
+  font-size: 11px; letter-spacing: .06em; color: var(--text-tertiary);
 }
 .img-nav-btn {
   display: flex; align-items: center; gap: 6px;
-  width: 100%; padding: 8px 14px;
-  background: none; border: 0; border-left: 2px solid transparent;
+  width: 100%; padding: 8px 10px;
+  background: none; border: 0;
+  border-radius: 10px;
   font: inherit; font-size: 13px; color: var(--text-secondary);
   text-align: left; cursor: pointer;
   transition: background var(--dur-fast) var(--ease-standard),
               color var(--dur-fast) var(--ease-standard),
-              border-color var(--dur-fast) var(--ease-standard);
+              box-shadow var(--dur-fast) var(--ease-standard),
+              transform var(--dur-fast) var(--ease-standard);
 }
 .img-nav-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.img-nav-btn:active { transform: scale(.985); }
 .img-nav-btn.is-on {
-  color: var(--accent); background: var(--card-paper-raised);
-  border-left-color: var(--accent); font-weight: 500;
+  color: var(--accent);
+  background: rgba(var(--accent-rgb), .13);
+  box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), .26);
+  font-weight: 500;
 }
 .img-nav-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .img-nav-tag {
   flex: 0 0 auto;
-  font-size: 9.5px; letter-spacing: .08em;
+  font-size: 10px; letter-spacing: .04em;
   color: var(--text-tertiary);
-  border: 1px solid var(--border);
-  padding: 0 4px; border-radius: 3px;
+  background: var(--bg-tertiary);
+  padding: 1px 7px; border-radius: 999px;
 }
-.img-nav-btn.is-on .img-nav-tag { color: var(--accent); border-color: var(--accent); }
+.img-nav-btn.is-on .img-nav-tag {
+  color: var(--accent);
+  background: rgba(var(--accent-rgb), .18);
+}
 
-.img-panels { padding: 18px 20px 6px; min-height: 380px; }
+.img-panels {
+  background: var(--card-paper-raised);   /* 比纯白暖一档，避免在米色托盘上显刺眼 */
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xs);
+  padding: 18px 20px 8px;
+  min-height: 340px;
+}
 .img-panel-head { margin-bottom: 16px; }
 .img-panel-head h4 { margin: 0 0 3px; font-size: 15px; font-weight: 500; color: var(--text-primary); }
 .img-panel-head p { margin: 0; font-size: 12px; color: var(--text-tertiary); }
@@ -4644,10 +4663,10 @@ function resetTestPrompts() {
 /* 继承 / 固定：把"它其实不归你改"这件事画出来 */
 .img-inherit {
   display: flex; align-items: center; gap: 10px;
-  padding: 9px 12px;
+  padding: 10px 14px;
   background: var(--bg-sunken);
   border: 1px dashed var(--border-strong);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
 }
 .img-inherit-value { font-size: 13px; color: var(--text-primary); word-break: break-all; }
 .img-inherit-tag { margin-left: auto; flex: 0 0 auto; font-size: 11px; color: var(--accent); }
@@ -4674,15 +4693,14 @@ function resetTestPrompts() {
   .img-nav-sec {
     display: flex; gap: 4px; padding: 0; flex: 0 0 auto;
   }
-  .img-nav-sec + .img-nav-sec { border-top: 0; padding-top: 0; border-left: 1px solid var(--border); padding-left: 6px; margin-left: 2px; }
+  .img-nav-sec + .img-nav-sec { border-top: 0; padding-top: 0; border-left: 1px dashed var(--border); padding-left: 6px; margin-left: 2px; }
   .img-nav-label { display: none; }
   .img-nav-btn {
     width: auto; white-space: nowrap;
-    border-left: 0; border-bottom: 2px solid transparent;
-    padding: 7px 10px; border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+    padding: 7px 11px; border-radius: 999px;
   }
-  .img-nav-btn.is-on { border-left-color: transparent; border-bottom-color: var(--accent); }
-  .img-panels { padding: 14px 14px 4px; min-height: 0; }
+  .img-nav-btn.is-on { box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), .26); }
+  .img-panels { padding: 14px 14px 6px; min-height: 0; }
   .img-size-row .size-num { flex: 1 1 88px; }
   /* 窄屏下保存与三个操作按钮放不进一行，允许换行，避免被挤出视口 */
   .comfy-params-card .sa { flex-wrap: wrap; gap: 8px; }
