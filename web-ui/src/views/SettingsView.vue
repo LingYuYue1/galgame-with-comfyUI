@@ -19,29 +19,73 @@
     />
 
     <!-- 只有一张卡的组（模型 / 行为）占满整行：LLM 那张 300+ 行，挤半屏读起来很累 -->
-    <div class="settings-grid" :class="{ 'is-wide-single': activeGroup === 'model' || activeGroup === 'behavior' }">
+    <div class="settings-grid" :class="{ 'is-wide-single': activeGroup === 'model' || activeGroup === 'behavior' || activeGroup === 'image' }">
       <!-- ComfyUI params: 对话配图 / 朋友圈配图 / 奇遇配图（Tab 切换） -->
       <div v-show="activeGroup === 'image'" class="card comfy-params-card">
-        <h3>画师串 & 分辨率</h3>
-        <p class="fd">直接描述画面风格 或者 选择0~2个画风，英文逗号分隔，参考来源：<a href="https://anima.mooshieblob.com/" target="_blank" rel="noopener" class="ext-link">https://anima.mooshieblob.com/</a> · 分辨率越高出图越精细，代价是变慢。参考：5070ti 768×512 base约 7s/图|turbo 约2.5s/图</p>
+        <h3>生图</h3>
+        <p class="fd">左侧选一个生图功能，右侧改它的画师串与分辨率。画师串写 <code>@画师名</code>，0~2 个，英文逗号分隔；参考 <a href="https://anima.mooshieblob.com/" target="_blank" rel="noopener" class="ext-link">anima.mooshieblob.com</a>。分辨率越高越精细，代价是变慢。</p>
 
-        <linshe-tabs
-          :model-value="comfyTab"
-          :options="comfyTabs"
-          class="comfy-tabs"
-          @update:model-value="switchComfyTab"
-        />
+        <div class="img-ws">
+          <nav class="img-nav" aria-label="生图功能">
+            <div v-for="sec in IMAGE_NAV" :key="sec.label" class="img-nav-sec">
+              <span class="img-nav-label">{{ sec.label }}</span>
+              <button
+                v-for="t in sec.items"
+                :key="t.id"
+                type="button"
+                class="img-nav-btn"
+                :class="{ 'is-on': imgTarget === t.id }"
+                @click="selectImageTarget(t.id)"
+              >
+                <span class="img-nav-name">{{ t.name }}</span>
+                <span v-if="t.kind === 'inherit'" class="img-nav-tag">继承</span>
+                <span v-else-if="t.kind === 'fixed'" class="img-nav-tag">固定</span>
+                <span v-else-if="t.kind === 'pool'" class="img-nav-tag">随机</span>
+              </button>
+            </div>
+            <div class="img-nav-sec">
+              <span class="img-nav-label">全局</span>
+              <button
+                v-for="t in GLOBAL_NAV"
+                :key="t.id"
+                type="button"
+                class="img-nav-btn"
+                :class="{ 'is-on': imgTarget === t.id }"
+                @click="selectImageTarget(t.id)"
+              >
+                <span class="img-nav-name">{{ t.name }}</span>
+              </button>
+            </div>
+            <div class="img-nav-sec">
+              <span class="img-nav-label">测试</span>
+              <button
+                type="button"
+                class="img-nav-btn"
+                :class="{ 'is-on': imgTarget === '__lab' }"
+                @click="selectImageTarget('__lab')"
+              >
+                <span class="img-nav-name">生图测试</span>
+              </button>
+            </div>
+          </nav>
 
-        <div class="comfy-form-stage">
-          <Transition :name="'tab-slide-' + tabSlideDir" mode="out-in">
-            <div :key="comfyTab" class="comfy-form-inner">
+          <div class="img-panels">
+            <div v-if="imgTarget !== '__lab'" class="img-panel-head">
+              <h4>{{ currentTarget.name }}</h4>
+              <p>{{ currentTarget.hint }}</p>
+            </div>
+
+            <!-- ① 独立型：画师串可改 -->
+            <div v-show="isOwnTarget" class="img-field">
+              <label class="img-label">画师串</label>
               <div class="fav-input-row">
                 <linshe-input
                   v-model="form[activeFields.artist]"
                   class="fi fav-input"
                   placeholder="画师串"
                   @input="markDirty"
-                />                <div
+                />
+                <div
                   role="button"
                   tabindex="0"
                   class="fav-star-btn"
@@ -51,9 +95,7 @@
                   @click="addToFavorites(comfyTab)"
                   @keydown.enter.prevent="addToFavorites(comfyTab)"
                   @keydown.space.prevent="addToFavorites(comfyTab)"
-                >
-☆
-</div>
+                >☆</div>
               </div>
               <template v-if="artistFavorites.length">
                 <div class="fav-section-title">
@@ -66,117 +108,269 @@
                   >{{ favOpen ? '收起' : `展开全部 ${artistFavorites.length} 个` }}</button>
                 </div>
                 <div ref="favChipsEl" class="fav-chips" :class="{ 'is-open': favOpen }">
-                <linshe-button v-for="fav in artistFavorites" :key="fav.id" class="fav-chip" variant="chip" :active="fav.artist === form[activeFields.artist]" @click="applyFavorite(fav, comfyTab)" :title="fav.artist">
-                  {{ fav.label }}
-                  <span class="fav-chip-x" @click.stop="removeFavorite(fav.id)">×</span>
-                </linshe-button>
+                  <linshe-button v-for="fav in artistFavorites" :key="fav.id" class="fav-chip" variant="chip" :active="fav.artist === form[activeFields.artist]" @click="applyFavorite(fav, comfyTab)" :title="fav.artist">
+                    {{ fav.label }}
+                    <span class="fav-chip-x" @click.stop="removeFavorite(fav.id)">×</span>
+                  </linshe-button>
                 </div>
               </template>
-              <p class="size-moved-hint">宽高已统一到下面的「生图尺寸」，每条链路各一张卡。</p>
-              <div class="fpresets-head">
-                <span class="resolution-title">分辨率</span>
-                <span class="resolution-hint">不建议超过 1536×1536 个像素，人体崩坏概率会上升</span>
+            </div>
+
+            <!-- ② 继承型：画师串跟着别人走，先把关系摆在明面上 -->
+            <div v-show="currentTarget.kind === 'inherit'" class="img-field">
+              <label class="img-label">画师串</label>
+              <div class="img-inherit">
+                <span class="img-inherit-value">{{ form[currentTarget.inheritField] || '（未设置）' }}</span>
+                <span class="img-inherit-tag">跟随「{{ currentTarget.inheritFrom }}」</span>
+              </div>
+              <p class="img-note">改「{{ currentTarget.inheritFrom }}」的画师串，这里会一起变。</p>
+            </div>
+
+            <!-- ③ 固定型：素材类统一画风 -->
+            <div v-show="currentTarget.kind === 'fixed'" class="img-field">
+              <label class="img-label">画师串</label>
+              <div class="img-inherit">
+                <span class="img-inherit-value">{{ currentTarget.fixedArtist || '@ebora' }}</span>
+                <span class="img-inherit-tag">固定</span>
+              </div>
+              <p class="img-note">素材类统一画风，不开放单独修改。</p>
+            </div>
+
+            <!-- ④ 尺寸 -->
+            <div v-if="currentTarget.w" class="img-field">
+              <label class="img-label">分辨率</label>
+              <div class="img-size-row">
+                <linshe-input class="size-num" v-model.number="form[currentTarget.w]" type="number" min="64" max="4096" step="8" @input="markDirty" />
+                <span class="size-x">×</span>
+                <linshe-input class="size-num" v-model.number="form[currentTarget.h]" type="number" min="64" max="4096" step="8" @input="markDirty" />
+                <span class="img-size-foot"><b>{{ currentRatioLabel }}</b> · {{ currentMpLabel }}</span>
               </div>
               <div class="fpresets">
                 <span class="pl">预设：</span>
-                <linshe-button v-for="p in presets" :key="p.label" class="pbtn" variant="chip" :active="isPresetActive(p)" @click="applyPreset(p, comfyTab)">{{ p.label }}</linshe-button>
+                <linshe-button
+                  v-for="p in presets"
+                  :key="p.label"
+                  class="pbtn"
+                  variant="chip"
+                  :active="Number(form[currentTarget.w]) === p.width && Number(form[currentTarget.h]) === p.height"
+                  @click="applySizePreset(p)"
+                >{{ p.label }}</linshe-button>
+              </div>
+              <p class="img-note">不建议超过 1536×1536，人体崩坏概率会上升。</p>
+            </div>
+
+            <!-- ⑤ 表情包：走独立接口，范围 512–1024 -->
+            <div v-else-if="currentTarget.id === 'emoji'" class="img-field">
+              <label class="img-label">分辨率</label>
+              <div class="img-size-row">
+                <linshe-input class="size-num" v-model.number="emojiSize.width" type="number" min="512" max="1024" step="64" @input="markDirty" />
+                <span class="size-x">×</span>
+                <linshe-input class="size-num" v-model.number="emojiSize.height" type="number" min="512" max="1024" step="64" @input="markDirty" />
+                <span class="img-size-foot"><b>{{ emojiRatioLabel }}</b> · {{ emojiMpLabel }}</span>
+              </div>
+              <p class="img-note">范围 512–1024，按 64 步进；宽高各自独立。</p>
+            </div>
+
+            <!-- ⑥ 媒体：画幅从池里抽 -->
+            <div v-show="currentTarget.kind === 'pool'" class="img-field">
+              <label class="img-label">画幅池</label>
+              <div class="media-line">
+                <span class="media-cap">长边上限 <b>{{ form.galleryMaxEdge ? form.galleryMaxEdge + 'px' : '不限' }}</b></span>
+                <linshe-button variant="chip" class="media-pool-btn" @click="poolOpen = !poolOpen">{{ poolOpen ? '收起 ▲' : '7 种 ▾' }}</linshe-button>
+              </div>
+              <div class="media-cap-row">
+                <linshe-input class="size-num" v-model.number="form.galleryMaxEdge" type="number" min="0" max="4096" step="64" @input="markDirty" />
+                <span class="media-cap-hint">0 = 不限</span>
+              </div>
+              <div v-show="poolOpen" class="media-pool">
+                <label v-for="a in GALLERY_ASPECTS" :key="a.key">
+                  <input type="checkbox" :checked="isPoolOn(a.key)" @change="togglePool(a.key)" />
+                  <span class="media-pool-key">{{ a.key }}</span>
+                  <span class="media-pool-dim">{{ a.w }}×{{ a.h }}</span>
+                </label>
+              </div>
+              <p class="img-note">取消勾选的画幅永远不会被抽到；长边超上限的会等比缩下来。</p>
+            </div>
+
+            <!-- ⑦ 全局：HiresFix -->
+            <div v-show="imgTarget === '__hires'" class="img-field">
+              <div v-if="imageProvider !== 'novelai'" class="hiresfix-section">
+                <div class="hiresfix-row">
+                  <div class="hiresfix-copy">
+                    <div class="hiresfix-desc">放大与细化参数，对所有 ComfyUI 链路生效</div>
+                  </div>
+                  <span class="hiresfix-summary">{{ hiresWorkflowMode === 'advanced' ? '进阶版' : '基础版' }} · 最长边 {{ hiresMaxSize }} · {{ hiresWorkflowMode === 'advanced' && hiresSamplingMode === 'source' ? '采样跟随原图' : `${hiresSteps} 步 · CFG ${hiresCfg}` }} · 重绘 {{ hiresDenoise }}{{ hiresLoraCount > 0 ? ` · LoRA ${hiresLoraCount}` : '' }}</span>
+                  <linshe-button class="hiresfix-link" variant="link" @click="openHiresFixSettings">设置 →</linshe-button>
+                </div>
+              </div>
+              <p v-else class="img-note">当前使用 NovelAI，HiresFix 只对 ComfyUI 生效。</p>
+            </div>
+
+            <!-- ⑧ 全局：质量词 / 负面词 -->
+            <div v-show="imgTarget === '__quality'" class="img-field">
+              <div class="quality-section">
+                <div class="quality-row">
+                  <div class="quality-copy">
+                    <div class="quality-subtitle">质量提示词</div>
+                    <div class="quality-desc">生图时注入的画质增强词，留空使用系统默认</div>
+                  </div>
+                  <span class="quality-summary" :class="{ 'is-default': !qualityPrompt }" :title="qualityPrompt || '使用工作流内置的质量提示词'">{{ qualityPrompt ? qualityPrompt : '系统默认' }}</span>
+                  <linshe-button class="quality-link" variant="link" @click="openQualityDialog">更改 →</linshe-button>
+                </div>
+                <div class="quality-row">
+                  <div class="quality-copy">
+                    <div class="quality-subtitle">负面提示词</div>
+                    <div class="quality-desc">生图时排除的负面词条，留空使用工作流内置默认</div>
+                  </div>
+                  <span class="quality-summary" :class="{ 'is-default': !negativePrompt }" :title="negativePrompt || '使用工作流内置的负面提示词'">{{ negativePrompt ? negativePrompt : '工作流默认' }}</span>
+                  <linshe-button class="quality-link" variant="link" @click="openNegativeDialog">更改 →</linshe-button>
+                </div>
               </div>
             </div>
-          </Transition>
+
+                  <div v-show="imgTarget === '__lab'" class="img-field img-lab">
+                    <div class="img-panel-head"><h4>生图测试</h4><p>用当前画师串与分辨率试跑一张，只预览不保存</p></div>
+              <p class="fd">可测试当前生图服务，使用对应画师串和分辨率发送生图请求，图片仅作预览不保存</p>
+              <p class="fd">Anima文生图模型的数据库大约在2025年9月，过新的角色不识别，越久的角色特征越稳定</p>
+              <p class="fd">切换模型之后首次生图需要加载模型所以会慢一点</p>
+
+              <div class="free-scene-row">
+                <div class="free-scene-input-wrap">
+                  <linshe-auto-textarea
+                    ref="sceneDescRef"
+                    v-model="freeSceneDesc"
+                    class="free-scene-textarea"
+                    collapsible
+                    placeholder="（置空使用默认）自由描述任意画面"
+                    @focus="onSceneDescFocus"
+                    @blur="onSceneDescBlur"
+                    @enter="submitOnEnter($event, runFreeSceneTest)"
+                  />
+      </div>
+                <!-- 有输入内容时才出现，渐入渐出 -->
+                <Transition name="gen-btn-fade">
+                  <linshe-button
+                    v-if="freeSceneDesc.trim() || styleTesting"
+                    class="free-scene-btn"
+                    variant="primary"
+                    :disabled="styleTesting || !freeSceneDesc.trim()"
+                    @click="runFreeSceneTest"
+                  >
+                    {{ styleTesting ? '生成中...' : generatedPrompt ? '重新生成提示词' : '生成提示词' }}
+                  </linshe-button>
+                </Transition>
+              </div>
+
+              <Transition name="prompt-reveal">
+                <div v-if="promptRevealed || generatedPrompt">
+                  <div
+                    v-if="generatedPrompt && !promptEditing"
+                    class="generated-prompt-box editable"
+                    :title="styleTesting ? '正在生成，提示词可选中复制' : '点击编辑提示词'"
+                    @click="startPromptEdit"
+                  >
+      {{ generatedPrompt }}
+                  </div>
+                  <linshe-auto-textarea
+                    v-else
+                    ref="promptEditRef"
+                    v-model="generatedPrompt"
+                    :disabled="styleTesting"
+                    class="generated-prompt-box generated-prompt-editor"
+                    placeholder="直接输入或粘贴生图提示词，留空使用默认提示词"
+                    @focus="promptEditing = true"
+                    @blur="promptEditing = false"
+                    @enter="submitOnEnter($event, runGeneratedPromptTest)"
+                    @escape="promptEditing = false"
+                  />
+                </div>
+              </Transition>
+              <div v-if="styleError" class="style-error">{{ styleError }}</div>
+
+              <div v-if="styleTesting" class="style-loading">
+                <span class="style-spinner"></span>
+                <Transition name="prompt-reveal" mode="out-in">
+                  <span :key="styleStage" aria-live="polite">{{ styleStage === 'prompt' ? '正在生成提示词，请稍候...' : styleStage === 'preparing' ? '正在完善提示词，准备生成图片...' : imageProvider === 'novelai' ? 'NovelAI 正在生成图片，请耐心等待...' : 'ComfyUI 正在生成图片，请耐心等待...' }}</span>
+                </Transition>
+              </div>
+
+              <div v-if="styleImages.length > 0" class="style-result">
+                <div v-if="styleElapsed != null" class="style-elapsed">
+                  ⏱ 生成耗时 {{ formatElapsed(styleElapsed) }}
+                  <span v-if="styleTiming" class="style-timing-breakdown">
+                    · {{ imageProvider === 'novelai' ? 'NovelAI' : 'ComfyUI' }} {{ formatElapsed(styleTiming.comfyui_ms) }}
+                    · 下载 {{ formatElapsed(styleTiming.download_ms) }}
+                    <span v-if="styleTiming.ws_setup_ms != null" title="WebSocket 建连 + ComfyUI 预热">
+                      · 连接预热 {{ formatElapsed(styleTiming.ws_setup_ms) }}
+                    </span>
+                  </span>
+                </div>
+                <img
+                  v-for="(img, i) in styleImages"
+                  :key="i"
+                  :src="img.base64"
+                  class="style-preview-img"
+                  @click="openLightbox(i)"
+                  alt="测试画风结果"
+                />
+              </div>
+
+              <div class="style-test-row">
+                <linshe-button
+                  class="style-test-btn"
+                  variant="primary"
+                  :disabled="styleTesting"
+                  @click="runStyleTest"
+                >
+                  {{ styleTesting ? '生成中...' : '🎨 生成画面' }}
+                </linshe-button>
+                <linshe-tabs
+                  v-model="testMode"
+                  :options="testModes"
+                  :disabled="styleTesting"
+                  size="sm"
+                  class="test-mode-segmented"
+                />
+                <linshe-button
+                  v-if="imageProvider !== 'novelai'"
+                  class="style-test-btn hires-test-btn"
+                  variant="secondary"
+                  :disabled="hireTesting"
+                  @click="confirmHiresTest"
+                >
+                  {{ hireTesting ? '细化中...' : '测试HiresFix细化' }}
+                </linshe-button>
+                <linshe-button class="test-prompt-btn" variant="link" @click="openPromptEditor">默认测试提示词</linshe-button>
+              </div>
+
+              <div v-if="imageProvider !== 'novelai' && hiresError" class="style-error">{{ hiresError }}</div>
+
+              <div v-if="imageProvider !== 'novelai' && hireTesting" class="style-loading">
+                <span class="style-spinner"></span>
+                <span>正在按 HiresFix 参数细化最近一张图...</span>
+              </div>
+
+              <div v-if="imageProvider !== 'novelai' && hiresCompare" class="style-result">
+                <div class="style-elapsed">细化耗时 {{ formatElapsed(hiresCompare.elapsed) }}</div>
+                <BeforeAfterSlider :before="hiresCompare.original" :after="hiresCompare.refined" />
+              </div>
+
+              <!-- 全屏预览（纯预览，无删除/重生成/放大操作栏） -->
+              <Teleport to="body">
+                <ImageLightbox
+                  :visible="lightboxVisible"
+                  :imgs="lightboxImgs"
+                  :index="lightboxIndex"
+                  :show-delete="false"
+                  :show-regenerate="false"
+                  :show-upscale="false"
+                  @hide="lightboxVisible = false"
+                />
+              </Teleport>
+            </div>
+          </div>
         </div>
 
-        <!-- 生图尺寸：10 条链路各一张卡（2026-10-21） -->
-        <div class="sizes-head">
-          <span class="sizes-title">生图尺寸</span>
-          <span class="sizes-hint">点数字直接改 · 左侧缩略框跟着变 · 默认值 = 改造前</span>
-        </div>
-        <div class="size-grid">
-          <div
-            v-for="s in SIZE_CARDS"
-            :key="s.id"
-            class="size-card"
-            :class="{ 'is-vertical': Number(form[s.w]) < Number(form[s.h]) }"
-          >
-            <div class="size-card-head">
-              <span class="size-thumb"><i :style="{ width: thumbOf(s).w + 'px', height: thumbOf(s).h + 'px' }"></i></span>
-              <span class="size-name">{{ s.name }}<small>{{ s.hint }}</small></span>
-            </div>
-            <div class="size-body">
-              <linshe-input class="size-num" v-model.number="form[s.w]" type="number" min="64" max="4096" step="8" @input="markDirty" />
-              <span class="size-x">×</span>
-              <linshe-input class="size-num" v-model.number="form[s.h]" type="number" min="64" max="4096" step="8" @input="markDirty" />
-            </div>
-            <div class="size-foot"><span>{{ ratioLabelOf(s) }}</span><b>{{ mpLabelOf(s) }}</b></div>
-          </div>
-
-          <!-- 表情包：走独立接口（emoji_width / emoji_height），范围 512–1024、步长 64 -->
-          <div class="size-card" :class="{ 'is-vertical': Number(emojiSize.height) < Number(emojiSize.width) }">
-            <div class="size-card-head">
-              <span class="size-thumb"><i :style="{ width: emojiThumb.w + 'px', height: emojiThumb.h + 'px' }"></i></span>
-              <span class="size-name">表情包<small>统一方形 · 512–1024 · 64 步进</small></span>
-            </div>
-            <div class="size-body">
-              <linshe-input class="size-num" v-model.number="emojiSize.width" type="number" min="512" max="1024" step="64" @input="markDirty" />
-              <span class="size-x">×</span>
-              <linshe-input class="size-num" v-model.number="emojiSize.height" type="number" min="512" max="1024" step="64" @input="markDirty" />
-            </div>
-            <div class="size-foot"><span>{{ emojiRatio }}</span><b>{{ emojiMp }}</b></div>
-          </div>
-
-          <!-- 媒体：不是固定宽高，而是从池里抽 -->
-          <div class="size-card is-media">
-            <div class="size-card-head">
-              <span class="size-thumb"><i class="is-dashed" style="width:22px;height:22px"></i></span>
-              <span class="size-name">媒体<small>画幅从池里随机抽</small></span>
-            </div>
-            <div class="media-line">
-              <span class="media-cap">长边上限 <b>{{ form.galleryMaxEdge ? form.galleryMaxEdge + 'px' : '不限' }}</b></span>
-              <linshe-button variant="chip" class="media-pool-btn" @click="poolOpen = !poolOpen">{{ poolOpen ? '收起 ▲' : '7 种 ▾' }}</linshe-button>
-            </div>
-            <div class="media-cap-row">
-              <linshe-input class="size-num" v-model.number="form.galleryMaxEdge" type="number" min="0" max="4096" step="64" @input="markDirty" />
-              <span class="media-cap-hint">0 = 不限</span>
-            </div>
-            <div v-show="poolOpen" class="media-pool">
-              <label v-for="a in GALLERY_ASPECTS" :key="a.key">
-                <input type="checkbox" :checked="isPoolOn(a.key)" @change="togglePool(a.key)" />
-                <span class="media-pool-key">{{ a.key }}</span>
-                <span class="media-pool-dim">{{ a.w }}×{{ a.h }}</span>
-              </label>
-            </div>
-          </div>
-        </div>
-
-        <div v-if="imageProvider !== 'novelai'" class="hiresfix-section">
-          <div class="hiresfix-header">
-            <span class="hiresfix-title">HiresFix 细化</span>
-          </div>
-          <div class="hiresfix-row">
-            <div class="hiresfix-copy">
-              <div class="hiresfix-desc">图片进一步高清细化设置</div>
-            </div>
-            <span class="hiresfix-summary">{{ hiresWorkflowMode === 'advanced' ? '进阶版' : '基础版' }} · 最长边 {{ hiresMaxSize }} · {{ hiresWorkflowMode === 'advanced' && hiresSamplingMode === 'source' ? '采样跟随原图' : `${hiresSteps} 步 · CFG ${hiresCfg}` }} · 重绘 {{ hiresDenoise }}{{ hiresLoraCount > 0 ? ` · LoRA ${hiresLoraCount}` : '' }}</span>
-            <linshe-button class="hiresfix-link" variant="link" @click="openHiresFixSettings">设置 →</linshe-button>
-          </div>
-        </div>
-        <div class="quality-section">
-          <div class="quality-row">
-            <div class="quality-copy">
-              <div class="quality-subtitle">质量提示词</div>
-              <div class="quality-desc">生图时注入的画质增强词，留空使用系统默认</div>
-            </div>
-            <span class="quality-summary" :class="{ 'is-default': !qualityPrompt }" :title="qualityPrompt || '使用工作流内置的质量提示词'">{{ qualityPrompt ? qualityPrompt : '系统默认' }}</span>
-            <linshe-button class="quality-link" variant="link" @click="openQualityDialog">更改 →</linshe-button>
-          </div>
-          <div class="quality-row">
-            <div class="quality-copy">
-              <div class="quality-subtitle">负面提示词</div>
-              <div class="quality-desc">生图时排除的负面词条，留空使用工作流内置默认</div>
-            </div>
-            <span class="quality-summary" :class="{ 'is-default': !negativePrompt }" :title="negativePrompt || '使用工作流内置的负面提示词'">{{ negativePrompt ? negativePrompt : '工作流默认' }}</span>
-            <linshe-button class="quality-link" variant="link" @click="openNegativeDialog">更改 →</linshe-button>
-          </div>
-        </div>
         <div class="sa">
           <linshe-button variant="primary" :disabled="!dirty" @click="saveComfy">保存</linshe-button>
           <span v-if="saved" class="smsg">已保存</span>
@@ -193,148 +387,6 @@
       <GlobalLoraModal v-model="globalLoraModalVisible" :initial-loras="globalLoras" @saved="onGlobalLoraSaved" />
       <HiresFixModal v-if="imageProvider !== 'novelai'" v-model="hiresFixModalVisible" :initial-sampling-mode="hiresSamplingMode" :initial-global-lora-scale="hiresGlobalLoraScale" :initial-source-blend="hiresSourceBlend" :initial-upscale-model="hiresUpscaleModel" :initial-workflow-mode="hiresWorkflowMode" :initial-loras="hiresLoras" :initial-steps="hiresSteps" :initial-cfg="hiresCfg" :initial-denoise="hiresDenoise" :initial-max-size="hiresMaxSize" :initial-artist-mode="hiresArtistMode" :initial-artist="hiresArtist" @saved="onHiresFixSaved" />
 
-
-      <!-- 测试画风：自由画面描述（LLM 完善提示词）或固定提示词测试 -->
-      <div v-show="activeGroup === 'image'" class="card">
-        <h3>图片实验室</h3>
-        <p class="fd">可测试当前生图服务，使用对应画师串和分辨率发送生图请求，图片仅作预览不保存</p>
-        <p class="fd">Anima文生图模型的数据库大约在2025年9月，过新的角色不识别，越久的角色特征越稳定</p>
-        <p class="fd">切换模型之后首次生图需要加载模型所以会慢一点</p>
-
-        <div class="free-scene-row">
-          <div class="free-scene-input-wrap">
-            <linshe-auto-textarea
-              ref="sceneDescRef"
-              v-model="freeSceneDesc"
-              class="free-scene-textarea"
-              collapsible
-              placeholder="（置空使用默认）自由描述任意画面"
-              @focus="onSceneDescFocus"
-              @blur="onSceneDescBlur"
-              @enter="submitOnEnter($event, runFreeSceneTest)"
-            />
-</div>
-          <!-- 有输入内容时才出现，渐入渐出 -->
-          <Transition name="gen-btn-fade">
-            <linshe-button
-              v-if="freeSceneDesc.trim() || styleTesting"
-              class="free-scene-btn"
-              variant="primary"
-              :disabled="styleTesting || !freeSceneDesc.trim()"
-              @click="runFreeSceneTest"
-            >
-              {{ styleTesting ? '生成中...' : generatedPrompt ? '重新生成提示词' : '生成提示词' }}
-            </linshe-button>
-          </Transition>
-        </div>
-
-        <Transition name="prompt-reveal">
-          <div v-if="promptRevealed || generatedPrompt">
-            <div
-              v-if="generatedPrompt && !promptEditing"
-              class="generated-prompt-box editable"
-              :title="styleTesting ? '正在生成，提示词可选中复制' : '点击编辑提示词'"
-              @click="startPromptEdit"
-            >
-{{ generatedPrompt }}
-            </div>
-            <linshe-auto-textarea
-              v-else
-              ref="promptEditRef"
-              v-model="generatedPrompt"
-              :disabled="styleTesting"
-              class="generated-prompt-box generated-prompt-editor"
-              placeholder="直接输入或粘贴生图提示词，留空使用默认提示词"
-              @focus="promptEditing = true"
-              @blur="promptEditing = false"
-              @enter="submitOnEnter($event, runGeneratedPromptTest)"
-              @escape="promptEditing = false"
-            />
-          </div>
-        </Transition>
-        <div v-if="styleError" class="style-error">{{ styleError }}</div>
-
-        <div v-if="styleTesting" class="style-loading">
-          <span class="style-spinner"></span>
-          <Transition name="prompt-reveal" mode="out-in">
-            <span :key="styleStage" aria-live="polite">{{ styleStage === 'prompt' ? '正在生成提示词，请稍候...' : styleStage === 'preparing' ? '正在完善提示词，准备生成图片...' : imageProvider === 'novelai' ? 'NovelAI 正在生成图片，请耐心等待...' : 'ComfyUI 正在生成图片，请耐心等待...' }}</span>
-          </Transition>
-        </div>
-
-        <div v-if="styleImages.length > 0" class="style-result">
-          <div v-if="styleElapsed != null" class="style-elapsed">
-            ⏱ 生成耗时 {{ formatElapsed(styleElapsed) }}
-            <span v-if="styleTiming" class="style-timing-breakdown">
-              · {{ imageProvider === 'novelai' ? 'NovelAI' : 'ComfyUI' }} {{ formatElapsed(styleTiming.comfyui_ms) }}
-              · 下载 {{ formatElapsed(styleTiming.download_ms) }}
-              <span v-if="styleTiming.ws_setup_ms != null" title="WebSocket 建连 + ComfyUI 预热">
-                · 连接预热 {{ formatElapsed(styleTiming.ws_setup_ms) }}
-              </span>
-            </span>
-          </div>
-          <img
-            v-for="(img, i) in styleImages"
-            :key="i"
-            :src="img.base64"
-            class="style-preview-img"
-            @click="openLightbox(i)"
-            alt="测试画风结果"
-          />
-        </div>
-
-        <div class="style-test-row">
-          <linshe-button
-            class="style-test-btn"
-            variant="primary"
-            :disabled="styleTesting"
-            @click="runStyleTest"
-          >
-            {{ styleTesting ? '生成中...' : '🎨 生成画面' }}
-          </linshe-button>
-          <linshe-tabs
-            v-model="testMode"
-            :options="testModes"
-            :disabled="styleTesting"
-            size="sm"
-            class="test-mode-segmented"
-          />
-          <linshe-button
-            v-if="imageProvider !== 'novelai'"
-            class="style-test-btn hires-test-btn"
-            variant="secondary"
-            :disabled="hireTesting"
-            @click="confirmHiresTest"
-          >
-            {{ hireTesting ? '细化中...' : '测试HiresFix细化' }}
-          </linshe-button>
-          <linshe-button class="test-prompt-btn" variant="link" @click="openPromptEditor">默认测试提示词</linshe-button>
-        </div>
-
-        <div v-if="imageProvider !== 'novelai' && hiresError" class="style-error">{{ hiresError }}</div>
-
-        <div v-if="imageProvider !== 'novelai' && hireTesting" class="style-loading">
-          <span class="style-spinner"></span>
-          <span>正在按 HiresFix 参数细化最近一张图...</span>
-        </div>
-
-        <div v-if="imageProvider !== 'novelai' && hiresCompare" class="style-result">
-          <div class="style-elapsed">细化耗时 {{ formatElapsed(hiresCompare.elapsed) }}</div>
-          <BeforeAfterSlider :before="hiresCompare.original" :after="hiresCompare.refined" />
-        </div>
-
-        <!-- 全屏预览（纯预览，无删除/重生成/放大操作栏） -->
-        <Teleport to="body">
-          <ImageLightbox
-            :visible="lightboxVisible"
-            :imgs="lightboxImgs"
-            :index="lightboxIndex"
-            :show-delete="false"
-            :show-regenerate="false"
-            :show-upscale="false"
-            @hide="lightboxVisible = false"
-          />
-        </Teleport>
-      </div>
 
       <!-- 测试提示词编辑弹窗 -->
       <linshe-modal v-model="showPromptEditor" title="编辑测试提示词" wide>
@@ -863,7 +915,7 @@ type="range" min="0" :max="MOMENT_FREQ_STEPS.length - 1" step="1"
       </div>
 
       <!-- 生图服务连接 -->
-      <div v-show="activeGroup === 'image'" class="card image-connection-card">
+      <div v-show="activeGroup === 'model'" class="card image-connection-card">
         <h3>图片生成服务</h3>
         <linshe-tabs
           v-model="imageProvider"
@@ -3376,6 +3428,90 @@ async function runHiresTest() {
   }
 }
 
+// ── 生图工作区：左侧功能列表 + 右侧详情（2026-10-22 用户提出重排）──
+// 起因：尺寸给 10 条链路都开了入口，画师串却只有 3 组；报纸/立绘/信箱的尺寸能改、
+// 画师串却隐式跟着朋友圈走，用户在界面上看不见这层关系。
+// kind 语义：own = 有自己的画师串；inherit = 跟随某条链路；fixed = 素材类固定画风；pool = 画幅随机
+const IMAGE_NAV = [
+  { label: '内容配图', items: [
+    { id: 'chat',     name: '对话配图',    hint: '聊天里随手发的照片',       kind: 'own',     tab: 'chat',    w: 'width',         h: 'height' },
+    { id: 'moments',  name: '朋友圈',      hint: '角色日常配图',             kind: 'own',     tab: 'moments', w: 'momentsWidth',  h: 'momentsHeight' },
+    { id: 'event',    name: '奇遇',        hint: '叙事事件插图',             kind: 'own',     tab: 'event',   w: 'eventWidth',    h: 'eventHeight' },
+    { id: 'paper',    name: '报纸',        hint: '每日特稿配图',             kind: 'inherit', inheritFrom: '朋友圈', inheritField: 'momentsArtist', w: 'paperWidth', h: 'paperHeight' },
+    { id: 'media',    name: '媒体',        hint: '画幅从池里随机抽，不固定宽高', kind: 'pool' },
+  ]},
+  { label: '素材', items: [
+    { id: 'standing', name: '立绘',        hint: '角色全身像 · 竖图',        kind: 'inherit', inheritFrom: '朋友圈', inheritField: 'momentsArtist', w: 'standingWidth', h: 'standingHeight' },
+    { id: 'emoji',    name: '表情包',      hint: '统一方形 · 512–1024 · 64 步进', kind: 'fixed', fixedArtist: '@ebora' },
+    { id: 'item',     name: '道具 / 商品', hint: '背包与橱窗图标',           kind: 'fixed',   fixedArtist: '@ebora', w: 'itemWidth', h: 'itemHeight' },
+    { id: 'mail',     name: '信箱信纸',    hint: '来信纸面 · 肖像图自动取反', kind: 'inherit', inheritFrom: '朋友圈', inheritField: 'momentsArtist', w: 'mailWidth', h: 'mailHeight' },
+    { id: 'chatbg',   name: '聊天背景',    hint: '对话背景图',               kind: 'inherit', inheritFrom: '对话配图', inheritField: 'artist', w: 'chatBgWidth', h: 'chatBgHeight' },
+  ]},
+]
+
+const GLOBAL_NAV = [
+  { id: '__hires',   name: 'HiresFix 细化', hint: '放大与细化参数' },
+  { id: '__quality', name: '质量 / 负面词', hint: '跨链路生效的画质词与排除词' },
+]
+
+const imgTarget = ref('chat')
+
+const ALL_IMAGE_TARGETS = computed(() => [
+  ...IMAGE_NAV.flatMap(sec => sec.items),
+  ...GLOBAL_NAV,
+  { id: '__lab', name: '生图测试', hint: '用当前画师串与分辨率试跑一张，只预览不保存' },
+])
+
+const currentTarget = computed(() =>
+  ALL_IMAGE_TARGETS.value.find(t => t.id === imgTarget.value) || ALL_IMAGE_TARGETS.value[0]
+)
+const isOwnTarget = computed(() => currentTarget.value.kind === 'own')
+
+/** 切左列表：独立型同时同步 comfyTab，让 activeFields 指向正确的画师串字段 */
+function selectImageTarget(id) {
+  imgTarget.value = id
+  const t = ALL_IMAGE_TARGETS.value.find(x => x.id === id)
+  if (t?.tab) switchComfyTab(t.tab)
+}
+
+/** 预设作用于当前链路（独立型/继承型/固定型都适用），不再按 tab 分支 */
+function applySizePreset(p) {
+  const t = currentTarget.value
+  if (!t?.w) return
+  form.value[t.w] = p.width
+  form.value[t.h] = p.height
+  dirty.value = true
+  saved.value = false
+}
+const currentSizePair = computed(() => {
+  const t = currentTarget.value
+  if (!t?.w) return null
+  return { w: Number(form.value[t.w]) || 0, h: Number(form.value[t.h]) || 0 }
+})
+const currentRatioLabel = computed(() => {
+  const p = currentSizePair.value
+  if (!p || !p.w || !p.h) return '—'
+  const g = gcdOf(p.w, p.h)
+  return `${p.w / g}:${p.h / g} ${p.w >= p.h ? '横' : '竖'}`
+})
+const currentMpLabel = computed(() => {
+  const p = currentSizePair.value
+  if (!p || !p.w || !p.h) return '—'
+  return `${((p.w * p.h) / 1e6).toFixed(2)} MP`
+})
+const emojiRatioLabel = computed(() => {
+  const W = Number(emojiSize.value.width) || 0
+  const H = Number(emojiSize.value.height) || 0
+  if (!W || !H) return '—'
+  const g = gcdOf(W, H)
+  return `${W / g}:${H / g} ${W >= H ? '横' : '竖'}`
+})
+const emojiMpLabel = computed(() => {
+  const W = Number(emojiSize.value.width) || 0
+  const H = Number(emojiSize.value.height) || 0
+  return `${((W * H) / 1e6).toFixed(2)} MP`
+})
+
 // 表情包尺寸走独立接口。
 // ⚠ 位置有讲究：SettingsView 被三份测试按**源码切片**执行（new Function 注入少数几个变量），
 //   - onMounted 里 `form.value = {` 到 `globalLoras.value` 之间那段是同步执行的切片，不能出现 await
@@ -4446,6 +4582,111 @@ function resetTestPrompts() {
 @media (max-width: 640px) {
   .size-grid { grid-template-columns: 1fr; }
   .size-card { padding: 12px; }
+}
+
+/* ══ 生图工作区：左功能列表 + 右详情（2026-10-22）══
+   起因：尺寸给 10 条链路开了入口，画师串只有 3 组；报纸/立绘/信箱的画师串
+   隐式跟着朋友圈走，界面上看不见。左列表把继承关系标出来，右侧一次专注一条。 */
+.img-ws {
+  display: grid;
+  grid-template-columns: 196px minmax(0, 1fr);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin-top: 4px;
+}
+.img-nav {
+  background: var(--bg-sunken);
+  border-right: 1px solid var(--border);
+  padding: 10px 0;
+  max-height: 620px;
+  overflow-y: auto;
+}
+.img-nav-sec { padding: 3px 0 10px; }
+.img-nav-sec + .img-nav-sec { border-top: 1px solid var(--border); padding-top: 9px; }
+.img-nav-label {
+  display: block; padding: 0 14px 5px;
+  font-size: 10.5px; letter-spacing: .14em; color: var(--text-tertiary);
+}
+.img-nav-btn {
+  display: flex; align-items: center; gap: 6px;
+  width: 100%; padding: 8px 14px;
+  background: none; border: 0; border-left: 2px solid transparent;
+  font: inherit; font-size: 13px; color: var(--text-secondary);
+  text-align: left; cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-standard),
+              color var(--dur-fast) var(--ease-standard),
+              border-color var(--dur-fast) var(--ease-standard);
+}
+.img-nav-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.img-nav-btn.is-on {
+  color: var(--accent); background: var(--card-paper-raised);
+  border-left-color: var(--accent); font-weight: 500;
+}
+.img-nav-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.img-nav-tag {
+  flex: 0 0 auto;
+  font-size: 9.5px; letter-spacing: .08em;
+  color: var(--text-tertiary);
+  border: 1px solid var(--border);
+  padding: 0 4px; border-radius: 3px;
+}
+.img-nav-btn.is-on .img-nav-tag { color: var(--accent); border-color: var(--accent); }
+
+.img-panels { padding: 18px 20px 6px; min-height: 380px; }
+.img-panel-head { margin-bottom: 16px; }
+.img-panel-head h4 { margin: 0 0 3px; font-size: 15px; font-weight: 500; color: var(--text-primary); }
+.img-panel-head p { margin: 0; font-size: 12px; color: var(--text-tertiary); }
+
+.img-field { margin-bottom: 18px; }
+.img-label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 7px; }
+
+/* 继承 / 固定：把"它其实不归你改"这件事画出来 */
+.img-inherit {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px;
+  background: var(--bg-sunken);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+.img-inherit-value { font-size: 13px; color: var(--text-primary); word-break: break-all; }
+.img-inherit-tag { margin-left: auto; flex: 0 0 auto; font-size: 11px; color: var(--accent); }
+
+.img-size-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.img-size-row .size-num { flex: 0 0 132px; }
+.img-size-foot { flex: 1 0 100%; margin: 2px 0 0; font-size: 11.5px; color: var(--text-tertiary); }
+.img-size-foot b { font-weight: 500; color: var(--accent); }
+.img-note { margin: 8px 0 0; font-size: 11.5px; color: var(--text-tertiary); line-height: 1.6; }
+
+.img-lab .fd { margin-bottom: 10px; line-height: 1.6; }
+.img-lab :deep(.free-scene-row) { margin-top: 12px; }
+
+@media (max-width: 900px) {
+  .img-ws { grid-template-columns: 1fr; }
+  .img-nav {
+    display: flex; gap: 4px;
+    overflow-x: auto; overflow-y: hidden;
+    padding: 8px; border-right: 0; border-bottom: 1px solid var(--border);
+    max-height: none;
+    scrollbar-width: none;
+  }
+  .img-nav::-webkit-scrollbar { display: none; }
+  .img-nav-sec {
+    display: flex; gap: 4px; padding: 0; flex: 0 0 auto;
+  }
+  .img-nav-sec + .img-nav-sec { border-top: 0; padding-top: 0; border-left: 1px solid var(--border); padding-left: 6px; margin-left: 2px; }
+  .img-nav-label { display: none; }
+  .img-nav-btn {
+    width: auto; white-space: nowrap;
+    border-left: 0; border-bottom: 2px solid transparent;
+    padding: 7px 10px; border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  }
+  .img-nav-btn.is-on { border-left-color: transparent; border-bottom-color: var(--accent); }
+  .img-panels { padding: 14px 14px 4px; min-height: 0; }
+  .img-size-row .size-num { flex: 1 1 88px; }
+  /* 窄屏下保存与三个操作按钮放不进一行，允许换行，避免被挤出视口 */
+  .comfy-params-card .sa { flex-wrap: wrap; gap: 8px; }
+  .comfy-params-card .sa .sa-spacer { flex-basis: 100%; height: 0; }
 }
 
 </style>
