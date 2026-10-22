@@ -25,7 +25,15 @@ export function resolveGalleryAspects() {
   const cap = Number(config.comfyui.galleryMaxEdge) || 0;
 
   const picked = keys ? GALLERY_ASPECTS.filter(a => keys.has(a.key)) : GALLERY_ASPECTS;
-  const list = picked.length ? picked : GALLERY_ASPECTS;
+  const presets = picked.length ? picked : GALLERY_ASPECTS;
+
+  // 自定义画幅：用户加进来的宽高与预设同池，key 用「宽x高」自描述，
+  // 不与 2:3 这类预设 key 撞名，写进 media_items.aspect 也一眼能看懂。
+  const custom = Array.isArray(config.comfyui.galleryCustom) ? config.comfyui.galleryCustom : [];
+  const extras = custom
+    .map(it => ({ key: `${it.w}x${it.h}`, w: Number(it.w) || 0, h: Number(it.h) || 0 }))
+    .filter(a => a.w >= 64 && a.h >= 64);
+  const list = extras.length ? [...presets, ...extras] : presets;
   if (!cap) return list;
 
   return list.map(a => {

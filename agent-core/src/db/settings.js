@@ -87,6 +87,7 @@ export const SETTING_TO_CONFIG = {
   comfy_mail_artist:       { obj: 'comfyui',   key: 'mailArtist',      type: 'string'  },
   comfy_chatbg_artist:     { obj: 'comfyui',   key: 'chatBgArtist',    type: 'string'  },
   comfy_item_artist:       { obj: 'comfyui',   key: 'itemArtist',      type: 'string'  },
+  comfy_media_artist:      { obj: 'comfyui',   key: 'mediaArtist',     type: 'string'  },
 
   // ── 原本硬编码、2026-10-21 起开放配置的链路 ──
   comfy_paper_width:       { obj: 'comfyui',   key: 'paperWidth',      type: 'int'     },
@@ -102,6 +103,7 @@ export const SETTING_TO_CONFIG = {
   comfy_chatbg_width:      { obj: 'comfyui',   key: 'chatBgWidth',     type: 'int'     },
   comfy_chatbg_height:     { obj: 'comfyui',   key: 'chatBgHeight',    type: 'int'     },
   comfy_gallery_pool:      { obj: 'comfyui',   key: 'galleryPool',     type: 'json'    },
+  comfy_gallery_custom:    { obj: 'comfyui',   key: 'galleryCustom',   type: 'json'    },
   comfy_gallery_max_edge:  { obj: 'comfyui',   key: 'galleryMaxEdge',  type: 'int'     },
   comfy_quality_prompt:    { obj: 'comfyui',   key: 'qualityPrompt',   type: 'string'  },
   comfy_negative_prompt:   { obj: 'comfyui',   key: 'negativePrompt',  type: 'string'  },

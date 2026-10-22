@@ -1274,6 +1274,10 @@ export function listArtistPool() {
 
 /** 从池子里不重复地抽 n 个画师串（池子不够就允许重复） */
 function pickRandomArtists(n) {
+  // 设置页里给媒体填了画师串 → 所有媒体图都用它（用户主动收窄风格时的行为）。
+  // 留空才走「收藏夹逐条随机」，那是图库形态的核心特征，不能默认丢掉。
+  const fixed = String(config.comfyui?.mediaArtist || '').trim();
+  if (fixed) return Array.from({ length: n }, () => fixed);
   const pool = listArtistPool();
   if (!pool.length) return [];
   const bag = [...pool];

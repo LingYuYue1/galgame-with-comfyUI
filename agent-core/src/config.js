@@ -146,6 +146,8 @@ defaultTimeoutMs: parseInt(process.env.VECTOR_DEFAULT_TIMEOUT_MS, 10) || 120000,
     mailArtist: null,
     chatBgArtist: null,
     itemArtist: null,
+    // 媒体：留空 = 照旧从收藏夹逐条随机抽（图库形态的核心）；填了 = 所有媒体图都用这一个
+    mediaArtist: null,
     // 道具 / 商品：itemService、lootService 原写死 512×512（小镇 NPC 存货不改）
     itemWidth: parseInt(process.env.COMFYUI_ITEM_WIDTH, 10) || 512,
     itemHeight: parseInt(process.env.COMFYUI_ITEM_HEIGHT, 10) || 512,
@@ -158,6 +160,8 @@ defaultTimeoutMs: parseInt(process.env.VECTOR_DEFAULT_TIMEOUT_MS, 10) || 120000,
     // 媒体画幅池：参与随机的画幅 key（见 mediaService.GALLERY_ASPECTS）。
     // 空数组/null = 全选，与改造前「7 种全用」一致。
     galleryPool: null,
+    // 媒体自定义画幅：与 7 种预设一起进池，形状 [{ w, h }]；null = 没有自定义
+    galleryCustom: null,
     // 媒体长边上限：0 = 不限（改造前就是从池里原尺寸抽，不看上限）
     galleryMaxEdge: 0,
     qualityPrompt: process.env.COMFYUI_QUALITY_PROMPT || '',  // 质量提示词覆盖（留空=沿用工作流默认）
@@ -521,7 +525,7 @@ const SIZE_FIELD_KEYS = {
   chatBgHeight: 'comfy_chatbg_height',
 };
 
-export function updateComfyConfig({ artist, width, height, url, momentsArtist, momentsWidth, momentsHeight, eventArtist, eventWidth, eventHeight, paperArtist, standingArtist, mailArtist, chatBgArtist, itemArtist, paperWidth, paperHeight, standingWidth, standingHeight, itemWidth, itemHeight, mailWidth, mailHeight, chatBgWidth, chatBgHeight, galleryPool, galleryMaxEdge, tlsVerify, qualityPrompt, negativePrompt, imageProvider, novelaiApiFormat, novelaiUrl, novelaiProxyUrl, novelaiModel, novelaiArtist, novelaiWidth, novelaiHeight, novelaiSteps, novelaiSampler, novelaiNoiseSchedule, novelaiGuidance, novelaiQualityPrompt, novelaiNegativePrompt, novelaiApiKey, clearNovelaiApiKey }) {
+export function updateComfyConfig({ artist, width, height, url, momentsArtist, momentsWidth, momentsHeight, eventArtist, eventWidth, eventHeight, paperArtist, standingArtist, mailArtist, chatBgArtist, itemArtist, mediaArtist, paperWidth, paperHeight, standingWidth, standingHeight, itemWidth, itemHeight, mailWidth, mailHeight, chatBgWidth, chatBgHeight, galleryPool, galleryCustom, galleryMaxEdge, tlsVerify, qualityPrompt, negativePrompt, imageProvider, novelaiApiFormat, novelaiUrl, novelaiProxyUrl, novelaiModel, novelaiArtist, novelaiWidth, novelaiHeight, novelaiSteps, novelaiSampler, novelaiNoiseSchedule, novelaiGuidance, novelaiQualityPrompt, novelaiNegativePrompt, novelaiApiKey, clearNovelaiApiKey }) {
   if (imageProvider !== undefined) {
     const provider = imageProvider === 'novelai' ? 'novelai' : 'comfyui';
     config.comfyui.imageProvider = provider;
@@ -628,6 +632,8 @@ export function updateComfyConfig({ artist, width, height, url, momentsArtist, m
   if (mailArtist !== undefined) { config.comfyui.mailArtist = String(mailArtist || '').trim(); persistSettingSync('comfy_mail_artist', config.comfyui.mailArtist); }
   if (chatBgArtist !== undefined) { config.comfyui.chatBgArtist = String(chatBgArtist || '').trim(); persistSettingSync('comfy_chatbg_artist', config.comfyui.chatBgArtist); }
   if (itemArtist !== undefined) { config.comfyui.itemArtist = String(itemArtist || '').trim(); persistSettingSync('comfy_item_artist', config.comfyui.itemArtist); }
+  // 媒体是唯一「多条链路共用」的画师串：留空才回到收藏夹随机抽
+  if (mediaArtist !== undefined) { config.comfyui.mediaArtist = String(mediaArtist || '').trim(); persistSettingSync('comfy_media_artist', config.comfyui.mediaArtist); }
 
   // ── 六条原本硬编码的链路尺寸（2026-10-21 设置页整改）──
   // 统一 64~4096 校验；非法值保持原样、不写库，避免把配置写成 0。
@@ -648,6 +654,23 @@ export function updateComfyConfig({ artist, width, height, url, momentsArtist, m
     const picked = Array.isArray(galleryPool) ? galleryPool.filter(k => allowed.has(k)) : [];
     config.comfyui.galleryPool = picked.length ? picked : null;
     persistSettingSync('comfy_gallery_pool', JSON.stringify(config.comfyui.galleryPool));
+  }
+  // 自定义画幅：与 7 种预设同池。宽高各自 64~4096、按 8 对齐，最多 12 条，重复的丢掉。
+  if (galleryCustom !== undefined) {
+    const seen = new Set();
+    const list = [];
+    for (const it of (Array.isArray(galleryCustom) ? galleryCustom : [])) {
+      const w = Math.round((parseInt(it?.w, 10) || 0) / 8) * 8;
+      const h = Math.round((parseInt(it?.h, 10) || 0) / 8) * 8;
+      if (w < 64 || w > 4096 || h < 64 || h > 4096) continue;
+      const key = `${w}x${h}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      list.push({ w, h });
+      if (list.length >= 12) break;
+    }
+    config.comfyui.galleryCustom = list.length ? list : null;
+    persistSettingSync('comfy_gallery_custom', JSON.stringify(config.comfyui.galleryCustom));
   }
   // 长边上限：0 = 不限（改造前的行为）
   if (galleryMaxEdge !== undefined) {

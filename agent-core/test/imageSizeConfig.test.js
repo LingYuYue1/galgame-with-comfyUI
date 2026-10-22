@@ -186,3 +186,52 @@ test('写库后 loadSystemSettings 能把独立画师串读回（等价于重启
     db.close();
   }
 });
+
+test('媒体自己的画师串也登记了（留空才回到收藏夹随机抽）', () => {
+  assert.ok('comfy_media_artist' in SETTING_TO_CONFIG);
+  assert.equal(SETTING_TO_CONFIG.comfy_media_artist.obj, 'comfyui');
+  assert.equal(SETTING_TO_CONFIG.comfy_media_artist.key, 'mediaArtist');
+  assert.equal(SETTING_TO_CONFIG.comfy_media_artist.type, 'string');
+  const v = config.comfyui.mediaArtist;
+  assert.ok(v === null || v === '' || v === undefined, `默认应为空，实际是 ${v}`);
+});
+
+test('媒体自定义画幅也登记了（json，否则重启后自定义尺寸全丢）', () => {
+  assert.ok('comfy_gallery_custom' in SETTING_TO_CONFIG);
+  assert.equal(SETTING_TO_CONFIG.comfy_gallery_custom.obj, 'comfyui');
+  assert.equal(SETTING_TO_CONFIG.comfy_gallery_custom.type, 'json');
+  const v = config.comfyui.galleryCustom;
+  assert.ok(v === null || v === undefined || (Array.isArray(v) && !v.length));
+});
+
+test('媒体自定义画幅：与 7 种预设同池，预设仍然在', () => {
+  withComfy({ galleryPool: null, galleryCustom: [{ w: 800, h: 600 }, { w: 1024, h: 1024 }], galleryMaxEdge: 0 }, () => {
+    const got = resolveGalleryAspects();
+    assert.equal(got.length, GALLERY_ASPECTS.length + 2);
+    assert.deepEqual(got.slice(0, GALLERY_ASPECTS.length), GALLERY_ASPECTS);
+    const custom = got.slice(GALLERY_ASPECTS.length);
+    assert.deepEqual(custom.map(a => [a.w, a.h]), [[800, 600], [1024, 1024]]);
+    // key 用「宽x高」，不会与 2:3 这类预设 key 撞名（会写进 media_items.aspect）
+    assert.deepEqual(custom.map(a => a.key), ['800x600', '1024x1024']);
+    assert.equal(new Set(got.map(a => a.key)).size, got.length);
+  });
+});
+
+test('媒体自定义画幅：长边上限对自定义也生效，且落在 8 的倍数上', () => {
+  withComfy({ galleryPool: null, galleryCustom: [{ w: 2000, h: 1000 }], galleryMaxEdge: 800 }, () => {
+    const got = resolveGalleryAspects();
+    const c = got[got.length - 1];
+    assert.equal(Math.max(c.w, c.h), 800);
+    assert.equal(c.w % 8, 0);
+    assert.equal(c.h % 8, 0);
+  });
+});
+
+test('媒体自定义画幅：池子勾选不影响自定义（勾选只过滤 7 种预设）', () => {
+  withComfy({ galleryPool: ['1:1'], galleryCustom: [{ w: 736, h: 1280 }], galleryMaxEdge: 0 }, () => {
+    const got = resolveGalleryAspects();
+    assert.equal(got.length, 2);
+    assert.equal(got[0].key, '1:1');
+    assert.equal(got[1].key, '736x1280');
+  });
+});

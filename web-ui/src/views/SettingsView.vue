@@ -86,31 +86,30 @@
                   @input="markDirty"
                 />
                 <div
-                  v-if="isOwnTarget"
                   role="button"
                   tabindex="0"
                   class="fav-star-btn"
-                  :class="{ 'is-disabled': !form[activeFields.artist].trim() }"
-                  :aria-disabled="!form[activeFields.artist].trim()"
+                  :class="{ 'is-disabled': !String(form[currentTarget.artistField] || '').trim() }"
+                  :aria-disabled="!String(form[currentTarget.artistField] || '').trim()"
                   title="收藏当前画师串"
-                  @click="addToFavorites(comfyTab)"
-                  @keydown.enter.prevent="addToFavorites(comfyTab)"
-                  @keydown.space.prevent="addToFavorites(comfyTab)"
+                  @click="isOwnTarget ? addToFavorites(comfyTab) : addFavoriteFromCurrent()"
+                  @keydown.enter.prevent="isOwnTarget ? addToFavorites(comfyTab) : addFavoriteFromCurrent()"
+                  @keydown.space.prevent="isOwnTarget ? addToFavorites(comfyTab) : addFavoriteFromCurrent()"
                 >☆</div>
               </div>
               <p v-if="artistNote" class="img-note">{{ artistNote }}</p>
-              <template v-if="isOwnTarget && artistFavorites.length">
+              <template v-if="artistFavorites.length">
                 <div class="fav-section-title">
-                  <span>收藏的画师 / 风格</span>
+                  <span>{{ currentTarget.kind === 'pool' ? '随机池：每张图从这里抽一个（同一份收藏，全链路共用）' : '收藏的画师 / 风格' }}</span>
                   <button
-                    v-if="favOverflow"
+                    v-if="favOverflow && currentTarget.kind !== 'pool'"
                     type="button"
                     class="fav-more"
                     @click="favOpen = !favOpen"
                   >{{ favOpen ? '收起' : `展开全部 ${artistFavorites.length} 个` }}</button>
                 </div>
-                <div ref="favChipsEl" class="fav-chips" :class="{ 'is-open': favOpen }">
-                  <linshe-button v-for="fav in artistFavorites" :key="fav.id" class="fav-chip" variant="chip" :active="fav.artist === form[activeFields.artist]" @click="applyFavorite(fav, comfyTab)" :title="fav.artist">
+                <div ref="favChipsEl" class="fav-chips" :class="{ 'is-open': favOpen || currentTarget.kind === 'pool' }">
+                  <linshe-button v-for="fav in artistFavorites" :key="fav.id" class="fav-chip" variant="chip" :active="fav.artist === form[currentTarget.artistField]" @click="isOwnTarget ? applyFavorite(fav, comfyTab) : applyFavoriteToCurrent(fav.artist)" :title="fav.artist">
                     {{ fav.label }}
                     <span class="fav-chip-x" @click.stop="removeFavorite(fav.id)">×</span>
                   </linshe-button>
@@ -125,16 +124,6 @@
                 <span class="img-inherit-value">在「表情管理」里设置</span>
                 <span class="img-inherit-tag">默认 @ebora</span>
               </div>
-            </div>
-
-            <!-- 媒体：画风刻意保持多样，从收藏夹随机抽 -->
-            <div v-else-if="currentTarget.kind === 'pool'" class="img-field">
-              <label class="img-label">画师串</label>
-              <div class="img-inherit">
-                <span class="img-inherit-value">从「画师串收藏夹」随机抽</span>
-                <span class="img-inherit-tag">当前 {{ artistFavorites.length }} 个</span>
-              </div>
-              <p class="img-note">媒体刻意保持画风多样，所以不给固定串；想控制范围就改收藏夹。</p>
             </div>
 
             <!-- ④ 尺寸 -->
@@ -172,25 +161,53 @@
               <p class="img-note">范围 512–1024，按 64 步进；宽高各自独立。</p>
             </div>
 
-            <!-- ⑥ 媒体：画幅从池里抽 -->
-            <div v-show="currentTarget.kind === 'pool'" class="img-field">
-              <label class="img-label">画幅池</label>
-              <div class="media-line">
-                <span class="media-cap">长边上限 <b>{{ form.galleryMaxEdge ? form.galleryMaxEdge + 'px' : '不限' }}</b></span>
-                <linshe-button variant="chip" class="media-pool-btn" @click="poolOpen = !poolOpen">{{ poolOpen ? '收起 ▲' : '7 种 ▾' }}</linshe-button>
+            <!-- ⑥ 媒体：画幅池 = 7 种预设 + 自定义，勾什么抽什么 -->
+            <div v-if="currentTarget.kind === 'pool'" class="img-field">
+              <label class="img-label">画幅池<span class="img-label-hint">想画多大的就勾哪些，每张图从中随机抽一个</span></label>
+              <div class="aspect-chips">
+                <linshe-button
+                  v-for="a in GALLERY_ASPECTS"
+                  :key="a.key"
+                  class="aspect-chip"
+                  variant="chip"
+                  :active="isPoolOn(a.key)"
+                  @click="togglePool(a.key)"
+                >
+                  <b class="aspect-chip-key">{{ a.key }}</b>
+                  <span class="aspect-chip-dim">{{ a.w }}×{{ a.h }}</span>
+                </linshe-button>
               </div>
-              <div class="media-cap-row">
-                <linshe-input class="size-num" v-model.number="form.galleryMaxEdge" type="number" min="0" max="4096" step="64" @input="markDirty" />
-                <span class="media-cap-hint">0 = 不限</span>
+
+              <div class="img-subline">
+                <span class="img-sublabel">自定义尺寸</span>
+                <span class="img-subhint">{{ customSizes.length }} / 12</span>
               </div>
-              <div v-show="poolOpen" class="media-pool">
-                <label v-for="a in GALLERY_ASPECTS" :key="a.key">
-                  <input type="checkbox" :checked="isPoolOn(a.key)" @change="togglePool(a.key)" />
-                  <span class="media-pool-key">{{ a.key }}</span>
-                  <span class="media-pool-dim">{{ a.w }}×{{ a.h }}</span>
-                </label>
+              <div class="media-add-row">
+                <linshe-input class="size-num" v-model.number="customW" type="number" min="64" max="4096" step="8"
+                  placeholder="宽" @keydown.enter.prevent="addCustomSize" />
+                <span class="size-x">×</span>
+                <linshe-input class="size-num" v-model.number="customH" type="number" min="64" max="4096" step="8"
+                  placeholder="高" @keydown.enter.prevent="addCustomSize" />
+                <linshe-button class="media-add-btn" variant="chip" :disabled="!canAddCustomSize" @click="addCustomSize">
+                  ＋ 加入池
+                </linshe-button>
               </div>
-              <p class="img-note">取消勾选的画幅永远不会被抽到；长边超上限的会等比缩下来。</p>
+              <div v-if="customSizes.length" class="aspect-chips is-custom">
+                <span v-for="c in customSizes" :key="c.key" class="aspect-custom">
+                  {{ c.w }}×{{ c.h }}
+                  <span class="fav-chip-x" role="button" tabindex="0" title="从池里移除"
+                    @click="removeCustomSize(c.key)" @keydown.enter.prevent="removeCustomSize(c.key)">×</span>
+                </span>
+              </div>
+
+              <div class="img-subline">
+                <span class="img-sublabel">长边上限</span>
+                <div class="media-cap-row">
+                  <linshe-input class="size-num is-cap" v-model.number="form.galleryMaxEdge" type="number" min="0" max="4096" step="64" @input="markDirty" />
+                  <span class="media-cap-hint">px · 0 = 不限</span>
+                </div>
+              </div>
+              <p class="img-note">取消勾选的画幅永远不会被抽到；长边超过上限的会等比缩到上限再出图。</p>
             </div>
 
             <!-- ⑦ 全局：HiresFix -->
@@ -1525,7 +1542,6 @@ const GALLERY_ASPECTS = [
   { key: '16:9', w: 1728, h: 972 },
 ]
 
-const poolOpen = ref(false)
 /** 表情包尺寸：走自己的接口（emoji_width/emoji_height），不在 comfy 配置里 */
 const emojiSize = ref({ width: 512, height: 512 })
 const emojiThumb = computed(() => {
@@ -1553,7 +1569,9 @@ const form = ref({
   eventArtist: '', eventWidth: 1600, eventHeight: 1200,
   ...SIZE_DEFAULTS,
   paperArtist: '', standingArtist: '', mailArtist: '', chatBgArtist: '', itemArtist: '',
+  mediaArtist: '',
   galleryPool: null,
+  galleryCustom: null,
   galleryMaxEdge: 0,
 })
 
@@ -1589,6 +1607,35 @@ function togglePool(key) {
   if (i >= 0) cur.splice(i, 1); else cur.push(key)
   // 全部取消 = 回到「全选」：后端也是这个兜底，避免产出空池
   form.value.galleryPool = cur.length ? cur : null
+  markDirty()
+}
+
+// ── 媒体自定义画幅：和 7 种预设同池，一起进随机 ──
+const customW = ref('')
+const customH = ref('')
+const CUSTOM_MAX = 12
+const customSizes = computed(() => (Array.isArray(form.value.galleryCustom) ? form.value.galleryCustom : []))
+/** 64~4096、8 对齐，且不与已有条目重复（预设里的同尺寸也挡住，免得抽到两次） */
+const canAddCustomSize = computed(() => {
+  const w = Math.round((Number(customW.value) || 0) / 8) * 8
+  const h = Math.round((Number(customH.value) || 0) / 8) * 8
+  if (w < 64 || w > 4096 || h < 64 || h > 4096) return false
+  if (customSizes.value.length >= CUSTOM_MAX) return false
+  if (customSizes.value.some(c => Number(c.w) === w && Number(c.h) === h)) return false
+  return !GALLERY_ASPECTS.some(a => a.w === w && a.h === h)
+})
+function addCustomSize() {
+  if (!canAddCustomSize.value) return
+  const w = Math.round((Number(customW.value) || 0) / 8) * 8
+  const h = Math.round((Number(customH.value) || 0) / 8) * 8
+  form.value.galleryCustom = [...customSizes.value, { w, h }]
+  customW.value = ''
+  customH.value = ''
+  markDirty()
+}
+function removeCustomSize(key) {
+  form.value.galleryCustom = customSizes.value.filter(c => `${c.w}x${c.h}` !== key)
+  if (!form.value.galleryCustom.length) form.value.galleryCustom = null
   markDirty()
 }
 const globalLoras = ref([])
@@ -1867,6 +1914,8 @@ const saved = ref(false)
 const health = ref(null)
 
 const presets = [
+  { label: '512×768', width: 512, height: 768 },
+  { label: '768×1536', width: 768, height: 1536 },
   { label: '768×512', width: 768, height: 512 },
   { label: '768×768', width: 768, height: 768 },
   { label: '1024×1024', width: 1024, height: 1024 },
@@ -1893,6 +1942,7 @@ const favDialog = reactive({
   show: false,
   mode: 'chat',
   label: '',
+  sourceField: '',   // 新链路（报纸/立绘/媒体…）没有 comfyTab，用字段名定位来源
 })
 
 async function loadArtistFavorites() {
@@ -1915,7 +1965,11 @@ function addToFavorites(mode) {
 }
 
 async function confirmAddFavorite() {
-  const artist = (favDialog.mode === 'moments' ? form.value.momentsArtist : favDialog.mode === 'event' ? form.value.eventArtist : form.value.artist).trim()
+  // sourceField 优先：新链路（报纸/立绘/道具…）没有 comfyTab，靠它定位来源
+  const artist = (favDialog.sourceField
+    ? String(form.value[favDialog.sourceField] || '')
+    : (favDialog.mode === 'moments' ? form.value.momentsArtist : favDialog.mode === 'event' ? form.value.eventArtist : form.value.artist)
+  ).trim()
   const label = favDialog.label.trim() || artist
   try {
     const result = await addArtistFavorite({ label, artist })
@@ -1926,10 +1980,12 @@ async function confirmAddFavorite() {
     console.error('[favorites] add failed:', err)
   }
   favDialog.show = false
+  favDialog.sourceField = ''
 }
 
 function cancelAddFavorite() {
   favDialog.show = false
+  favDialog.sourceField = ''
 }
 
 const favDialogInput = ref(null)
@@ -2615,7 +2671,9 @@ onMounted(async () => {
       mailArtist: data.comfy.mailArtist || '',
       chatBgArtist: data.comfy.chatBgArtist || '',
       itemArtist: data.comfy.itemArtist || '',
+      mediaArtist: data.comfy.mediaArtist || '',
       galleryPool: Array.isArray(data.comfy.galleryPool) ? data.comfy.galleryPool : null,
+      galleryCustom: Array.isArray(data.comfy.galleryCustom) ? data.comfy.galleryCustom : null,
       galleryMaxEdge: data.comfy.galleryMaxEdge || 0,
     }
     globalLoras.value = data.comfy.globalLora || []
@@ -2748,7 +2806,9 @@ async function saveComfy() {
     paperArtist: form.value.paperArtist, standingArtist: form.value.standingArtist,
     mailArtist: form.value.mailArtist, chatBgArtist: form.value.chatBgArtist,
     itemArtist: form.value.itemArtist,
+    mediaArtist: form.value.mediaArtist,
     galleryPool: form.value.galleryPool,
+    galleryCustom: form.value.galleryCustom,
     galleryMaxEdge: form.value.galleryMaxEdge,
   })
   // 表情包不在 comfy 配置里，单独存（保留原有 tags / styleMode，只改分辨率）
@@ -3449,7 +3509,7 @@ const IMAGE_NAV = [
     { id: 'moments',  name: '朋友圈',      hint: '角色日常配图',             kind: 'own',     tab: 'moments', artistField: 'momentsArtist', w: 'momentsWidth',  h: 'momentsHeight' },
     { id: 'event',    name: '奇遇',        hint: '叙事事件插图',             kind: 'own',     tab: 'event',   artistField: 'eventArtist', w: 'eventWidth',    h: 'eventHeight' },
     { id: 'paper',    name: '报纸',        hint: '每日特稿配图',             kind: 'inherit', inheritFrom: '朋友圈', inheritField: 'momentsArtist', artistField: 'paperArtist', w: 'paperWidth', h: 'paperHeight' },
-    { id: 'media',    name: '媒体',        hint: '画幅从池里随机抽，不固定宽高', kind: 'pool' },
+    { id: 'media',    name: '媒体',        hint: '图库形态 · 画幅随机，画风默认逐条随机', kind: 'pool', artistField: 'mediaArtist' },
   ]},
   { label: '素材', items: [
     { id: 'standing', name: '立绘',        hint: '角色全身像 · 竖图',        kind: 'inherit', inheritFrom: '朋友圈', inheritField: 'momentsArtist', artistField: 'standingArtist', w: 'standingWidth', h: 'standingHeight' },
@@ -3486,12 +3546,14 @@ const artistPlaceholder = computed(() => {
     return `留空 = 跟随「${t.inheritFrom}」（${form.value[t.inheritField] || '未设置'}）`
   }
   if (t.kind === 'fixed') return `留空 = ${t.fixedArtist || '@ebora'}`
+  if (t.kind === 'pool') return `留空 = 收藏夹随机抽（现有 ${artistFavorites.value.length} 个）`
   return '画师串'
 })
 const artistNote = computed(() => {
   const t = currentTarget.value
   if (t?.kind === 'inherit') return `留空时跟随「${t.inheritFrom}」的画师串；填了就只用这里的。`
   if (t?.kind === 'fixed') return `留空时用 ${t.fixedArtist || '@ebora'}；填了就覆盖。`
+  if (t?.kind === 'pool') return '媒体要的是画风不重复：每张图从下面收藏里各抽一个。上面填了，就所有媒体图都只用那一个。'
   return ''
 })
 
@@ -3500,6 +3562,30 @@ function selectImageTarget(id) {
   imgTarget.value = id
   const t = ALL_IMAGE_TARGETS.value.find(x => x.id === id)
   if (t?.tab) switchComfyTab(t.tab)
+}
+
+/** 非独立型链路套用收藏：直接写当前链路的画师串字段，不走 comfyTab 三分支 */
+function applyFavoriteToCurrent(artist) {
+  const t = currentTarget.value
+  if (!t?.artistField) return
+  form.value[t.artistField] = artist
+  markDirty()
+}
+
+/** 非独立型链路收藏当前画师串：记下来源字段，确认时按字段取值 */
+function addFavoriteFromCurrent() {
+  const t = currentTarget.value
+  if (!t?.artistField) return
+  const artist = String(form.value[t.artistField] || '').trim()
+  if (!artist) return
+  if (artistFavorites.value.some(f => f.artist === artist)) {
+    toastFn('已收藏过该画师串', 'warning')
+    return
+  }
+  favDialog.mode = 'chat'              // 占位；实际取值看 sourceField
+  favDialog.sourceField = t.artistField
+  favDialog.label = artist.length > 20 ? artist.slice(0, 20) + '…' : artist
+  favDialog.show = true
 }
 
 /** 预设作用于当前链路（独立型/继承型/固定型都适用），不再按 tab 分支 */
@@ -4590,22 +4676,39 @@ function resetTestPrompts() {
   border-color: rgba(var(--accent-rgb), .45);
   border-left: 3px dashed var(--accent);
 }
-.media-line { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.media-cap { font-size: 11px; color: var(--text-tertiary); }
-.media-cap b { font-weight: 400; color: var(--accent); }
-.media-pool-btn { font-size: 11px; flex: 0 0 auto; }
-.media-cap-row { display: flex; align-items: center; gap: 8px; }
-.media-cap-hint { font-size: 11px; color: var(--text-tertiary); flex: 0 0 auto; }
-.media-pool {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px;
-  padding: 10px; border-radius: var(--radius-sm);
+
+/* 画幅池：胶囊直接点，勾什么抽什么（托盘 + 胶囊，不用复选框列表） */
+.aspect-chips {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  padding: 10px;
+  border-radius: var(--radius-md);
   background: var(--bg-sunken);
-  border: 1px dashed var(--border-strong);
+  box-shadow: inset 0 0 0 1px var(--border);
 }
-.media-pool label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--card-ink); cursor: pointer; }
-.media-pool input { accent-color: var(--accent); width: 15px; height: 15px; }
-.media-pool-key { font-weight: 500; }
-.media-pool-dim { color: var(--text-tertiary); font-size: 11px; }
+.aspect-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+.aspect-chip-key { font-weight: 600; }
+.aspect-chip-dim { font-size: 10.5px; color: var(--text-tertiary); }
+.aspect-chip.ls-btn--active .aspect-chip-dim { color: var(--accent-hover); opacity: .85; }
+.aspect-chips.is-custom { margin-top: 8px; padding: 0; background: transparent; box-shadow: none; }
+.aspect-custom {
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 28px; padding: 0 10px; font-size: 12px;
+  border-radius: 999px;
+  background: rgba(var(--accent-rgb), .1);
+  color: var(--accent-hover);
+}
+.aspect-custom .fav-chip-x { cursor: pointer; }
+
+.img-label-hint { display: block; margin-top: 3px; font-size: 11px; color: var(--text-tertiary); }
+.img-subline { display: flex; align-items: center; gap: 10px; margin: 14px 0 7px; }
+.img-sublabel { font-size: 12px; color: var(--text-secondary); flex: 0 0 auto; }
+.img-subhint { font-size: 11px; color: var(--text-tertiary); }
+.media-add-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.media-add-row .size-num { flex: 0 0 108px; }
+.media-add-btn { font-size: 12px; }
+.media-cap-row { display: flex; align-items: center; gap: 8px; }
+.media-cap-row .size-num.is-cap { flex: 0 0 100px; }
+.media-cap-hint { font-size: 11px; color: var(--text-tertiary); flex: 0 0 auto; }
 
 @media (max-width: 640px) {
   .size-grid { grid-template-columns: 1fr; }
