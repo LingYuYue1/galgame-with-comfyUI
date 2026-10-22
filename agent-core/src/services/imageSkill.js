@@ -178,7 +178,13 @@ export function filterGlobalLoras(loras, currentScene) {
  * @param {string|null} [overrides.workflowScene] - hybrid 模式下单独用于选择工作流；
  *        显式传 null 表示不按场景选择（沿用上次模式），与 scene 解耦
  */
-function buildWorkflow(promptText, overrides = {}) {
+/**
+ * 按工作流模板 + 本次覆盖值装配出最终 wf。
+ *
+ * 对外导出**只为测试**：尺寸/画师串是否真的写进了图（而不是被 title 对不上静默吞掉），
+ * 只有在装配结果上才验得出来 —— 见 `test/imageSizeWiring.test.js`。
+ */
+export function buildWorkflow(promptText, overrides = {}) {
   // 用 undefined 区分"没传"与"显式不按场景选工作流"：后者传 null
   const workflowScene = overrides.workflowScene !== undefined ? overrides.workflowScene : overrides.scene;
   let wfPath = overrides.customWorkflow

@@ -769,7 +769,17 @@
 
       <!-- 功能开关 -->
       <div v-show="activeGroup === 'behavior'" class="card">
-        <h3>功能开关</h3>
+        <div class="card-head">
+          <h3>功能开关</h3>
+          <linshe-button
+            class="card-head-save"
+            size="sm"
+            variant="secondary"
+            :loading="behaviorSaving"
+            :disabled="behaviorSaving"
+            @click="saveBehavior"
+          >{{ behaviorSaved ? '已保存' : '保存' }}</linshe-button>
+        </div>
 
         <div class="toggle-row theme-mode-row">
           <div>
@@ -3154,6 +3164,62 @@ async function saveFeature(key, val) {
   await updateFeatureFlag(key, val)
 }
 
+// ── 行为页「保存」──
+// 这一页的开关本来就是即改即存（点一下就发请求），所以按钮不做「攒一批再提交」，
+// 而是**核对 + 补提交**：拉一次后端真实值，跟页面上的值逐项比，缺哪个补哪个。
+// 这样它有两个真作用：① 某次点击其实没存上（网络/接口报错）能被发现并补上；
+// ② 用户点完能拿到一句「确实和后端一致」，不用靠刷新去赌。
+const behaviorSaving = ref(false)
+const behaviorSaved = ref(false)
+let behaviorSavedTimer = null
+
+/** 行为页上会走「功能开关」接口的项 */
+const BEHAVIOR_FLAGS = ['emotion', 'replyGuesses', 'realtimeAffinityDisplay', 'autoTravel', 'weather', 'momentsAdult']
+
+async function saveBehavior() {
+  if (behaviorSaving.value) return
+  behaviorSaving.value = true
+  behaviorSaved.value = false
+  const localFlags = Object.fromEntries(BEHAVIOR_FLAGS.map(k => [k, !!features[k]]))
+  const localFreq = {
+    proactiveChatFreq: Number(freqSlider.value) || 0,
+    eventFreq: Number(eventFreqSlider.value) || 0,
+    momentFreq: (MOMENT_FREQ_STEPS[momentFreqStepIdx.value]?.value ?? Number(features.momentFreq)) || 0,
+  }
+  const diffOf = (server = {}) => {
+    const d = []
+    for (const k of BEHAVIOR_FLAGS) if (!!server[k] !== localFlags[k]) d.push(k)
+    if (Math.abs((Number(server.proactiveChatFreq) || 0) - localFreq.proactiveChatFreq) > 1e-6) d.push('proactiveChatFreq')
+    if (Math.abs((Number(server.eventFreq) || 0) - localFreq.eventFreq) > 1e-6) d.push('eventFreq')
+    if (Math.abs((Number(server.momentFreq) || 0) - localFreq.momentFreq) > 1e-6) d.push('momentFreq')
+    return d
+  }
+  try {
+    const first = diffOf((await getConfig())?.features)
+    if (first.length) {
+      const push = {
+        proactiveChatFreq: () => updateProactiveFreq(localFreq.proactiveChatFreq),
+        eventFreq: () => updateEventFreq(localFreq.eventFreq),
+        momentFreq: () => updateMomentFreq(localFreq.momentFreq, MOMENT_FREQ_STEPS[momentFreqStepIdx.value]?.mode || 'interval'),
+      }
+      await Promise.all(first.map(k => (push[k] ? push[k]() : updateFeatureFlag(k, localFlags[k]))))
+    }
+    const left = diffOf((await getConfig())?.features)
+    if (left.length) {
+      toastFn?.(`保存失败：${left.length} 项没写进去（${left.join('、')}）`, 'error')
+      return
+    }
+    toastFn?.(first.length ? `已保存 · 补提交 ${first.length} 项` : `已保存 · 本页 ${BEHAVIOR_FLAGS.length + 3} 项与后端一致`, 'success')
+    behaviorSaved.value = true
+    clearTimeout(behaviorSavedTimer)
+    behaviorSavedTimer = setTimeout(() => { behaviorSaved.value = false }, 2000)
+  } catch (err) {
+    toastFn?.('保存失败：' + (err?.message || '未知错误'), 'error')
+  } finally {
+    behaviorSaving.value = false
+  }
+}
+
 // ── 深度思考（测试版）：开关在 settings store 持久化，聊天页实时读取 ──
 const deepThinkMode = computed(() => settingsStore.deepThinkMode)
 function onDeepThinkChange(v) {
@@ -3853,6 +3919,10 @@ function resetTestPrompts() {
 }
 .card-full { grid-column: 1 / -1; margin-top: 16px; }
 .card h3 { font-size: 15px; color: var(--text-bright); margin-bottom: 12px; font-weight: 600; }
+/* 卡片标题行：标题在左，保存按钮贴右（用户指的「功能开关」右侧那个位置） */
+.card-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.card-head h3 { margin-bottom: 0; }
+.card-head-save { margin-left: auto; flex: 0 0 auto; min-width: 76px; }
 .fl { font-size: 13px; font-weight: 600; color: var(--text-bright); display: block; margin-bottom: 2px; }
 .fd { font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; }
 .fi { margin-bottom: 14px; }
