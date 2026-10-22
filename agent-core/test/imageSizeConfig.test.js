@@ -144,3 +144,45 @@ test('媒体长边上限：0 表示不限，尺寸原样不动', () => {
 test('config 里的画幅白名单与 GALLERY_ASPECTS 一致（两处各写一份，必须同步）', () => {
   assert.deepEqual(GALLERY_ASPECT_KEYS, GALLERY_ASPECTS.map(a => a.key));
 });
+
+// ── 各链路独立画师串（2026-10-22）──
+const ARTIST_KEYS = {
+  comfy_paper_artist:    'paperArtist',
+  comfy_standing_artist: 'standingArtist',
+  comfy_mail_artist:     'mailArtist',
+  comfy_chatbg_artist:   'chatBgArtist',
+  comfy_item_artist:     'itemArtist',
+};
+
+test('五条链路的独立画师串都登记进 SETTING_TO_CONFIG（type=string）', () => {
+  for (const key of Object.keys(ARTIST_KEYS)) {
+    assert.ok(key in SETTING_TO_CONFIG, `${key} 未登记 —— 重启后会丢`);
+    assert.equal(SETTING_TO_CONFIG[key].obj, 'comfyui');
+    assert.equal(SETTING_TO_CONFIG[key].type, 'string');
+  }
+});
+
+test('独立画师串默认是空/null —— 空表示「跟随原来源」，升级后零变化', () => {
+  for (const field of Object.values(ARTIST_KEYS)) {
+    const v = config.comfyui[field];
+    assert.ok(v === null || v === '' || v === undefined, `${field} 默认应为空，实际是 ${v}`);
+  }
+});
+
+test('写库后 loadSystemSettings 能把独立画师串读回（等价于重启不丢）', () => {
+  const db = createDb([
+    ['comfy_standing_artist', '@ebora'],
+    ['comfy_item_artist', '崩铁立绘风'],
+  ]);
+  const before = { standingArtist: config.comfyui.standingArtist, itemArtist: config.comfyui.itemArtist };
+  try {
+    config.comfyui.standingArtist = '';
+    config.comfyui.itemArtist = '';
+    loadSystemSettings(db);
+    assert.equal(config.comfyui.standingArtist, '@ebora');
+    assert.equal(config.comfyui.itemArtist, '崩铁立绘风');
+  } finally {
+    Object.assign(config.comfyui, before);
+    db.close();
+  }
+});

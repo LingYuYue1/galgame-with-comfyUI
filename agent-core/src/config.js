@@ -138,6 +138,14 @@ defaultTimeoutMs: parseInt(process.env.VECTOR_DEFAULT_TIMEOUT_MS, 10) || 120000,
     // 立绘：竖图。expressionStandingService 原写死 768×1536
     standingWidth: parseInt(process.env.COMFYUI_STANDING_WIDTH, 10) || 768,
     standingHeight: parseInt(process.env.COMFYUI_STANDING_HEIGHT, 10) || 1536,
+    // ── 各链路的独立画师串（2026-10-22 用户提出「要给她们放画师串的位置」）──
+    // 空串 / null = 沿用原来源，保证升级后零变化：
+    //   报纸/立绘/信箱 → momentsArtist；聊天背景 → artist；道具 → '@ebora'
+    paperArtist: null,
+    standingArtist: null,
+    mailArtist: null,
+    chatBgArtist: null,
+    itemArtist: null,
     // 道具 / 商品：itemService、lootService 原写死 512×512（小镇 NPC 存货不改）
     itemWidth: parseInt(process.env.COMFYUI_ITEM_WIDTH, 10) || 512,
     itemHeight: parseInt(process.env.COMFYUI_ITEM_HEIGHT, 10) || 512,
@@ -513,7 +521,7 @@ const SIZE_FIELD_KEYS = {
   chatBgHeight: 'comfy_chatbg_height',
 };
 
-export function updateComfyConfig({ artist, width, height, url, momentsArtist, momentsWidth, momentsHeight, eventArtist, eventWidth, eventHeight, paperWidth, paperHeight, standingWidth, standingHeight, itemWidth, itemHeight, mailWidth, mailHeight, chatBgWidth, chatBgHeight, galleryPool, galleryMaxEdge, tlsVerify, qualityPrompt, negativePrompt, imageProvider, novelaiApiFormat, novelaiUrl, novelaiProxyUrl, novelaiModel, novelaiArtist, novelaiWidth, novelaiHeight, novelaiSteps, novelaiSampler, novelaiNoiseSchedule, novelaiGuidance, novelaiQualityPrompt, novelaiNegativePrompt, novelaiApiKey, clearNovelaiApiKey }) {
+export function updateComfyConfig({ artist, width, height, url, momentsArtist, momentsWidth, momentsHeight, eventArtist, eventWidth, eventHeight, paperArtist, standingArtist, mailArtist, chatBgArtist, itemArtist, paperWidth, paperHeight, standingWidth, standingHeight, itemWidth, itemHeight, mailWidth, mailHeight, chatBgWidth, chatBgHeight, galleryPool, galleryMaxEdge, tlsVerify, qualityPrompt, negativePrompt, imageProvider, novelaiApiFormat, novelaiUrl, novelaiProxyUrl, novelaiModel, novelaiArtist, novelaiWidth, novelaiHeight, novelaiSteps, novelaiSampler, novelaiNoiseSchedule, novelaiGuidance, novelaiQualityPrompt, novelaiNegativePrompt, novelaiApiKey, clearNovelaiApiKey }) {
   if (imageProvider !== undefined) {
     const provider = imageProvider === 'novelai' ? 'novelai' : 'comfyui';
     config.comfyui.imageProvider = provider;
@@ -613,6 +621,13 @@ export function updateComfyConfig({ artist, width, height, url, momentsArtist, m
   if (eventArtist !== undefined) { config.comfyui.eventArtist = eventArtist; persistSettingSync('comfy_event_artist', eventArtist); }
   if (eventWidth !== undefined) { config.comfyui.eventWidth = parseInt(eventWidth, 10) || config.comfyui.eventWidth; persistSettingSync('comfy_event_width', config.comfyui.eventWidth); }
   if (eventHeight !== undefined) { config.comfyui.eventHeight = parseInt(eventHeight, 10) || config.comfyui.eventHeight; persistSettingSync('comfy_event_height', config.comfyui.eventHeight); }
+
+  // ── 各链路的独立画师串（2026-10-22）：空串 = 回到「跟随原来源」 ──
+  if (paperArtist !== undefined) { config.comfyui.paperArtist = String(paperArtist || '').trim(); persistSettingSync('comfy_paper_artist', config.comfyui.paperArtist); }
+  if (standingArtist !== undefined) { config.comfyui.standingArtist = String(standingArtist || '').trim(); persistSettingSync('comfy_standing_artist', config.comfyui.standingArtist); }
+  if (mailArtist !== undefined) { config.comfyui.mailArtist = String(mailArtist || '').trim(); persistSettingSync('comfy_mail_artist', config.comfyui.mailArtist); }
+  if (chatBgArtist !== undefined) { config.comfyui.chatBgArtist = String(chatBgArtist || '').trim(); persistSettingSync('comfy_chatbg_artist', config.comfyui.chatBgArtist); }
+  if (itemArtist !== undefined) { config.comfyui.itemArtist = String(itemArtist || '').trim(); persistSettingSync('comfy_item_artist', config.comfyui.itemArtist); }
 
   // ── 六条原本硬编码的链路尺寸（2026-10-21 设置页整改）──
   // 统一 64~4096 校验；非法值保持原样、不写库，避免把配置写成 0。

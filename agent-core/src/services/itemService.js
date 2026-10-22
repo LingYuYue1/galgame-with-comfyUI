@@ -394,7 +394,7 @@ async function generateItemImageAsync(itemId, imagePrompt) {
       persistPreparation: false,
       width: config.comfyui.itemWidth,
       height: config.comfyui.itemHeight,
-      artist: '@ebora',
+      artist: config.comfyui.itemArtist || '@ebora',
     });
     if (!result.success || !result.images?.length) {
       throw new Error(result.error || 'ComfyUI 未返回图片');
@@ -428,7 +428,7 @@ export async function repairMissingItemImages({ limit = 100, onProgress } = {}) 
     const prompt = `game item icon, ${row.name}, ${row.description}, ${theme}, floating, glowing softly, no humans, simple background, best quality`;
     try {
       const result = await generateImageRaw(prompt, {
-        scene: 'items', disableRAG: true, persistPreparation: false, width: config.comfyui.itemWidth, height: config.comfyui.itemHeight, artist: '@ebora',
+        scene: 'items', disableRAG: true, persistPreparation: false, width: config.comfyui.itemWidth, height: config.comfyui.itemHeight, artist: config.comfyui.itemArtist || '@ebora',
       });
       if (!result.success || !result.images?.length) throw new Error(result.error || 'ComfyUI 未返回图片');
       const filename = String(row.image_url).split('/').pop();

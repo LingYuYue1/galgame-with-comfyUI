@@ -138,7 +138,7 @@ async function processReply(db, letter) {
         promptOriginal: originalPrompt,
         promptRefined: generated.promptRefined || originalPrompt,
         outputPaths: [outputPath],
-        style: config.comfyui.momentsArtist,
+        style: config.comfyui.mailArtist || config.comfyui.momentsArtist,
         resolution,
         workflowTemplate: generated.wfMode,
         db,

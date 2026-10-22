@@ -503,7 +503,7 @@ async function generateOneImage(catalogId) {
   db.prepare(`UPDATE loot_catalog SET image_status = 'generating', image_error = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(catalogId);
   try {
     const result = await generateImageRaw(imagePromptFor(row), {
-      scene: 'items', disableRAG: true, persistPreparation: false, width: config.comfyui.itemWidth, height: config.comfyui.itemHeight, artist: '@ebora',
+      scene: 'items', disableRAG: true, persistPreparation: false, width: config.comfyui.itemWidth, height: config.comfyui.itemHeight, artist: config.comfyui.itemArtist || '@ebora',
     });
     if (!result.success || !result.images?.length) throw new Error(result.error || 'ComfyUI 未返回图片');
     const url = saveBase64Image('items', `loot_${row.tag}_${Date.now()}.png`, result.images[0].base64);

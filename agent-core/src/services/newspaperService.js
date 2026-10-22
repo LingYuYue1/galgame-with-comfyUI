@@ -458,7 +458,7 @@ async function generateNewsImage(prompt, { ragQuery, loras, character } = {}) {
   const charArtist = charArtistOverrideWithFallback(character);
   const genResult = await generateImageRaw(prompt, {
     ragQuery: ragQuery || prompt,
-    artist: charArtist !== null ? charArtist : config.comfyui.momentsArtist,
+    artist: charArtist !== null ? charArtist : (config.comfyui.paperArtist || config.comfyui.momentsArtist),
     width: config.comfyui.paperWidth,
     height: config.comfyui.paperHeight,
     scene: 'moments',
@@ -472,7 +472,7 @@ async function generateNewsImage(prompt, { ragQuery, loras, character } = {}) {
     url,
     refinedPrompt: genResult.promptRefined || prompt,
     wfMode: genResult.wfMode,
-    artist: charArtist !== null ? charArtist : config.comfyui.momentsArtist,
+    artist: charArtist !== null ? charArtist : (config.comfyui.paperArtist || config.comfyui.momentsArtist),
   };
 }
 

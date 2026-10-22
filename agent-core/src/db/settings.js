@@ -81,6 +81,13 @@ export const SETTING_TO_CONFIG = {
   comfy_event_artist:      { obj: 'comfyui',   key: 'eventArtist',     type: 'string'  },
   comfy_event_width:       { obj: 'comfyui',   key: 'eventWidth',      type: 'int'     },
   comfy_event_height:      { obj: 'comfyui',   key: 'eventHeight',     type: 'int'     },
+  // ── 各链路独立画师串（2026-10-22）：空串 = 跟随原来源 ──
+  comfy_paper_artist:      { obj: 'comfyui',   key: 'paperArtist',     type: 'string'  },
+  comfy_standing_artist:   { obj: 'comfyui',   key: 'standingArtist',  type: 'string'  },
+  comfy_mail_artist:       { obj: 'comfyui',   key: 'mailArtist',      type: 'string'  },
+  comfy_chatbg_artist:     { obj: 'comfyui',   key: 'chatBgArtist',    type: 'string'  },
+  comfy_item_artist:       { obj: 'comfyui',   key: 'itemArtist',      type: 'string'  },
+
   // ── 原本硬编码、2026-10-21 起开放配置的链路 ──
   comfy_paper_width:       { obj: 'comfyui',   key: 'paperWidth',      type: 'int'     },
   comfy_paper_height:      { obj: 'comfyui',   key: 'paperHeight',     type: 'int'     },

@@ -75,17 +75,18 @@
               <p>{{ currentTarget.hint }}</p>
             </div>
 
-            <!-- ① 独立型：画师串可改 -->
-            <div v-show="isOwnTarget" class="img-field">
+            <!-- ① 画师串：所有链路都能填，留空则跟随原来源 -->
+            <div v-if="currentTarget.artistField" class="img-field">
               <label class="img-label">画师串</label>
               <div class="fav-input-row">
                 <linshe-input
-                  v-model="form[activeFields.artist]"
+                  v-model="form[currentTarget.artistField]"
                   class="fi fav-input"
-                  placeholder="画师串"
+                  :placeholder="artistPlaceholder"
                   @input="markDirty"
                 />
                 <div
+                  v-if="isOwnTarget"
                   role="button"
                   tabindex="0"
                   class="fav-star-btn"
@@ -97,7 +98,8 @@
                   @keydown.space.prevent="addToFavorites(comfyTab)"
                 >☆</div>
               </div>
-              <template v-if="artistFavorites.length">
+              <p v-if="artistNote" class="img-note">{{ artistNote }}</p>
+              <template v-if="isOwnTarget && artistFavorites.length">
                 <div class="fav-section-title">
                   <span>收藏的画师 / 风格</span>
                   <button
@@ -116,24 +118,23 @@
               </template>
             </div>
 
-            <!-- ② 继承型：画师串跟着别人走，先把关系摆在明面上 -->
-            <div v-show="currentTarget.kind === 'inherit'" class="img-field">
+            <!-- 表情包：画师串在「表情管理」弹窗里，那边已经有输入框 -->
+            <div v-else-if="currentTarget.id === 'emoji'" class="img-field">
               <label class="img-label">画师串</label>
               <div class="img-inherit">
-                <span class="img-inherit-value">{{ form[currentTarget.inheritField] || '（未设置）' }}</span>
-                <span class="img-inherit-tag">跟随「{{ currentTarget.inheritFrom }}」</span>
+                <span class="img-inherit-value">在「表情管理」里设置</span>
+                <span class="img-inherit-tag">默认 @ebora</span>
               </div>
-              <p class="img-note">改「{{ currentTarget.inheritFrom }}」的画师串，这里会一起变。</p>
             </div>
 
-            <!-- ③ 固定型：素材类统一画风 -->
-            <div v-show="currentTarget.kind === 'fixed'" class="img-field">
+            <!-- 媒体：画风刻意保持多样，从收藏夹随机抽 -->
+            <div v-else-if="currentTarget.kind === 'pool'" class="img-field">
               <label class="img-label">画师串</label>
               <div class="img-inherit">
-                <span class="img-inherit-value">{{ currentTarget.fixedArtist || '@ebora' }}</span>
-                <span class="img-inherit-tag">固定</span>
+                <span class="img-inherit-value">从「画师串收藏夹」随机抽</span>
+                <span class="img-inherit-tag">当前 {{ artistFavorites.length }} 个</span>
               </div>
-              <p class="img-note">素材类统一画风，不开放单独修改。</p>
+              <p class="img-note">媒体刻意保持画风多样，所以不给固定串；想控制范围就改收藏夹。</p>
             </div>
 
             <!-- ④ 尺寸 -->
@@ -1551,6 +1552,7 @@ const form = ref({
   momentsArtist: '', momentsWidth: 1600, momentsHeight: 1200,
   eventArtist: '', eventWidth: 1600, eventHeight: 1200,
   ...SIZE_DEFAULTS,
+  paperArtist: '', standingArtist: '', mailArtist: '', chatBgArtist: '', itemArtist: '',
   galleryPool: null,
   galleryMaxEdge: 0,
 })
@@ -2607,6 +2609,12 @@ onMounted(async () => {
       mailHeight: data.comfy.mailHeight || 900,
       chatBgWidth: data.comfy.chatBgWidth || 1280,
       chatBgHeight: data.comfy.chatBgHeight || 720,
+      // 各链路独立画师串：空 = 跟随原来源（切片执行区，逐字段写，不引用外部常量）
+      paperArtist: data.comfy.paperArtist || '',
+      standingArtist: data.comfy.standingArtist || '',
+      mailArtist: data.comfy.mailArtist || '',
+      chatBgArtist: data.comfy.chatBgArtist || '',
+      itemArtist: data.comfy.itemArtist || '',
       galleryPool: Array.isArray(data.comfy.galleryPool) ? data.comfy.galleryPool : null,
       galleryMaxEdge: data.comfy.galleryMaxEdge || 0,
     }
@@ -2737,6 +2745,9 @@ async function saveComfy() {
     itemWidth: form.value.itemWidth, itemHeight: form.value.itemHeight,
     mailWidth: form.value.mailWidth, mailHeight: form.value.mailHeight,
     chatBgWidth: form.value.chatBgWidth, chatBgHeight: form.value.chatBgHeight,
+    paperArtist: form.value.paperArtist, standingArtist: form.value.standingArtist,
+    mailArtist: form.value.mailArtist, chatBgArtist: form.value.chatBgArtist,
+    itemArtist: form.value.itemArtist,
     galleryPool: form.value.galleryPool,
     galleryMaxEdge: form.value.galleryMaxEdge,
   })
@@ -3434,18 +3445,18 @@ async function runHiresTest() {
 // kind 语义：own = 有自己的画师串；inherit = 跟随某条链路；fixed = 素材类固定画风；pool = 画幅随机
 const IMAGE_NAV = [
   { label: '内容配图', items: [
-    { id: 'chat',     name: '对话配图',    hint: '聊天里随手发的照片',       kind: 'own',     tab: 'chat',    w: 'width',         h: 'height' },
-    { id: 'moments',  name: '朋友圈',      hint: '角色日常配图',             kind: 'own',     tab: 'moments', w: 'momentsWidth',  h: 'momentsHeight' },
-    { id: 'event',    name: '奇遇',        hint: '叙事事件插图',             kind: 'own',     tab: 'event',   w: 'eventWidth',    h: 'eventHeight' },
-    { id: 'paper',    name: '报纸',        hint: '每日特稿配图',             kind: 'inherit', inheritFrom: '朋友圈', inheritField: 'momentsArtist', w: 'paperWidth', h: 'paperHeight' },
+    { id: 'chat',     name: '对话配图',    hint: '聊天里随手发的照片',       kind: 'own',     tab: 'chat',    artistField: 'artist', w: 'width',         h: 'height' },
+    { id: 'moments',  name: '朋友圈',      hint: '角色日常配图',             kind: 'own',     tab: 'moments', artistField: 'momentsArtist', w: 'momentsWidth',  h: 'momentsHeight' },
+    { id: 'event',    name: '奇遇',        hint: '叙事事件插图',             kind: 'own',     tab: 'event',   artistField: 'eventArtist', w: 'eventWidth',    h: 'eventHeight' },
+    { id: 'paper',    name: '报纸',        hint: '每日特稿配图',             kind: 'inherit', inheritFrom: '朋友圈', inheritField: 'momentsArtist', artistField: 'paperArtist', w: 'paperWidth', h: 'paperHeight' },
     { id: 'media',    name: '媒体',        hint: '画幅从池里随机抽，不固定宽高', kind: 'pool' },
   ]},
   { label: '素材', items: [
-    { id: 'standing', name: '立绘',        hint: '角色全身像 · 竖图',        kind: 'inherit', inheritFrom: '朋友圈', inheritField: 'momentsArtist', w: 'standingWidth', h: 'standingHeight' },
+    { id: 'standing', name: '立绘',        hint: '角色全身像 · 竖图',        kind: 'inherit', inheritFrom: '朋友圈', inheritField: 'momentsArtist', artistField: 'standingArtist', w: 'standingWidth', h: 'standingHeight' },
     { id: 'emoji',    name: '表情包',      hint: '统一方形 · 512–1024 · 64 步进', kind: 'fixed', fixedArtist: '@ebora' },
-    { id: 'item',     name: '道具 / 商品', hint: '背包与橱窗图标',           kind: 'fixed',   fixedArtist: '@ebora', w: 'itemWidth', h: 'itemHeight' },
-    { id: 'mail',     name: '信箱信纸',    hint: '来信纸面 · 肖像图自动取反', kind: 'inherit', inheritFrom: '朋友圈', inheritField: 'momentsArtist', w: 'mailWidth', h: 'mailHeight' },
-    { id: 'chatbg',   name: '聊天背景',    hint: '对话背景图',               kind: 'inherit', inheritFrom: '对话配图', inheritField: 'artist', w: 'chatBgWidth', h: 'chatBgHeight' },
+    { id: 'item',     name: '道具 / 商品', hint: '背包与橱窗图标',           kind: 'fixed',   fixedArtist: '@ebora', artistField: 'itemArtist', w: 'itemWidth', h: 'itemHeight' },
+    { id: 'mail',     name: '信箱信纸',    hint: '来信纸面 · 肖像图自动取反', kind: 'inherit', inheritFrom: '朋友圈', inheritField: 'momentsArtist', artistField: 'mailArtist', w: 'mailWidth', h: 'mailHeight' },
+    { id: 'chatbg',   name: '聊天背景',    hint: '对话背景图',               kind: 'inherit', inheritFrom: '对话配图', inheritField: 'artist', artistField: 'chatBgArtist', w: 'chatBgWidth', h: 'chatBgHeight' },
   ]},
 ]
 
@@ -3466,6 +3477,23 @@ const currentTarget = computed(() =>
   ALL_IMAGE_TARGETS.value.find(t => t.id === imgTarget.value) || ALL_IMAGE_TARGETS.value[0]
 )
 const isOwnTarget = computed(() => currentTarget.value.kind === 'own')
+
+/** 空串 = 跟随原来源。placeholder 直接把「跟随的是谁、当前值多少」写出来 */
+const artistPlaceholder = computed(() => {
+  const t = currentTarget.value
+  if (!t?.artistField) return ''
+  if (t.kind === 'inherit') {
+    return `留空 = 跟随「${t.inheritFrom}」（${form.value[t.inheritField] || '未设置'}）`
+  }
+  if (t.kind === 'fixed') return `留空 = ${t.fixedArtist || '@ebora'}`
+  return '画师串'
+})
+const artistNote = computed(() => {
+  const t = currentTarget.value
+  if (t?.kind === 'inherit') return `留空时跟随「${t.inheritFrom}」的画师串；填了就只用这里的。`
+  if (t?.kind === 'fixed') return `留空时用 ${t.fixedArtist || '@ebora'}；填了就覆盖。`
+  return ''
+})
 
 /** 切左列表：独立型同时同步 comfyTab，让 activeFields 指向正确的画师串字段 */
 function selectImageTarget(id) {

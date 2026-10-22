@@ -38,7 +38,7 @@ export async function generateDialogueBackground(character, requirement) {
   if (prompt.length < 20) throw new Error('背景提示词不完整，请重试');
   const result = await generateImageRaw(`scenery, no humans, visual novel background, wide shot, ${prompt}`, {
     scene: 'chat', workflowScene: null, priority: 'high', disableRAG: true, skipOptimization: true,
-    artist: charArtistOverride(character) ?? config.comfyui.artist,
+    artist: charArtistOverride(character) ?? (config.comfyui.chatBgArtist || config.comfyui.artist),
     width: config.comfyui.chatBgWidth, height: config.comfyui.chatBgHeight,
     // 不带角色 LoRA，避免纯场景被角色特征污染；全局画风仍沿用聊天范围。
     negativePrompt: [config.comfyui.negativePrompt, 'people, person, character, human, face, body, text, watermark, interface'].filter(Boolean).join(', '),
