@@ -305,8 +305,13 @@ test('生成头像：显式固定「常服」，不再沿用会随时间变化�
   const s = fs.readFileSync(path.join(SRC_DIR, 'routes/characters.js'), 'utf8');
   assert.match(s, /sceneOutfitParam\(\s*char\.id\s*,\s*'work'\s*\)/,
     '头像必须显式取「常服」那一套作为基准形象');
-  assert.match(s, /buildCharacterPersona\(char,\s*\{\s*variant:\s*'full',\s*outfits:\s*avatarOutfits\s*\}\)/,
+  // ★ 2026-10-22 阶段 5：本断言原来精确匹配 `{ variant:'full', outfits:avatarOutfits }`，
+  //   加了 `appearance:'anchor'` 之后就不匹配了。放宽到"参数列里含这两项"，
+  //   原意（outfits 必须是固定的 avatarOutfits）一点没变。
+  assert.match(s, /buildCharacterPersona\(char,\s*\{[^}]*variant:\s*'full'[^}]*outfits:\s*avatarOutfits[^}]*\}\)/,
     '头像的人格组装必须把固定的 outfits 传进去');
+  assert.match(s, /buildCharacterPersona\(char,\s*\{[^}]*appearance:\s*'anchor'[^}]*\}\)/,
+    '头像必须按锚点口径组装（丢掉人物卡里那份可能矛盾的中文外观）');
 });
 
 // ─────────────────────────────────────────────────────────

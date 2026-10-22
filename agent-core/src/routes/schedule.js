@@ -845,8 +845,11 @@ router.post('/:characterId/peek', async (req, res) => {
     //    这里显式算该时段的服装传进去（`opts.outfits` 支持对象形式），
     //    顺序与 auto 一致：道具/限时服饰仍然优先（在 sceneOutfitForActivity 内部已判）。
     const sceneOutfits = asPersonaOutfits(getSceneOutfitForActivity(characterId, activity));
+    // ★ 阶段 5（2026-10-22）：`appearance: 'anchor'` —— 外观只留锚点那一份。
+    //   "瞄一眼"是纯生图提示词链路（这段 persona 只写给 LLM 生成英文 prompt 用），
+    //   留着人物卡里那段中文外观，等于让 LLM 在"锚点"和"老写法"之间猜（花火粉发就是这么来的）。
     let personaText = buildCharacterPersona(character, {
-      variant: 'full', person: charName, outfits: sceneOutfits || undefined,
+      variant: 'full', person: charName, outfits: sceneOutfits || undefined, appearance: 'anchor',
     });
     if (!personaText) personaText = `角色名：${charName}`;
 

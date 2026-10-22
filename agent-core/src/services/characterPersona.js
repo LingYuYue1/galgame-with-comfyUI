@@ -294,7 +294,37 @@ export function buildCharacterPersona(character, opts = {}) {
     // 此时无处锚定注入，跳过外观注入
     return basePrompt.trim();
   }
-  let appearancePart = injectOutfitsIntoAppearance(appearance, buildOutfitInjectionBlocks(outfits)).trim();
+
+  /**
+   * ★ 2026-10-22（阶段 5）：short 分支也要支持 appearance 分流。
+   *
+   * 原来 `appearance` 只在 `full` 分支生效，于是**立绘**（唯一走 short 的生图链路）
+   * 无从切换到锚点口径 —— 它把人物卡那段中文外观原样喂给 LLM，与代码注入的锚点可能矛盾
+   * （花火：卡里写"浅粉色长发"，锚点写"深棕+粉渐变发尾"）。
+   *
+   * 语义与 full 一致：
+   *   'anchor' → 丢掉人物卡外观正文，只保留结构化服装注入块（与出图同一份口径）
+   *   'none'   → 连服装块也不要
+   * 角色一套服装都没配时，'anchor' 退回原口径（保住兜底，不把外观剥空）。
+   */
+  const blocks = buildOutfitInjectionBlocks(outfits);
+  if (appearanceMode === 'none') {
+    if (short) return short;
+    // short 为空时也要把外观段剥掉，不能借兜底又把它带回来
+    const { before, after } = splitAppearanceSection(basePrompt);
+    return [before.trimEnd(), after.trim()].filter(Boolean).join('\n\n').trim() || basePrompt.trim();
+  }
+  if (appearanceMode === 'anchor') {
+    if (!blocks) {
+      // 没有服装行 → 退回原口径（保留人物卡外观段，别让她变成"没有长相的人"）
+      let fallbackPart = toThirdPerson(injectOutfitsIntoAppearance(appearance, blocks).trim(), person);
+      return [short, fallbackPart].filter(Boolean).join(joiner);
+    }
+    const anchorPart = toThirdPerson(injectOutfitsIntoAppearance('', blocks).trim(), person);
+    return [short, anchorPart].filter(Boolean).join(joiner);
+  }
+
+  let appearancePart = injectOutfitsIntoAppearance(appearance, blocks).trim();
   appearancePart = toThirdPerson(appearancePart, person);
   return [short, appearancePart].filter(Boolean).join(joiner);
 }

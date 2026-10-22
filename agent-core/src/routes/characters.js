@@ -1415,10 +1415,17 @@ ${imageRuleContent ? `【画面描述要求】\n${imageRuleContent}\n` : ''}
 //   （角色若没配常服，sceneOutfitParam 返回 null → 不注入，退回角色卡基础外观，与旧行为一致。）
 const avatarOutfits = sceneOutfitParam(char.id, 'work');
 
+/**
+ * ★ 阶段 5（2026-10-22）：`appearance: 'anchor'` —— 丢掉人物卡「## 你的外观」那段中文。
+ *
+ * 为什么：出图提示词最前已经有代码注入的锚点（同一份 body + 常服），
+ * 卡里那段是"老写法"、与锚点可能矛盾（花火：卡里"浅粉色长发" vs 锚点"深棕+粉渐变发尾"）。
+ * 两份都给 LLM，它挑哪份是运气；只给锚点那份，画面与文字就只有一个口径。
+ */
 const userMsg = `请根据以下角色设定，生成一张脸部特写头像的画面描述：
 
 ---角色设定---
-${buildCharacterPersona(char, { variant: 'full', outfits: avatarOutfits })}
+${buildCharacterPersona(char, { variant: 'full', outfits: avatarOutfits, appearance: 'anchor' })}
 ---
 
 要求：脸部特写，表情跟随人格但是表情幅度很小。`;
@@ -1568,7 +1575,11 @@ function buildStandingMessages(char, requirement, mode = 'normal', scene = null)
     // 取该场景的 {limited:[...]} 参数；口径（尤其"用 hit.text 而非 description"）见 outfitScene.sceneOutfitParam
     outfits = sceneOutfitParam(char.id, scene);
   }
-  const personaText = buildCharacterPersona(char, { variant: 'short', person: char.display_name, outfits });
+  // ★ 阶段 5（2026-10-22）：立绘是所有生图链路里唯一走 `variant:'short'` 的，
+  //   用 'anchor' 丢掉人物卡外观正文 —— 立绘必须与出图锚点是同一份长相。
+  const personaText = buildCharacterPersona(char, {
+    variant: 'short', person: char.display_name, outfits, appearance: 'anchor',
+  });
   msgs.push({
     role: 'system',
     content: scene
