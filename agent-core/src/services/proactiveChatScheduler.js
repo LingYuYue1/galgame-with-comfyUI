@@ -602,10 +602,16 @@ async function generateImageForGreeting(character, greeting, motiveName, msgId, 
     appearanceBlock = appendOathRing(appearanceBlock, character.id, 'user', { isFirstPerson: false, charName: '角色' });
 
     // 日程上下文（参照瞄一眼格式：activity + location + time + light + sleep note）
+    // ★ 2026-10-22：取一次给两处用 —— 文案写"她正在做什么"，锚点定"她穿什么"。
+    let imgActivity = null;
+    try {
+      const a = getCurrentActivity(character.id);
+      if (a && a.activity && a.activity !== '自由时间') imgActivity = a;
+    } catch { imgActivity = null; }
     const scheduleImgCtx = (() => {
       try {
-        const activity = getCurrentActivity(character.id);
-        if (!activity || !activity.activity || activity.activity === "自由时间") return "";
+        const activity = imgActivity;
+        if (!activity) return "";
         const timeLightInline = getTimeLightInline();
         const isSleeping = activity.replyDelay === -1;
         const sleepNote = isSleeping
@@ -686,9 +692,9 @@ ${motiveName}
       ...loraOpts,
       /**
        * ★ 角色锚点（施工阶段 4，2026-10-22）：主动私聊的配图是"她此刻想给你看的一幕"，
-       * 画面里一定有她。场景 auto —— 与聊天配图同口径，按当下日程选装。
+       * 画面里一定有她。带 activity —— 文案已经按这一段写，衣服必须跟上。
        */
-      ...(character?.id ? { anchors: [{ characterId: character.id, slot: 'self' }] } : {}),
+      ...(character?.id ? { anchors: [{ characterId: character.id, slot: 'self', activity: imgActivity }] } : {}),
       width: config.comfyui.momentsWidth,
       height: config.comfyui.momentsHeight,
     });

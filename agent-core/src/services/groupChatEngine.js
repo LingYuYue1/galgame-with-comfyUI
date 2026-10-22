@@ -671,12 +671,18 @@ async function generateGroupImage(group, speaker, prompt, targetMsgId, emit, opt
      * ★ 角色锚点（施工阶段 4，2026-10-22）：群聊图里至少有一个发图的人（speaker），
      *   prompt 里点名的其他成员也算 —— 与 LoRA 完全同口径（那边早就按名字匹配上了）。
      *   缺了锚点就是"LoRA 给了、脸自由发挥"，正是朋友圈实报过的花火变粉。
+     * ★ 带 activity：发图的人此刻正在做什么，图里就该是这个状态与这套衣服。
      */
+    let groupActivity = null;
+    try { groupActivity = speaker?.id ? (getCurrentActivity(speaker.id) || null) : null; } catch { groupActivity = null; }
     const anchorList = [
-      ...(speaker?.id ? [{ characterId: speaker.id, slot: 'self' }] : []),
+      ...(speaker?.id ? [{ characterId: speaker.id, slot: 'self', activity: groupActivity }] : []),
       ...(matchedCharacters || [])
         .filter(c => c?.id && c.id !== speaker?.id)
-        .map((c, i) => ({ characterId: c.id, slot: 'other', side: i % 2 === 0 ? 'left' : 'right' })),
+        .map((c, i) => ({
+          characterId: c.id, slot: 'other', side: i % 2 === 0 ? 'left' : 'right',
+          activity: groupActivity,
+        })),
     ];
     const result = await generateImage(preparedPrompt, {
       ragQuery: options.ragQuery,

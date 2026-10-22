@@ -474,6 +474,9 @@ async function generateMomentImages(character, imagePrompts, opts = {}) {
     // ★ 该画面发生的时刻（Date / 毫秒 / 'HH:MM'）；不给则用"现在"。
     //   用于注入时段光照锚点（修"凌晨的活动生成出白天图"）。
     at = undefined,
+    // ★ 这段帖子对应的日程那一段（阶段 4 补）：文案已经按它写，配图的衣服也要按它选。
+    //   不传就退回"按此刻钟点选装"——文案写着在洗澡、图里却穿着常服上班。
+    activity = null,
   } = opts;
 
   const imageUrls = [];
@@ -506,10 +509,15 @@ async function generateMomentImages(character, imagePrompts, opts = {}) {
      * 多人同框时第一个人整段、其余精简并按左右标位置（见 buildAnchorLines）。
      */
     const anchorList = [
-      { characterId: character.id, slot: 'self' },
+      // ★ 带 activity：文案写的"此刻正在做"与画面上穿的衣服必须是同一段日程的
+      //   （不传时 getSceneOutfitForNow 只看钟点，会与文案错配）
+      { characterId: character.id, slot: 'self', activity, ...(at != null ? { now: at } : {}) },
       ...otherChars
         .filter(c => c?.id)
-        .map((c, i) => ({ characterId: c.id, slot: 'other', side: i % 2 === 0 ? 'left' : 'right' })),
+        .map((c, i) => ({
+          characterId: c.id, slot: 'other', side: i % 2 === 0 ? 'left' : 'right',
+          activity, ...(at != null ? { now: at } : {}),
+        })),
     ];
     // 多图模式串行出图：单张失败只丢那一张，不影响其他张和发帖
     for (let i = 0; i < imagePrompts.length; i++) {
@@ -913,10 +921,14 @@ ${dynamicRules}`;
   // 日程注入：图文主线以当前日程为准，发圈动因仅在非常契合时弱影响表达
   let scheduleContext = '';
   let scheduleWithUser = false; // 日程提到了用户（如聊天约定改写的日程）→ 本条朋友圈带上用户
+  // ★ 2026-10-22：提到外层 —— 文案用它写"此刻正在做"，配图也用它选那一套衣服。
+  //   掉进 if 块里的话，出图侧就拿不到，只能按钟点猜（文案洗澡、图里穿常服）。
+  let momentActivity = null;
   try {
     if (!selectedTopic && (opts.backfill || (!isFreeMode && config.features.schedule !== false))) {
       const activity = opts.backfill ? opts.activity : getCurrentActivity(character.id);
       if (activity && activity.activity !== '自由时间') {
+        momentActivity = activity;
         scheduleContext = buildMomentScheduleContext(character.display_name, activity);
         const nickname = (config.user.nickname || '').trim();
         const haystack = `${activity.activity || ''}${activity.description || ''}${activity.location || ''}`;
@@ -1023,6 +1035,8 @@ ${userName}的信息：${userDesc || '信息未知，按普通人处理'}
     postId,
     // ★ 发帖即此刻：把当前时刻作为画面时刻（角色不会在凌晨 2 点发一条大白天照片）
     at: new Date(),
+    // ★ 文案按哪一段写的，配图就按哪一段选衣服
+    activity: momentActivity,
   });
   // 生图失败不阻塞发帖——无图但有文案
   imageUrls = genImageUrls;
@@ -1228,6 +1242,8 @@ imagePrompt 中${userName}的外观以上述描述为准。`,
       // ★ 时段锚点（F-15）：特殊日程朋友圈 = 履约现场「发帖即此刻」，
       //   把画面时刻与 now 对齐 —— 凌晨的约定不再画成白天（同 L975 普通发帖口径）。
       at: now,
+      // ★ 角色锚点（阶段 4）：这条帖子的主题就是这一条约定日程，衣服必须跟着它
+      activity,
     });
     const imagePrompt = usedPrompts.length > 0 ? usedPrompts.join('\n---\n') : imagePrompts[0];
 

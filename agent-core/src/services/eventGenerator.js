@@ -357,10 +357,13 @@ export async function generateEvent(character, options = {}) {
   const scheduleBinding = captureEventSchedule(character.id, now, db);
   let scheduleContextLine = '';
   let scheduleSystemBlock = '';
+  // ★ 2026-10-22：文案用了这一段，配图的衣服也要用它（否则"正在洗澡"的事件配常服）
+  let eventActivity = scheduleBinding?.activity || null;
   try {
     if (config.features.schedule !== false) {
       const currentActivity = scheduleBinding?.activity || getCurrentActivity(character.id);
       if (currentActivity && currentActivity.activity !== '自由时间') {
+        eventActivity = currentActivity;
         scheduleContextLine = `此时${displayName}正在${currentActivity.location}${currentActivity.activity}。`;
         const descPart = currentActivity.description ? `——${currentActivity.description}` : '';
         scheduleSystemBlock = `\n【当前日程】${displayName}正在【${currentActivity.location}】${currentActivity.activity}${descPart}。`;
@@ -544,10 +547,15 @@ ${customKeyUnderstanding}
    * 与朋友圈（不传 scene）同口径。
    */
   const eventAnchors = [
-    { characterId: character.id, slot: 'self' },
+    // ★ 带 activity（2026-10-22）：奇遇的文案是按"此刻正在做的那一段"写的，
+    //   配图不跟上的话，就是"文字在洗澡、画面穿着和服上班"。
+    { characterId: character.id, slot: 'self', activity: eventActivity },
     ...otherChars
       .filter(c => c?.id)
-      .map((c, i) => ({ characterId: c.id, slot: 'other', side: i % 2 === 0 ? 'left' : 'right' })),
+      .map((c, i) => ({
+        characterId: c.id, slot: 'other', side: i % 2 === 0 ? 'left' : 'right',
+        activity: eventActivity,
+      })),
   ];
   let imageUrl = null;
   try {
@@ -954,11 +962,18 @@ ${timeTag2}${weatherHint}${multiPersonImageNote2}
    * 为什么把交叉引用角色也带上：`branchCrossRefLoras` 早就给她们上了角色 LoRA，
    * 也就是说画面里本来就会出现她们；只给 LoRA 不给锚点，等于"人来、脸自由发挥"。
    */
+  // 分支续写发生在"选项被点下的这一刻" → 衣服跟着此刻的日程走
+  let branchActivity = null;
+  try { branchActivity = getCurrentActivity(character.id) || null; } catch { branchActivity = null; }
   const branchAnchors = [
-    { characterId: character.id, slot: 'self' },
+    // ★ 分支发生在"用户选完的这一刻"，所以取此刻的日程段（不沿用事件起点那一段）
+    { characterId: character.id, slot: 'self', activity: branchActivity },
     ...branchOtherChars
       .filter(c => c?.id && c.id !== character.id)
-      .map((c, i) => ({ characterId: c.id, slot: 'other', side: i % 2 === 0 ? 'left' : 'right' })),
+      .map((c, i) => ({
+        characterId: c.id, slot: 'other', side: i % 2 === 0 ? 'left' : 'right',
+        activity: branchActivity,
+      })),
   ];
   let imageUrl = null;
   try {

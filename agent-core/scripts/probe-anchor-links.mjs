@@ -74,7 +74,22 @@ if (activity) {
   console.log('\n── activity · 日程「瞄一眼」──\n  跳过：这个角色今天没有当前活动');
 }
 
-// ⑥ 多人同框：第一个整段 + 第二个精简并按左右标位置
+// ⑦ 补图/重绘历史帖：按**那个时刻**选装，而不是按现在
+//    （不传 now 时，凌晨重绘一张下午的帖子会被换成睡衣 —— 2026-10-22 修）
+const afternoon = new Date();
+afternoon.setHours(15, 0, 0, 0);
+show('now · 补图/重绘（按帖子原发布时刻 15:00 选装）',
+  [{ characterId: char.id, slot: 'self', now: afternoon }]);
+const atNight = new Date();
+atNight.setHours(2, 30, 0, 0);
+show('now · 补图/重绘（原帖在 02:30）', [{ characterId: char.id, slot: 'self', now: atNight }]);
+const a15 = resolveAnchor(char.id, { now: afternoon });
+const a02 = resolveAnchor(char.id, { now: atNight });
+console.log(`  → 15:00 选中「${a15?.sceneKey || '?'}」(${a15?.source || '?'})；`
+  + `02:30 选中「${a02?.sceneKey || '?'}」(${a02?.source || '?'})`);
+console.log('  （两者不同 = now 真的参与了选装；相同也可能是该角色当天两段本来同装）');
+
+// ⑧ 多人同框：第一个整段 + 第二个精简并按左右标位置
 if (other) {
   show(`多人同框（朋友圈/群聊/奇遇：${char.display_name} + ${other.display_name}）`, [
     { characterId: char.id, slot: 'self' },

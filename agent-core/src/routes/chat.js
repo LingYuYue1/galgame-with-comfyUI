@@ -1976,14 +1976,19 @@ async function triggerImageGeneration(conversationId, prompt, assistantMsgId, ta
   /**
    * ★ 角色锚点（施工阶段 4）：主角色整段，交叉引用角色精简 + 标左右
    *   —— 与朋友圈同口径（那条链路先接、已实拍验证）。
-   * 画的是"她此刻说话的这一刻"，穿什么由日程决定 → scene 走默认 auto。
+   * 画的是"她此刻说话的这一刻"，穿什么由日程决定 → 带 activity（文案也按它写）。
    */
+  let chatActivity = null;
+  try { chatActivity = Number.isNaN(parsedCharId) ? null : (getCurrentActivity(parsedCharId) || null); } catch { chatActivity = null; }
   const anchorList = Number.isNaN(parsedCharId) ? [] : [
-    { characterId: parsedCharId, slot: 'self' },
+    { characterId: parsedCharId, slot: 'self', activity: chatActivity },
     ...(Array.isArray(crossRefCharIds) ? crossRefCharIds : [])
       .map(Number)
       .filter(id => Number.isInteger(id) && id !== parsedCharId)
-      .map((id, i) => ({ characterId: id, slot: 'other', side: i % 2 === 0 ? 'left' : 'right' })),
+      .map((id, i) => ({
+        characterId: id, slot: 'other', side: i % 2 === 0 ? 'left' : 'right',
+        activity: chatActivity,
+      })),
   ];
 
   try {

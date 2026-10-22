@@ -135,14 +135,29 @@ export function buildAnchorLine(text, opts = {}) {
  * 一次取多个角色的锚点（多人同框用）。
  * 第一个整段，第二个起精简 —— 见 buildAnchorLine 的 compact 说明。
  *
- * @param {Array<{characterId:number, side?:'left'|'right'}>} list
+ * @param {Array<{characterId:number, scene?:string, side?:'left'|'right',
+ *   activity?:object, now?:Date|number|string}>} list
+ *   `activity` = 那一段日程（配图必须传，避免"此刻"选错装）
+ *   `now`      = 画面发生的**时刻**（补图/重绘历史帖时用；不传＝现在）
  * @returns {string[]} 与入参同序、可能含空串（角色取不到锚点时）
  */
 export function buildAnchorLines(list = []) {
   return (Array.isArray(list) ? list : []).map((item, i) => {
-    const anchor = resolveAnchor(item?.characterId, { scene: item?.scene || 'auto', activity: item?.activity });
+    const anchor = resolveAnchor(item?.characterId, {
+      scene: item?.scene || 'auto',
+      activity: item?.activity,
+      // ★ 2026-10-22 补：没有它，补图/重绘只能按"此刻"选装 ——
+      //   凌晨重绘一张下午的帖子，会给她换成睡衣。
+      ...(item?.now != null ? { now: toDate(item.now) } : {}),
+    });
     if (!anchor?.text) return '';
     return buildAnchorLine(anchor.text, { compact: i > 0, side: item?.side || '' });
   }).filter(Boolean);
+}
+
+/** 宽松转 Date：非法值退回"现在"，不让一个坏参数把整张图的锚点搞没 */
+function toDate(value) {
+  const d = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(d.getTime()) ? new Date() : d;
 }
 
