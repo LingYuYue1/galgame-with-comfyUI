@@ -3553,7 +3553,7 @@ const artistNote = computed(() => {
   const t = currentTarget.value
   if (t?.kind === 'inherit') return `留空时跟随「${t.inheritFrom}」的画师串；填了就只用这里的。`
   if (t?.kind === 'fixed') return `留空时用 ${t.fixedArtist || '@ebora'}；填了就覆盖。`
-  if (t?.kind === 'pool') return '媒体要的是画风不重复：每张图从下面收藏里各抽一个。上面填了，就所有媒体图都只用那一个。'
+  if (t?.kind === 'pool') return '留空 = 画风逐条随机（图库的看点就在这）；填了就所有媒体图统一用这一个。'
   return ''
 })
 
