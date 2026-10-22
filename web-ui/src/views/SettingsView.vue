@@ -56,8 +56,16 @@
 </div>
               </div>
               <template v-if="artistFavorites.length">
-                <div class="fav-section-title">收藏的画师 / 风格</div>
-                <div class="fav-chips">
+                <div class="fav-section-title">
+                  <span>收藏的画师 / 风格</span>
+                  <button
+                    v-if="favOverflow"
+                    type="button"
+                    class="fav-more"
+                    @click="favOpen = !favOpen"
+                  >{{ favOpen ? '收起' : `展开全部 ${artistFavorites.length} 个` }}</button>
+                </div>
+                <div ref="favChipsEl" class="fav-chips" :class="{ 'is-open': favOpen }">
                 <linshe-button v-for="fav in artistFavorites" :key="fav.id" class="fav-chip" variant="chip" :active="fav.artist === form[activeFields.artist]" @click="applyFavorite(fav, comfyTab)" :title="fav.artist">
                   {{ fav.label }}
                   <span class="fav-chip-x" @click.stop="removeFavorite(fav.id)">×</span>
@@ -293,9 +301,9 @@
           <linshe-button
             v-if="imageProvider !== 'novelai'"
             class="style-test-btn hires-test-btn"
-            variant="primary"
+            variant="secondary"
             :disabled="hireTesting"
-            @click="runHiresTest"
+            @click="confirmHiresTest"
           >
             {{ hireTesting ? '细化中...' : '测试HiresFix细化' }}
           </linshe-button>
@@ -1162,6 +1170,8 @@ type="range" min="0" :max="MOMENT_FREQ_STEPS.length - 1" step="1"
       </div>
 </div>
 
+    <ConfirmDialog ref="confirmRef" />
+
     <!-- 收藏画师串弹窗 -->
     <linshe-modal v-model="favDialog.show" title="收藏画师串">
       <p class="form-dialog-desc">为当前画师串起个名字，方便以后快速识别：</p>
@@ -1369,6 +1379,7 @@ import LinsheSlider from '../components/ui/LinsheSlider.vue'
 import GearIcon from '../components/GearIcon.vue'
 import MemoryHealthPanel from '../components/MemoryHealthPanel.vue'
 import DataCleanupCard from '../components/DataCleanupCard.vue'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
 import UpdateTag from '../components/UpdateTag.vue'
 import { CHANGELOG_ENTRIES } from '../data/changelog.js'
 
@@ -1528,6 +1539,7 @@ function togglePool(key) {
 }
 const globalLoras = ref([])
 const globalLoraModalVisible = ref(false)
+const confirmRef = ref(null)
 const hiresFixModalVisible = ref(false)
 const globalLoraCount = computed(() => (globalLoras.value || []).filter(l => l.path && l.enabled !== false).length)
 const hiresSamplingMode = ref('source')
@@ -1811,6 +1823,18 @@ const presets = [
 
 // ── 画师串收藏夹 ──
 const artistFavorites = ref([])
+const favChipsEl = ref(null)
+const favOverflow = ref(false)
+const favOpen = ref(false)
+
+/** 收藏是否超过一行。chip 高 28 + 行间 gap 6，scrollHeight 超 34 就是换行了 */
+function measureFavOverflow() {
+  const el = favChipsEl.value
+  if (!el) { favOverflow.value = false; return }
+  favOverflow.value = el.scrollHeight > 34
+}
+watch(() => artistFavorites.value.length, () => nextTick(measureFavOverflow))
+onMounted(() => nextTick(measureFavOverflow))
 const favDialog = reactive({
   show: false,
   mode: 'chat',
@@ -2519,15 +2543,21 @@ onMounted(async () => {
       eventWidth: data.comfy.eventWidth || 1600,
       eventHeight: data.comfy.eventHeight || 1200,
       // 六条原本硬编码的链路：缺字段时回落改造前的值（默认不改行为）
-      ...Object.fromEntries(Object.entries(SIZE_DEFAULTS).map(([k, d]) => [k, data.comfy[k] || d])),
+      // ⚠ 必须逐字段写字面量：settingsArtist.test.js 会切片执行本段源码（new Function），
+      //    引用外部常量（SIZE_DEFAULTS）会 ReferenceError，连带 10 条测试挂掉。
+      paperWidth: data.comfy.paperWidth || 1600,
+      paperHeight: data.comfy.paperHeight || 1200,
+      standingWidth: data.comfy.standingWidth || 768,
+      standingHeight: data.comfy.standingHeight || 1536,
+      itemWidth: data.comfy.itemWidth || 512,
+      itemHeight: data.comfy.itemHeight || 512,
+      mailWidth: data.comfy.mailWidth || 1200,
+      mailHeight: data.comfy.mailHeight || 900,
+      chatBgWidth: data.comfy.chatBgWidth || 1280,
+      chatBgHeight: data.comfy.chatBgHeight || 720,
       galleryPool: Array.isArray(data.comfy.galleryPool) ? data.comfy.galleryPool : null,
       galleryMaxEdge: data.comfy.galleryMaxEdge || 0,
     }
-    // 表情包尺寸走独立接口
-    try {
-      const emojiData = await getEmojiFixedTags()
-      if (emojiData?.resolution) emojiSize.value = { ...emojiData.resolution }
-    } catch { /* 表情接口失败不影响设置页其它部分 */ }
     globalLoras.value = data.comfy.globalLora || []
     hiresSamplingMode.value = data.comfy.hiresSamplingMode ?? 'source'
     hiresGlobalLoraScale.value = data.comfy.hiresGlobalLoraScale ?? 1
@@ -2649,7 +2679,12 @@ async function saveComfy() {
     artist: form.value.artist, width: form.value.width, height: form.value.height,
     momentsArtist: form.value.momentsArtist, momentsWidth: form.value.momentsWidth, momentsHeight: form.value.momentsHeight,
     eventArtist: form.value.eventArtist, eventWidth: form.value.eventWidth, eventHeight: form.value.eventHeight,
-    ...Object.fromEntries(Object.keys(SIZE_DEFAULTS).map(k => [k, form.value[k]])),
+    // 同上：本段会被测试切片执行，不能引用 SIZE_DEFAULTS
+    paperWidth: form.value.paperWidth, paperHeight: form.value.paperHeight,
+    standingWidth: form.value.standingWidth, standingHeight: form.value.standingHeight,
+    itemWidth: form.value.itemWidth, itemHeight: form.value.itemHeight,
+    mailWidth: form.value.mailWidth, mailHeight: form.value.mailHeight,
+    chatBgWidth: form.value.chatBgWidth, chatBgHeight: form.value.chatBgHeight,
     galleryPool: form.value.galleryPool,
     galleryMaxEdge: form.value.galleryMaxEdge,
   })
@@ -3310,6 +3345,19 @@ function runGeneratedPromptTest() {
   })
 }
 
+/** HiresFix 细化会重跑整套流程（超分 + 重绘），几十秒到几分钟。
+ *  原来这个按钮是 primary，一碰就开始跑且没有确认 —— 误触成本太高。 */
+async function confirmHiresTest() {
+  const ok = await confirmRef.value?.show({
+    title: '开始 HiresFix 细化？',
+    message: '会用最近一张图重跑一遍细化流程（超分 + 重绘），通常几十秒到几分钟。期间别重复点这个按钮。',
+    okText: '开始细化',
+    cancelText: '取消',
+    danger: false,
+  })
+  if (ok) runHiresTest()
+}
+
 async function runHiresTest() {
   hireTesting.value = true
   hiresError.value = ''
@@ -3327,6 +3375,18 @@ async function runHiresTest() {
     hireTesting.value = false
   }
 }
+
+// 表情包尺寸走独立接口。
+// ⚠ 位置有讲究：SettingsView 被三份测试按**源码切片**执行（new Function 注入少数几个变量），
+//   - onMounted 里 `form.value = {` 到 `globalLoras.value` 之间那段是同步执行的切片，不能出现 await
+//   - `executeStyleTest` 到 `runHiresTest` 之间那段也没注入 onMounted
+//   所以只能挂在 runHiresTest 之后、所有切片区之外。
+onMounted(async () => {
+  try {
+    const emojiData = await getEmojiFixedTags()
+    if (emojiData?.resolution) emojiSize.value = { ...emojiData.resolution }
+  } catch { /* 表情接口失败不影响设置页其它部分 */ }
+})
 
 // ── 测试提示词编辑器 ──
 const TEST_PROMPTS_KEY = 'test-style-prompts'
@@ -3622,10 +3682,20 @@ function resetTestPrompts() {
 .fav-star-btn.is-disabled { opacity: 0.35; cursor: not-allowed; }
 .fav-section-title {
   font-size: 12px; color: var(--text-secondary); margin-bottom: 6px;
+  display: flex; align-items: baseline; gap: 10px;
 }
+.fav-more {
+  font: inherit; font-size: 12px; color: var(--accent);
+  background: none; border: 0; padding: 0; cursor: pointer;
+}
+.fav-more:hover { text-decoration: underline; }
+/* 默认只露一行（chip 高 28px）：收藏攒多了会把下面的表单整个顶下去 */
 .fav-chips {
   display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 20px;
+  max-height: 28px; overflow: hidden;
+  transition: max-height var(--dur-base) var(--ease-standard);
 }
+.fav-chips.is-open { max-height: 800px; }
 .fav-chip {
   display: inline-flex; align-items: center; gap: 6px;
   height: 28px; padding: 0 10px; font-size: 14px;
