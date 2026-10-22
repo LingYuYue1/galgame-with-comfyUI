@@ -502,14 +502,17 @@ export function getNovelaiApiKey() {
 }
 
 /**
- * 合法画幅 key —— 与 `data/galleryAspects.js` 的 GALLERY_ASPECTS 保持一致。
+ * 合法画幅 key —— 与 `data/galleryAspects.js` 的 GALLERY_ASPECTS + GALLERY_SMALL_ASPECTS 保持一致。
  *
  * ⚠ 这里**故意不 import** 那个模块：`test/llmConfig.test.js` 会把本文件的源码塞进
  * `data:text/javascript,...` 里执行，data: URL 下**任何相对 import 都无法解析**
  * （ERR_UNSUPPORTED_RESOLVE_REQUEST），整份测试会因此崩掉。
  * 两边的一致性由 `test/imageSizeConfig.test.js` 兜底。
  */
-export const GALLERY_ASPECT_KEYS = ['2:3', '3:4', '9:16', '1:1', '4:3', '3:2', '16:9'];
+export const GALLERY_ASPECT_KEYS = [
+  '2:3', '3:4', '9:16', '1:1', '4:3', '3:2', '16:9',
+  '512x768', '768x1024', '576x1024', '1024x1024', '1024x768', '768x512', '1280x720',
+];
 
 /** 六条链路尺寸：config 字段 → system_settings 键（2026-10-21 新增） */
 const SIZE_FIELD_KEYS = {

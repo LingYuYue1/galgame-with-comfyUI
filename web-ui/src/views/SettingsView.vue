@@ -163,19 +163,44 @@
 
             <!-- ⑥ 媒体：画幅池 = 7 种预设 + 自定义，勾什么抽什么 -->
             <div v-if="currentTarget.kind === 'pool'" class="img-field">
-              <label class="img-label">画幅池<span class="img-label-hint">想画多大的就勾哪些，每张图从中随机抽一个</span></label>
-              <div class="aspect-chips">
-                <linshe-button
-                  v-for="a in GALLERY_ASPECTS"
-                  :key="a.key"
-                  class="aspect-chip"
-                  variant="chip"
-                  :active="isPoolOn(a.key)"
-                  @click="togglePool(a.key)"
-                >
-                  <b class="aspect-chip-key">{{ a.key }}</b>
-                  <span class="aspect-chip-dim">{{ a.w }}×{{ a.h }}</span>
-                </linshe-button>
+              <label class="img-label">画幅池<span class="img-label-hint">勾哪些就抽哪些；一个都没勾 = 标准档全用</span></label>
+              <div class="aspect-group">
+                <span class="aspect-group-label">标准档</span>
+                <div class="aspect-chips">
+                  <linshe-button
+                    v-for="a in GALLERY_ASPECTS"
+                    :key="a.key"
+                    class="aspect-chip"
+                    variant="chip"
+                    :active="isPoolOn(a.key)"
+                    @click="togglePool(a.key)"
+                  >
+                    <b class="aspect-chip-key">{{ a.key }}</b>
+                    <span class="aspect-chip-dim">{{ a.w }}×{{ a.h }}</span>
+                  </linshe-button>
+                </div>
+              </div>
+
+              <div class="aspect-group">
+                <div class="aspect-group-head">
+                  <span class="aspect-group-label">小尺寸档</span>
+                  <span class="aspect-group-note">长边 ≤1280 · 显存紧就用这组</span>
+                  <linshe-button v-if="!isSmallPoolOnly" class="aspect-quick" variant="link" @click="useSmallPool">只留小尺寸</linshe-button>
+                  <linshe-button class="aspect-quick" variant="link" @click="useDefaultPool">恢复默认</linshe-button>
+                </div>
+                <div class="aspect-chips">
+                  <linshe-button
+                    v-for="a in GALLERY_SMALL_ASPECTS"
+                    :key="a.key"
+                    class="aspect-chip"
+                    variant="chip"
+                    :active="isPoolOn(a.key)"
+                    @click="togglePool(a.key)"
+                  >
+                    <b class="aspect-chip-key">{{ a.w }}×{{ a.h }}</b>
+                    <span class="aspect-chip-dim">{{ a.ratio }}</span>
+                  </linshe-button>
+                </div>
               </div>
 
               <div class="img-subline">
@@ -1542,6 +1567,18 @@ const GALLERY_ASPECTS = [
   { key: '16:9', w: 1728, h: 972 },
 ]
 
+/** 小尺寸档：比例与标准档一一对应，长边 ≤1280（低显存用）。默认不进池 */
+const GALLERY_SMALL_ASPECTS = [
+  { key: '512x768',   w: 512,  h: 768,  ratio: '2:3'  },
+  { key: '768x1024',  w: 768,  h: 1024, ratio: '3:4'  },
+  { key: '576x1024',  w: 576,  h: 1024, ratio: '9:16' },
+  { key: '1024x1024', w: 1024, h: 1024, ratio: '1:1'  },
+  { key: '1024x768',  w: 1024, h: 768,  ratio: '4:3'  },
+  { key: '768x512',   w: 768,  h: 512,  ratio: '3:2'  },
+  { key: '1280x720',  w: 1280, h: 720,  ratio: '16:9' },
+]
+const GALLERY_ALL_ASPECTS = [...GALLERY_ASPECTS, ...GALLERY_SMALL_ASPECTS]
+
 /** 表情包尺寸：走自己的接口（emoji_width/emoji_height），不在 comfy 配置里 */
 const emojiSize = ref({ width: 512, height: 512 })
 const emojiThumb = computed(() => {
@@ -1595,9 +1632,15 @@ function mpLabelOf(s) {
   const H = Number(form.value[s.h]) || 0
   return `${((W * H) / 1e6).toFixed(2)} MP`
 }
+/**
+ * 某个画幅是否在池里。
+ * **空池 ≠ 全选 14 个**：空池等于「标准档 7 个」—— 小尺寸档default 不参与，
+ * 否则加了档位就会悄悄改变别人现在的出图尺寸。
+ */
 function isPoolOn(key) {
   const pool = form.value.galleryPool
-  return !Array.isArray(pool) || !pool.length || pool.includes(key)
+  if (!Array.isArray(pool) || !pool.length) return GALLERY_ASPECTS.some(a => a.key === key)
+  return pool.includes(key)
 }
 function togglePool(key) {
   const cur = Array.isArray(form.value.galleryPool) && form.value.galleryPool.length
@@ -1605,10 +1648,27 @@ function togglePool(key) {
     : GALLERY_ASPECTS.map(a => a.key)
   const i = cur.indexOf(key)
   if (i >= 0) cur.splice(i, 1); else cur.push(key)
+  // 勾选结果正好等于标准档 = 等同默认值，存 null（免得库里堆一份冗余数组）
+  const isDefaultSet = cur.length === GALLERY_ASPECTS.length && GALLERY_ASPECTS.every(a => cur.includes(a.key))
   // 全部取消 = 回到「全选」：后端也是这个兜底，避免产出空池
-  form.value.galleryPool = cur.length ? cur : null
+  form.value.galleryPool = (isDefaultSet || !cur.length) ? null : cur
   markDirty()
 }
+/** 一键只留小尺寸档（低显存） */
+function useSmallPool() {
+  form.value.galleryPool = GALLERY_SMALL_ASPECTS.map(a => a.key)
+  markDirty()
+}
+/** 恢复默认池（标准 7 种） */
+function useDefaultPool() {
+  form.value.galleryPool = null
+  markDirty()
+}
+const isSmallPoolOnly = computed(() => {
+  const pool = form.value.galleryPool
+  if (!Array.isArray(pool) || !pool.length) return false
+  return pool.length === GALLERY_SMALL_ASPECTS.length && GALLERY_SMALL_ASPECTS.every(a => pool.includes(a.key))
+})
 
 // ── 媒体自定义画幅：和 7 种预设同池，一起进随机 ──
 const customW = ref('')
@@ -1622,7 +1682,7 @@ const canAddCustomSize = computed(() => {
   if (w < 64 || w > 4096 || h < 64 || h > 4096) return false
   if (customSizes.value.length >= CUSTOM_MAX) return false
   if (customSizes.value.some(c => Number(c.w) === w && Number(c.h) === h)) return false
-  return !GALLERY_ASPECTS.some(a => a.w === w && a.h === h)
+  return !GALLERY_ALL_ASPECTS.some(a => a.w === w && a.h === h)
 })
 function addCustomSize() {
   if (!canAddCustomSize.value) return
@@ -4678,6 +4738,14 @@ function resetTestPrompts() {
 }
 
 /* 画幅池：胶囊直接点，勾什么抽什么（托盘 + 胶囊，不用复选框列表） */
+.aspect-group { margin-bottom: 10px; }
+.aspect-group:last-of-type { margin-bottom: 0; }
+.aspect-group-label { display: block; margin-bottom: 6px; font-size: 11.5px; color: var(--text-secondary); }
+.aspect-group-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+.aspect-group-head .aspect-group-label { margin-bottom: 0; }
+.aspect-group-note { font-size: 11px; color: var(--text-tertiary); }
+.aspect-quick { margin-left: auto; font-size: 11.5px; }
+.aspect-quick + .aspect-quick { margin-left: 0; }
 .aspect-chips {
   display: flex; flex-wrap: wrap; gap: 8px;
   padding: 10px;

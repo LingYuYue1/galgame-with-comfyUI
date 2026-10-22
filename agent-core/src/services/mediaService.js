@@ -1297,7 +1297,7 @@ function pickRandomArtists(n) {
  */
 // 画幅池单独成模块（纯计算），避免测试 import 本文件时白白拉起 comfyClient 去连 ComfyUI。
 // 对外接口保持不变：调用方仍从 mediaService 拿 GALLERY_ASPECTS / resolveGalleryAspects。
-export { GALLERY_ASPECTS } from '../data/galleryAspects.js';
+export { GALLERY_ASPECTS, GALLERY_SMALL_ASPECTS, GALLERY_ALL_ASPECTS } from '../data/galleryAspects.js';
 export { resolveGalleryAspects } from './galleryAspectResolver.js';
 
 /** 横躺类体位（适合横幅）—— 按体位名/判定里出现的「卧/躺/侧」等字样加权 */

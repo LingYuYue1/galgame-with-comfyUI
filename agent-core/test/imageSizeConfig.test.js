@@ -20,7 +20,7 @@ import Database from 'better-sqlite3';
 import { SETTING_TO_CONFIG, loadSystemSettings } from '../src/db/settings.js';
 import { config, GALLERY_ASPECT_KEYS } from '../src/config.js';
 // 从纯数据/纯计算模块引入，不经过 mediaService —— 否则模块加载时 comfyClient 会真去连 ComfyUI
-import { GALLERY_ASPECTS } from '../src/data/galleryAspects.js';
+import { GALLERY_ASPECTS, GALLERY_SMALL_ASPECTS, GALLERY_ALL_ASPECTS } from '../src/data/galleryAspects.js';
 import { resolveGalleryAspects } from '../src/services/galleryAspectResolver.js';
 
 /** 键 → [config 字段, 改造前的硬编码值] */
@@ -141,8 +141,44 @@ test('媒体长边上限：0 表示不限，尺寸原样不动', () => {
   });
 });
 
-test('config 里的画幅白名单与 GALLERY_ASPECTS 一致（两处各写一份，必须同步）', () => {
-  assert.deepEqual(GALLERY_ASPECT_KEYS, GALLERY_ASPECTS.map(a => a.key));
+test('config 里的画幅白名单与两档画幅一致（两处各写一份，必须同步）', () => {
+  assert.deepEqual(GALLERY_ASPECT_KEYS, GALLERY_ALL_ASPECTS.map(a => a.key));
+});
+
+test('小尺寸档：7 个，比例与标准档一一对应，长边 ≤1280 且都是 8 的倍数', () => {
+  assert.equal(GALLERY_SMALL_ASPECTS.length, GALLERY_ASPECTS.length);
+  assert.deepEqual(
+    GALLERY_SMALL_ASPECTS.map(a => a.ratio),
+    GALLERY_ASPECTS.map(a => a.key),
+  );
+  for (const a of GALLERY_SMALL_ASPECTS) {
+    assert.ok(Math.max(a.w, a.h) <= 1280, `${a.key} 长边超 1280`);
+    assert.equal(a.w % 8, 0);
+    assert.equal(a.h % 8, 0);
+    // 比例真的是那个比例（允许 1px 内的取整误差）
+    const [rw, rh] = a.ratio.split(':').map(Number);
+    assert.ok(Math.abs(a.w / a.h - rw / rh) < 0.02, `${a.key} 比例不是 ${a.ratio}`);
+  }
+});
+
+test('小尺寸档的 key 不与标准档撞名（两档会同池进 media_items.aspect）', () => {
+  const all = GALLERY_ALL_ASPECTS.map(a => a.key);
+  assert.equal(new Set(all).size, all.length);
+});
+
+test('★ 小尺寸档默认不进池 —— 不勾就还是标准档 7 种（加档位不能悄悄改出图尺寸）', () => {
+  withComfy({ galleryPool: null, galleryCustom: null, galleryMaxEdge: 0 }, () => {
+    const got = resolveGalleryAspects();
+    assert.deepEqual(got, GALLERY_ASPECTS);
+    assert.ok(!got.some(a => a.key in Object.fromEntries(GALLERY_SMALL_ASPECTS.map(x => [x.key, 1]))));
+  });
+});
+
+test('勾了小尺寸档：池里就是那几个，尺寸原样', () => {
+  withComfy({ galleryPool: ['512x768', '1024x1024'], galleryCustom: null, galleryMaxEdge: 0 }, () => {
+    const got = resolveGalleryAspects();
+    assert.deepEqual(got.map(a => [a.key, a.w, a.h]), [['512x768', 512, 768], ['1024x1024', 1024, 1024]]);
+  });
 });
 
 // ── 各链路独立画师串（2026-10-22）──
