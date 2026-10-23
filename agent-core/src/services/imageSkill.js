@@ -415,7 +415,25 @@ export function injectLoraNodes(wf, loras) {
 /**
  * 最终阀门：统计 prompt 中所有 "数字+单词" 样式标签，汇总后拼到最前面
  */
-function finalizeCountTags(prompt) {
+/**
+ * 人数标签归一：把提示词里的 `1 girl` / `2girls` / `3 girls` 统一成规范写法并前置。
+ *
+ * ★★ 2026-10-23 修 bug：原来是**累加**，导致「同一个人被描述两次」被算成两个人。
+ *
+ *   现象（建牢凌卡时实测）：单人锚点注入后，提示词必然有两处 `1girl`
+ *   （锚点第一行一个、LLM 场景词一个）→ 累加得 2 → 最终提交给 ComfyUI 的是 `2girls, …`
+ *   （而 `solo` 还在，自相矛盾）。画面当时没崩，是因为模型让 solo 压过了 2girls ——
+ *   换个构图就会真的画出两个人。
+ *
+ *   为什么之前没暴露：没有锚点的时候，提示词里通常只出现一次 `1girl`。
+ *   **只要接了 anchors，这个坑必然被踩到**（阶段 4 之后所有链路都有风险）。
+ *
+ *   修法：**取最大值**，不是求和。
+ *     · 单人：锚点 1girl + 场景 1girl → max = 1 ✅
+ *     · 双人：锚点两行各 1girl + 场景 "two girls" → max(1,1,2) = 2 ✅
+ *       （多人场景的人数由场景词决定，锚点只负责"每人长什么样"）
+ */
+export function finalizeCountTags(prompt) {
   const tagRe = /\b(\d+)\s*([a-z]{3,})s?\b/gi;
   const counts = new Map();
 
@@ -424,7 +442,8 @@ function finalizeCountTags(prompt) {
     const num = parseInt(m[1], 10) || 1;
     const word = m[2].toLowerCase();
     const stem = word.endsWith('s') && word.length > 3 ? word.slice(0, -1) : word;
-    counts.set(stem, (counts.get(stem) || 0) + num);
+    // ★ 取最大值：同一 stem 出现多次时，人数取"最多提到的那个"，不累加
+    counts.set(stem, Math.max(counts.get(stem) || 0, num));
   }
 
   if (counts.size === 0) return prompt;
@@ -549,7 +568,37 @@ export function applyAnchors(promptRefined, opts = {}) {
     return { finalPrompt: prompt, anchorText: '' };
   }
   if (!anchorText) return { finalPrompt: prompt, anchorText: '' };
-  const finalPrompt = `${anchorText}\n${prompt}`;
+  /**
+   * ★★ 人数标签统一（2026-10-23，修「单人变双人」bug）
+   *
+   * 背景：`submitWithRetry` 会调 `finalizeCountTags` 归一人数标签，而它原来按**累加**统计。
+   * 锚点注入后提示词必然出现两处 `1girl`（锚点行 + LLM 场景词）→ 累加得 2 → `2girls`，
+   * 与 `solo` 自相矛盾。阶段 4 之后每条链路都会踩，只是 solo 在场时没露出来。
+   *
+   * 为什么不能只在 `finalizeCountTags` 里改成取最大值：那样双人同框会退化成 1girl
+   * （锚点是"每人一行各 1girl"，行数才是人数）。它看不到行数语义。
+   *
+   * 所以在这里统一：**人数由锚点条数决定**，把锚点行与场景词里的人数标签全部剥掉，
+   * 只在最前面写一个权威值。`finalizeCountTags` 之后看到的就是这一个值，不会被翻倍。
+   *
+   * ⚠ 局限：目前只处理 girl（角色锚点都是女角色）。用户形象（男）接入时要扩展 boy。
+   */
+  const people = list.length;
+  const countTag = people === 1 ? '1girl' : `${people}girls`;
+  const stripGirlCount = (s) => String(s)
+    .split('\n')
+    .map(line => line
+      .replace(/\b\d+\s*girls?\b/gi, '')
+      .replace(/^[\s,]+/, '')
+      .replace(/,\s*,+/g, ', ')
+      .trim())
+    .filter(Boolean)
+    .join('\n');
+  const anchorBody = stripGirlCount(anchorText);
+  const promptBody = stripGirlCount(prompt);
+  const finalPrompt = anchorBody || promptBody
+    ? `${countTag}, ${anchorBody}${anchorBody && promptBody ? '\n' : ''}${promptBody}`
+    : countTag;
   /**
    * ★ 2026-10-23 实测出的软阈值（`scripts/probe-prompt-length.mjs`）
    *

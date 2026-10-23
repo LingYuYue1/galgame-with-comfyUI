@@ -37,7 +37,8 @@ test('★ 传了 anchors → 锚点在最前，场景词在后', () => {
   const id = makeCharacter();
   const out = applyAnchors(PROMPT, { anchors: [{ characterId: id, slot: 'self' }] });
   assert.ok(out.anchorText.includes('dark brown'), `锚点文本：${out.anchorText}`);
-  assert.ok(out.finalPrompt.startsWith(out.anchorText), '锚点必须在最前面');
+  // ★ 2026-10-23：人数标签由 applyAnchors 统一加在最前，所以锚点内容从首行的**第二段**开始
+  assert.ok(out.finalPrompt.split('\n')[0].includes(out.anchorText), '锚点必须在最前面');
   assert.ok(out.finalPrompt.includes(PROMPT), '原提示词不能被吞掉');
   assert.ok(out.finalPrompt.indexOf('dark brown') < out.finalPrompt.indexOf('ramen'), '锚点应排在场景词之前');
 });
@@ -104,4 +105,34 @@ test('锚点超长：先砍体型/肤色，仍超也不硬砍（1500 软上限�
   assert.ok(!/petite slender|fair skin/i.test(out.anchorText), '体型/肤色该先被砍');
   assert.ok(out.anchorText.includes('jacket'), '★ 服装必须留着（原实现会从尾部弹掉它）');
   assert.ok(out.anchorText.length > 1500, '★ 超过软上限也不再硬砍');
+});
+
+// ── ★ 2026-10-23：锚点注入引发的「人数翻倍」bug ──
+// 根因：finalizeCountTags 原来按 **累加** 统计人数。锚点注入后提示词必然出现
+// 两处 `1girl`（锚点行 + LLM 场景词），累加得 2 → 提交的是 `2girls, … solo …`（自相矛盾）。
+// 阶段 4 之后所有链路都会踩，只是 solo 在场时模型压过去了，才没露出来。
+// 修法：人数由 **锚点条数** 决定，applyAnchors 剥掉各处人数标签后只写一个权威值。
+test('★ 单人锚点：最终提示词只有 1girl，不出现 2girls', () => {
+  const id = makeCharacter();
+  const out = applyAnchors('1girl, solo, standing on a stage', {
+    anchors: [{ characterId: id, slot: 'self' }],
+  });
+  const head = out.finalPrompt.split('\n')[0];
+  assert.ok(head.startsWith('1girl'), `首行应以 1girl 开头，实得：${head.slice(0, 50)}`);
+  assert.ok(!/\b2girls\b/.test(out.finalPrompt), '不该出现 2girls');
+  // 场景词里原来那处 1girl 应被剥掉（避免重复计数）
+  assert.equal((out.finalPrompt.match(/\b1girl\b/g) || []).length, 1, '1girl 只该出现一次');
+  // 剥离不能把别的词弄坏
+  assert.ok(out.finalPrompt.includes('solo'), 'solo 要留着');
+  assert.ok(out.finalPrompt.includes('standing on a stage'), '场景词要留着');
+});
+
+test('★ 双人锚点：人数按锚点条数 → 2girls（不靠场景词猜）', () => {
+  const a = makeCharacter();
+  const b = makeCharacter();
+  const out = applyAnchors('standing side by side', {
+    anchors: [{ characterId: a, slot: 'self' }, { characterId: b, slot: 'other', side: 'left' }],
+  });
+  assert.ok(out.finalPrompt.startsWith('2girls'), `双人应以 2girls 开头：${out.finalPrompt.slice(0, 50)}`);
+  assert.equal((out.finalPrompt.match(/\b1girl\b/g) || []).length, 0, '锚点行里的人数标签应被剥掉');
 });
