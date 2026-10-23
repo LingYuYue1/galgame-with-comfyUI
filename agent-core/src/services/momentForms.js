@@ -1,6 +1,8 @@
 /** 朋友圈发布形态池、单中心提示规则与配图工具——角色发帖（routes/moments.js）与镇民发帖
  * （services/town/townNpcMomentGenerator.js）共用，避免两端口径漂移。 */
 
+import { formatNowForText, progressOf } from './nowContext.js';
+
 export const MOMENT_FORMS = [
   { name: '短句流',  desc: '只留一句最想说的话', len: '5-20字', weight: 2.0, nightBoost: false },
   { name: '纯图党',  desc: '用 1～3 个 emoji 或极短一句回应照片，不复述画面', len: '1-15字', weight: 0.5, nightBoost: true },
@@ -106,15 +108,26 @@ export function buildMomentMotiveDirective(description) {
  * 日程优先规则由 MOMENT_SINGLE_FOCUS_RULE 规定，这里不重复，避免 user 层与 system 层口径打架。
  */
 export function buildMomentScheduleContext(characterName, activity = {}, { withDescription = false } = {}) {
-  const name = String(characterName || '').trim();
-  const doing = [String(activity.location || '').trim(), String(activity.activity || '').trim()]
-    .filter(Boolean).join('');
-  if (!name || !doing) return '';
-  const description = withDescription ? String(activity.description || '').trim() : '';
-  const descPart = description
-    ? `\n（以下描述只是背景，帮你确认她此刻的处境；写文案时请换成人话，不要沿用它的句式、书面词或比喻。）\n背景：${description}`
-    : '';
-  return `\n**【此刻正在做】${name}此刻正在${doing}**${descPart}`;
+  /**
+   * ★ 2026-10-23 阶段 8：改为走 `nowContext.formatNowForText` 这个统一出口。
+   *
+   * 为什么：文案层原来是四条链路各拼一套（朋友圈只有"地点+在干什么"、
+   * 主动聊天有描述有光照有睡姿、奇遇又是另一套字段）。统一后文案与配图的
+   * 「穿着/此刻」读的是同一个来源，不会再出现"文案说在洗澡、配图画的是常服上班"。
+   *
+   * 对外签名与输出形态**保持不变**（`【此刻正在做】…`、默认不注入 description），
+   * 新增的只有"这一段刚开头/正做着/快结束了"——日程里没有 startTime 时不会出现。
+   */
+  // 朋友圈必须有"谁"：没名字时原文案会写成"此刻正在书房整理书架"，读起来像旁白
+  if (!String(characterName || '').trim()) return '';
+  return formatNowForText(
+    {
+      activity,
+      progress: progressOf(activity.startTime, activity.endTime),
+      isSleeping: activity.replyDelay === -1,
+    },
+    { name: characterName, withDescription },
+  );
 }
 
 /** 已入账经历等记录量可能很大，必须防止模型逐条总结、变成多主题流水账。 */

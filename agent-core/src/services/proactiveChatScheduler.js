@@ -33,6 +33,7 @@ import { splitText } from '../utils/sentenceSplitter.js';
 import { getLightHint, getLightNoteWithWeather, getTimeLightInline } from './timeLight.js';
 import { saveBase64Image } from './imagePaths.js';
 import { getCurrentActivity } from './scheduleManager.js';
+import { buildNowContext, formatNowForImage } from './nowContext.js';
 import { getCoreDialogueRules } from '../builtinRules.js';
 import { getFreshUnsharedDream, markDreamShared } from './dreamService.js';
 
@@ -610,15 +611,16 @@ async function generateImageForGreeting(character, greeting, motiveName, msgId, 
     } catch { imgActivity = null; }
     const scheduleImgCtx = (() => {
       try {
-        const activity = imgActivity;
-        if (!activity) return "";
-        const timeLightInline = getTimeLightInline();
-        const isSleeping = activity.replyDelay === -1;
-        const sleepNote = isSleeping
-          ? "\n\n【极其重要】角色正在睡觉，双眼必须紧闭，**房间里没有灯光，睡觉时候不开灯**，不能睁眼。表情安详放松，呈现深度睡眠的自然状态，盖被子。睡姿、床、被子、**睡衣（睡觉时候绝对不会穿本来的衣服）**等细节贴合角色性格。"
-          : "";
-        return "【当前日程】角色正在【" + activity.location + "】" + activity.activity + "。" + (activity.description ? activity.description + "。" : "") + timeLightInline + "。照片里的角色要体现正在做的日程。" + sleepNote;
-      } catch (_) { return ""; }
+        // 复用上面那次查询，别为了拿 activity 再查一遍
+        if (!imgActivity) return '';
+        /**
+         * ★ 2026-10-23 阶段 8：改走 `nowContext` 统一出口。
+         * 原来这里是自己拼一段（含 description / 光照 / 睡姿约束），字段与朋友圈、
+         * 奇遇各写各的。现在三处读同一份「此刻」，文案、配图、穿着天然同源。
+         * 输出形态保持不变（`【当前日程】…` + 睡觉硬约束），只多了"这一段正做着"的进度词。
+         */
+        return formatNowForImage(buildNowContext(character.id, { at: new Date(), activity: imgActivity }));
+      } catch (_) { return ''; }
     })();
     const imagePromptText = await chatSync(
       [
