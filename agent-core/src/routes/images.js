@@ -666,8 +666,13 @@ function categoryGenConfig(category) {
     events:    { artist: config.comfyui.eventArtist,    width: config.comfyui.eventWidth,    height: config.comfyui.eventHeight },
     peek:      { artist: config.comfyui.eventArtist,    width: config.comfyui.eventWidth,    height: config.comfyui.eventHeight },
     gifts:     { artist: config.comfyui.artist,         width: config.comfyui.width,         height: config.comfyui.height },
+    // 头像：固定 768 方图（设置页没有"头像尺寸"这一项，方图是产品定义，不是遗漏）
     avatargen: { artist: config.comfyui.momentsArtist,  width: 768,                         height: 768 },
-    standing:  { artist: config.comfyui.momentsArtist,  width: 768,                         height: 1536 },
+    // ★ 2026-10-23 修：这里原写死 768×1536。用户在设置里改「立绘尺寸」后，
+    //   批量生成会跟着变（expressionStandingService 读 config），但**从历史图卡片点「重新生成」**
+    //   走的是这张表 → 尺寸变回 768×1536。同一项设置两条路径两种结果，就是用户报的
+    //   「设置内的尺寸有的改了不生效」。
+    standing:  { artist: config.comfyui.momentsArtist,  width: Number(config.comfyui.standingWidth) || 768, height: Number(config.comfyui.standingHeight) || 1536 },
   };
   return map[category] || { artist: config.comfyui.artist, width: 1024, height: 1024 };
 }

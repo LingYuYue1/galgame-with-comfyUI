@@ -1400,11 +1400,18 @@ router.post('/:id/generate-avatar', async (req, res) => {
 
 ${imageRuleContent ? `【画面描述要求】\n${imageRuleContent}\n` : ''}
 
+【最高优先级 · 覆盖上述所有规则】
+本图是一张**纯头像特写**，画面里没有场景。上面「画面描述要求」中凡涉及
+环境、地点、道具、家具、光照方向、深度虚化、多人空间关系、以及"按情境自选景别
+（close-up / medium shot / wider shot）"的条款，**在本图一律不适用，请直接忽略**。
+景别已由代码固定为特写，你不需要也不允许再选。
+
 【头像生成额外要求】
-- 画面内容必须是脸部特写（close-up portrait, face focus）
+- 只写**面部与上半身**：发型、眼睛、脸型、表情、衣领。重点在面部、发型、眼睛和表情
+- **禁止写任何环境、地点、背景、家具、道具、姿势相关的词**（no room / street / cafe / outdoors / sitting / standing / from head to toe）
+- **禁止出现 1girl / 1boy 这类计数 tag**，用句子写「A single girl is …」。原因：本模型的 tag 写法会切进"全身立绘"模式
 - 完全正面拍照，正常细节不用强调超清细节
 - 光照必须完全平面、均匀（flat lighting, even lighting），不要在 prompt 中写 soft lighting / warm lighting 等任何光照描述。目标是无阴影、无高光的平面照明效果
-- 完全脸部特写，重点在面部、发型、眼睛和表情
 - 白色背景（simple background）
 - 直接输出英文画面描述，不要任何格式包装或额外文字`;
 
@@ -1472,10 +1479,73 @@ ${buildCharacterPersona(char, { variant: 'full', outfits: avatarOutfits, appeara
       promptText += ', flat lighting, even lighting, no shadows, front-lit';
     }
 
-    console.log(`[generate-avatar] Prompt generated (${promptText.length} chars): "${promptText.slice(0, 80)}..."`);
+    /**
+     * ★ 2026-10-23 修 bug（用户报「点生成头像出的是方图但构图是全身」）：
+     *
+     * 尺寸是对的（768×768），错的是**构图** —— 而构图完全靠 systemPrompt 里那句
+     * 「画面内容必须是脸部特写」由 LLM 自觉遵守。它一旦写成 `full body`，
+     * 代码层没有任何东西能纠正，方图里就站了一个全身小人。
+     *
+     * ── 第一版修法失败，查 ComfyUI 源码后才发现路子错了 ──
+     * 第一版是「剥全身词 + 追加 `close-up portrait, face focus, head and shoulders` tag +
+     * 负向压 `full body`」，实机跑了仍然画全身。查 `comfy/text_encoders/qwen_image.py`：
+     *
+     *   ① `Qwen25_7BVLITokenizer.tokenize_with_weights(..., disable_weights=True)`，
+     *      而 `sd1_clip.SDTOkenizer` 里 `disable_weights` 分支是
+     *      `parsed_weights = [(text, 1.0)]` —— **整段当纯文本，权重恒为 1.0**。
+     *      ⇒ `(close-up:1.5)` 这类 A1111 权重语法在本模型上**完全无效**，
+     *        括号和数字还会被当成字面 token 喂进去（纯噪声）。想靠加权救构图是死路。
+     *
+     *   ② 提示词会被套进固定模板，system 段原文：
+     *      「Describe the image by detailing the color, shape, size, texture, quantity,
+     *        text, **spatial relationships** of the objects and background」
+     *      ⇒ 这是个**描述型**模型，不是 tag 型模型。它对
+     *        「谁在画面哪个位置、占多大、边缘切在哪」这种**空间关系描述**响应最好。
+     *
+     * ── 第二版也失败：自然语言构图句被前面的 tag 锚点压掉了 ──
+     * 第二版是「剥全身词 + 自然语言构图句（占满画面/头顶贴边/下缘切胸口）+ 负向压构图的 tag」，
+     * 实机跑了**还是全身，而且连鞋都画出来了**。打印完整 prompt 才看出问题不在尾部，在**头部**：
+     *
+     *   锚点注入（applyAnchors）把 `1girl, twin buns, long twintails, … slim waist, long legs, …`
+     *   整段 tag 顶在提示词最前面。这个模型虽是 Qwen-Image 底座，但显然以 tag 式数据微调为主，
+     *   **`1girl` 开头的 tag 序列 = 角色立绘开关**，一开就把后面的构图描述全盖过去。
+     *   对照实验（锚点置空、其余不变）一次就出对了：
+     *     · 同样的语义，tag 写 `1girl, …` → 出全身立绘
+     *     · 句子写 `A single girl is shown in a close-up portrait` → 出胸像特写
+     *   ⚠ 这是本模型最重要的一个脾气：**tag 与自然语言不是"两种写法"，是两套不同的先验**。
+     *
+     * ── 所以头像这条链路**故意不注入 tag 锚点** ──
+     * `anchors: []`（见下面 generateImageRaw 调用处）。这不是退回到"靠 LLM 自觉"：
+     *   ① LLM 拿到的素材仍是锚点原文（persona 侧 `appearance: 'anchor'`），不是卡里那段旧中文；
+     *   ② 它必须把外观写成**句子**才能跟构图句同频，这正是我们要的；
+     *   ③ 万一它写了全身词，下面这层剥词 + 负向压构图仍然兜底。
+     * 其余链路（立绘/朋友圈/奇遇/日程）**保持 tag 锚点不变** —— 它们要的就是立绘/场景图，
+     * `1girl` 开头正合适。全项目只有"头像要特写"这一条链路与它冲突。
+     */
+    const AVATAR_FRAMING_OUT = /\b(?:full[- ]?body|full[- ]?figure|full[- ]?length|whole[- ]?body|wide shot|long shot|medium shot|cowboy shot|from head to toe|standing|legs?|feet|shoes|thighs?)\b/gi;
+    promptText = String(promptText)
+      .replace(AVATAR_FRAMING_OUT, '')
+      .replace(/,\s*,+/g, ', ')
+      .replace(/^[\s,]+/, '')
+      .replace(/[\s,]+$/, '');
 
-    // Step 2: 调用 ComfyUI 生图（1024x1024）
-    console.log(`[generate-avatar] Step 2/2: generating image at 1024x1024...`);
+    /**
+     * 构图句放在**最前**（此时提示词里没有 tag 锚点，它就是全文开头）：
+     * 先用自然语言把"画面怎么裁"说定，再让后面那段句子补五官与表情。
+     * 用中性说法（不说 her/his），男性角色卡同样适用。
+     */
+    const AVATAR_FRAMING = 'The picture is a tight close-up portrait of a single character. '
+      + 'The head and shoulders fill the entire frame: the top of the head nearly touches the upper edge, '
+      + 'and the bottom edge crops the body at the chest, so no waist, no legs and no feet are visible. '
+      + 'The face is large, centered and clearly visible. '
+      + 'Plain simple white background, nothing else in the picture.';
+
+    promptText = `${AVATAR_FRAMING} ${promptText}, simple background, flat lighting`;
+    // 完整打印：构图出问题时，第一现场就是这行（截断到 80 字符看不出毛病）
+    console.log(`[generate-avatar] Prompt generated (${promptText.length} chars):\n${promptText}`);
+
+    // Step 2: 调用 ComfyUI 生图（768×768 方图）
+    console.log(`[generate-avatar] Step 2/2: generating image at 768x768...`);
     const charLoras = _parseCharLoras(char.loras);
     const avatarArtist = charArtistOverride(char);
     const result = await generateImageRaw(promptText, {
@@ -1487,12 +1557,29 @@ ${buildCharacterPersona(char, { variant: 'full', outfits: avatarOutfits, appeara
       width: 768,
       height: 768,
       /**
-       * ★ 角色锚点（施工阶段 4，2026-10-22）：头像原来只把「常服那一套」喂给 LLM，
-       * 由它写进提示词 —— 写偏一个词（深棕+粉渐变发尾 → 粉发），头像就换了个人。
-       * 这里用**显式 `work` 场景**：头像必须稳定可辨认，不能按当前钟点变睡衣/居家服。
-       * ⚠ 阶段 5 待办：persona 侧（avatarOutfits）此刻仍在注入外观，届时切 `appearance:'none'` 收掉重复。
+       * ★ 头像**故意不注入 tag 锚点**（2026-10-23，D-05 的最终解法）。
+       *
+       * 原先这里传 `[{ characterId, slot: 'self', scene: 'work' }]`，本意是防 LLM 转述翻车。
+       * 实机证明代价太大：`1girl, …` 这串 tag 顶在最前面，会把模型切进"角色立绘"模式，
+       * 后面写多少"close-up portrait、头顶贴边、下缘切胸口"都压不住，768 方图里照样站个全身小人。
+       *
+       * 稳定性没有因此丢：
+       *   · persona 侧 `appearance: 'anchor'` 让 LLM 读的就是锚点原文（不是卡里那段旧中文）；
+       *   · 它必须把外观写成句子才能与构图句同频 —— 实测发色/双丸子/长双马尾/异色瞳/
+       *     不对称眼皮/领口蝴蝶结/外套绑带全部保留，只是把 header 换成了自然语言；
+       *   · 万一它自己写了全身词，上面 `AVATAR_FRAMING_OUT` 会剥掉，负向也会压。
+       * ⚠ 换角色后请实拍确认一次长相是否仍稳定 —— 这是本方案唯一需要盯的点。
        */
-      anchors: [{ characterId: char.id, slot: 'self', scene: 'work' }],
+      anchors: [],
+      /**
+       * 负向里再压一遍构图（只影响本次调用，不改全局负面词）。
+       * ⚠ `config.comfyui.negativePrompt` 非空时是**整体覆盖**工作流节点，
+       *   所以必须把它带在原串前面，不能只写这一句。
+       */
+      negativePrompt: [config.comfyui.negativePrompt,
+        'full body, full-length, whole body, wide shot, long shot, medium shot, cowboy shot, '
+        + 'legs, feet, thighs, standing, from head to toe, multiple views, scenery, crowded background']
+        .filter(Boolean).join(', '),
       loras: charLoras.length > 0 ? charLoras : undefined,
       ...(char.custom_workflow ? { customWorkflow: char.custom_workflow } : {}),
       onProgress: (p) => {
@@ -1640,13 +1727,16 @@ router.post('/:id/generate-standing', async (req, res) => {
 });
 
 /**
- * 立绘出图：朋友圈画师串口径（角色单独画师串优先），固定 1:2 竖幅 768x1536。
+ * 立绘出图：朋友圈画师串口径（角色单独画师串优先），尺寸读 `comfyui.standingWidth/Height`
+ * （2026-10-23 修：原来硬编码 768×1536，导致设置页改立绘尺寸对这条链路不生效）。
  * 只写暂存文件，不落库；落库由 commitStandingImage 或确认覆盖时执行。
  * @returns {Promise<{filename: string, promptRefined: string, sourceFilename: string}>}
  */
 async function runStandingGeneration(char, promptText, { stageBase, onProgress, scene = null } = {}) {
-  // 出图：朋友圈画师串口径（角色单独画师串优先），固定 1:2 竖幅 768x1536
-  console.log(`[generate-standing] Step 2/2: generating image at 768x1536...`);
+  // 出图：朋友圈画师串口径（角色单独画师串优先），尺寸随设置
+  const standW = Number(config.comfyui.standingWidth) || 768;
+  const standH = Number(config.comfyui.standingHeight) || 1536;
+  console.log(`[generate-standing] Step 2/2: generating image at ${standW}x${standH}...`);
   const charLoras = _parseCharLoras(char.loras);
   const standingArtist = charArtistOverride(char);
   let lastStage = '';
@@ -1666,8 +1756,12 @@ async function runStandingGeneration(char, promptText, { stageBase, onProgress, 
      */
     anchors: [{ characterId: char.id, slot: 'self', scene: scene || 'work' }],
     artist: standingArtist !== null ? standingArtist : config.comfyui.momentsArtist,
-    width: 768,
-    height: 1536,
+    // ★ 2026-10-23 修 bug（用户报「设置里的立绘尺寸改了不生效」）：
+    //   这里原来是硬编码 768×1536，而批量立绘（expressionStandingService）早就吃
+    //   `config.comfyui.standingWidth/standingHeight` —— 于是设置页改立绘尺寸时，
+    //   批量立绘跟着变、单张/场景立绘纹丝不动。两处必须同源。
+    width: standW,
+    height: standH,
     loras: charLoras.length > 0 ? charLoras : undefined,
     ...(char.custom_workflow ? { customWorkflow: char.custom_workflow } : {}),
     onProgress: (p) => {
