@@ -22,6 +22,7 @@ import { config, getNovelaiApiKey } from '../config.js';
 import { generateNovelaiImage } from './novelaiClient.js';
 import { acquireSlot, releaseSlot } from './llmConcurrency.js';
 import { buildAnchorLine, resolveAnchorItem } from './characterAnchor.js';
+import { unknownScenes } from './imageScenes.js';
 import { prepareImagePrompt } from './imagePromptPreparer.js';
 
 const _limitEnabled = () => config.features.serializeBackgroundLLM;
@@ -153,7 +154,27 @@ async function submitNovelaiImage(promptText, { onProgress } = {}) {
  * @param {string} [currentScene]
  * @returns {Array} 已归一化 path 的生效 LoRA
  */
+/**
+ * 全局 LoRA 的场景过滤。
+ *
+ * `currentScene` 为空的语义（2026-10-23 明确下来，别再含糊）：
+ *   **空 = 不过滤 = 这条 LoRA 在本次生图里生效**。
+ * 这个语义本身没错，但它有个副作用：**"没传 scene" 和 "传了但白名单放过" 结果一样**，
+ * 于是头像/主动聊天这些链路一直是"因为漏传参数才吃到 LoRA"，而不是"这一项被打开了"。
+ * 全链路体检（方案 §19）之后，各链路都补上了明确的 scene，这个兜底只留给
+ * 确实不属于任何链路的内部调用。
+ */
 export function filterGlobalLoras(loras, currentScene) {
+  // 清单外的场景值永远命不中白名单 —— 只告警一次，避免每张图刷屏
+  if (currentScene) {
+    const unknown = unknownScenes([currentScene]);
+    if (unknown.length && !_warnedUnknownScenes.has(unknown[0])) {
+      _warnedUnknownScenes.add(unknown[0]);
+      console.warn(`[imageSkill] ⚠ 场景值 "${unknown[0]}" 不在 IMAGE_SCENES 清单里，`
+        + '全局 LoRA 的 scenes 白名单不可能命中它。请先在 src/services/imageScenes.js 登记，'
+        + '再到调用点传对 scene。');
+    }
+  }
   return (loras || [])
     .map(l => ({ ...l, path: normalizeLoraValue(l.path) }))
     .filter(l => {
@@ -164,6 +185,7 @@ export function filterGlobalLoras(loras, currentScene) {
       return l.scenes.includes(currentScene);
     });
 }
+const _warnedUnknownScenes = new Set();
 
 /**
  * 构建注入参数后的 workflow 副本
@@ -228,7 +250,8 @@ export function buildWorkflow(promptText, overrides = {}) {
   wf = JSON.parse(JSON.stringify(wf));
 
   const defaults = {
-    [NODE_TITLES.artist]: overrides.artist ?? config.comfyui.artist,
+    // ★ 2026-10-23 体检：画师串先归一化（全角逗号 → 半角），否则后半段会失效
+    [NODE_TITLES.artist]: normalizeArtistString(overrides.artist ?? config.comfyui.artist),
     [NODE_TITLES.width]:  overrides.width  ?? config.comfyui.width,
     [NODE_TITLES.height]: overrides.height ?? config.comfyui.height,
   };
@@ -251,7 +274,18 @@ export function buildWorkflow(promptText, overrides = {}) {
 
     // lora触发词节点：注入所有 lora 的 triggerWord 拼接
     if (node.title === NODE_TITLES.loraTrigger && hasLoras) {
-      const triggerWords = loras.map(l => l.triggerWord || '').filter(Boolean).join(', ');
+      /**
+       * ★ 2026-10-23 体检：**画师串里已经写过的触发词不再重复注入**。
+       * 实机配置里 `triggerWord: "@DOM"` 与画师串 `"…, @DOM"` 同时存在，
+       * 同一个词会在最终提示词里出现两次 —— 白占长度，也可能被模型当成两个不同概念。
+       * 这里只做"去重"，不删用户配置：谁想留在哪儿就留在哪儿。
+       */
+      const artistText = String(defaults[NODE_TITLES.artist] || '').toLowerCase();
+      const triggerWords = loras
+        .map(l => String(l.triggerWord || '').trim())
+        .filter(Boolean)
+        .filter(w => !artistText.includes(w.toLowerCase()))
+        .join(', ');
       if (triggerWords) {
         node.widgets_values[0] = triggerWords;
       }
@@ -295,6 +329,25 @@ export function buildWorkflow(promptText, overrides = {}) {
   console.log(`[imageSkill] Workflow built: ${path.basename(wfPath)} (${pathToMode(wfPath)})${hasLoras ? ` (${loras.length} lora(s))` : ''}`);
   lastUsedWorkflowMode = pathToMode(wfPath);
   return { wf, wfPath, wfMode: lastUsedWorkflowMode };
+}
+
+/**
+ * 画师串归一化（2026-10-23 全链路体检）
+ *
+ * 用户实机的画师串里混进了**全角逗号**：`"Honkai: Star Rail, official art，@DOM"`。
+ * 在 tag 串里 `，` 和 `,` 不是一个字符，模板里那半段会黏成一个怪 token，
+ * 后面的 `@DOM` 就容易失效 —— 这类"看起来配了、实际没生效"的问题最难查。
+ *
+ * 只换**分隔符类**的全角标点，**不动括号**：日文画师名常写成 `画师名（CV）`，
+ * 那个全角括号是原名的一部分，改了反而对不上。
+ */
+export function normalizeArtistString(value) {
+  return String(value || '')
+    .replace(/[，、]/g, ',')
+    .replace(/：/g, ':')
+    .replace(/,+/g, ',')              // 先合并连续逗号，否则下面会变成 `, ,`
+    .replace(/\s*,\s*/g, ', ')
+    .replace(/^[\s,]+|[\s,]+$/g, '');
 }
 
 /**

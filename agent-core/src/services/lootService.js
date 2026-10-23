@@ -503,7 +503,7 @@ async function generateOneImage(catalogId) {
   db.prepare(`UPDATE loot_catalog SET image_status = 'generating', image_error = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(catalogId);
   try {
     const result = await generateImageRaw(imagePromptFor(row), {
-      scene: 'items', disableRAG: true, persistPreparation: false, width: config.comfyui.itemWidth, height: config.comfyui.itemHeight, artist: config.comfyui.itemArtist || '@ebora',
+      scene: 'item', disableRAG: true,   // ★ 2026-10-23 体检：原为 'items'，不在场景清单里 → 吃不到 LoRA persistPreparation: false, width: config.comfyui.itemWidth, height: config.comfyui.itemHeight, artist: config.comfyui.itemArtist || '@ebora',
       // ★ 无角色链路（阶段 4，2026-10-22）：战利品/橱窗商品卡是静物图，画面里没有人 → 不注入锚点。
     });
     if (!result.success || !result.images?.length) throw new Error(result.error || 'ComfyUI 未返回图片');

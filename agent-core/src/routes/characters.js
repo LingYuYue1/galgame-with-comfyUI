@@ -1299,6 +1299,7 @@ router.post('/:id/gift', async (req, res) => {
       const giftArtist = charArtistOverride(char);
       generateImage(result.imagePrompt, {
         promptScene: 'gift',
+        scene: 'gift',   // ★ 2026-10-23 体检：原来没传 → 绕过 LoRA 白名单
         disableRAG: true,
         ragTimeoutMs: RAG_TIMEOUT_FAST_MS,
         loras: _parseCharLoras(char.loras),
@@ -1550,6 +1551,15 @@ ${buildCharacterPersona(char, { variant: 'full', outfits: avatarOutfits, appeara
     const avatarArtist = charArtistOverride(char);
     const result = await generateImageRaw(promptText, {
       promptScene: 'avatar',
+      /**
+       * ★ 2026-10-23 全链路体检：补上明确的 scene。
+       * 原来这里**没传 scene** → `filterGlobalLoras(loras, undefined)` 走
+       * 「不过滤」分支，头像吃全局 LoRA 靠的是"漏传参数"，而不是"头像这一项被打开"。
+       * 补上之后才真正能被设置页控制，也不再是埋着的雷。
+       * `workflowScene: null` = 工作流选择保持原样（不按场景走）。
+       */
+      scene: 'avatar',
+      workflowScene: null,
       priority: 'high',
       disableRAG: true,
       ragTimeoutMs: RAG_TIMEOUT_FAST_MS,

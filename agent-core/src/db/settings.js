@@ -5,6 +5,10 @@
 //   config.js  → settings.js（读写系统设置）
 //   settings.js → （无内部依赖，db 句柄由 initSettingsHandle 注入）
 import { config } from '../config.js';
+// ⚠ 本文件**不许有第二个 import**：`test/llmConfig.test.js` 会把 settings.js 的源码
+//    塞进 `data:text/javascript,...` 里跑（为了单独验设置读写），data: URL 解析不了相对路径。
+//    2026-10-23 加 `import { IMAGE_SCENE_KEYS } from '../services/imageScenes.js'` 就是这么崩的。
+//    → 场景常量只能内联在下面，由 `test/loraSceneCoverage.test.js` 校验与 imageScenes.js 一致。
 
 let _db = null;
 
@@ -197,10 +201,28 @@ function castValue(raw, type) {
   }
 }
 
-// 全局 LoRA 场景的演进：初版弹窗只有这五个，之后陆续加了群聊与立绘。
-// 存量配置的 scenes 恰好等于旧集合（末尾可能已带 group）时，视为"漏了后加的场景"一次性补齐。
+// 全局 LoRA 场景的演进。
+//
+// ── 为什么这里要一路"补全"而不是只做一次 ──
+// `scenes` 白名单决定「这条 LoRA 在哪个场景生效」。而可选场景是**逐步长出来的**：
+//   初版弹窗 5 项 → 加群聊、立绘变 7 项 → 加表情包变 8 项 → 2026-10-23 全链路体检再补 7 项。
+// 用户的配置停留在哪一代，就永远缺后来新增的那几项。
+// 判据：**当配置恰好等于"那一代能勾的全部"时，视为"用户想要全开"**，补全到当前全集。
+// （用户手工取消过某项时不会恰好等于旧集合，因此不会被覆盖。）
+//
+// ⚠ 下面的常量是与 `src/services/imageScenes.js` 的**同一份数据副本**：
+//   本文件不能 import（见文件头），只能内联。
+//   `test/loraSceneCoverage.test.js` 有一条测试校验两边完全一致 —— 改这里必须同时改那边。
+const LORA_SCENE_KEYS_CURRENT = [
+  'chat', 'group', 'portrait', 'avatar', 'moments', 'events', 'schedule',
+  'mailbox', 'sticker', 'item', 'media', 'paper', 'proactive', 'gift', 'town',
+];
 const LEGACY_LORA_SCENES = ['chat', 'moments', 'events', 'mailbox', 'schedule'];
 const LORA_SCENE_ADDITIONS = ['group', 'portrait'];
+/** 旧 UI 的"全选"：8 项（含表情包），代表"当时能勾的全勾了" */
+const LEGACY_UI_SCENES_ALL_8 = [
+  'chat', 'group', 'portrait', 'moments', 'events', 'sticker', 'mailbox', 'schedule',
+];
 
 function sameSceneSet(scenes, list) {
   return scenes.length === list.length && list.every(s => scenes.includes(s));
@@ -210,11 +232,29 @@ export function migrateGlobalLoraScenes(loras) {
   if (!Array.isArray(loras)) return loras;
   return loras.map(l => {
     if (!l || !Array.isArray(l.scenes)) return l;
-    // 初版五项，或群聊上线后用户在 UI 重新保存过的六项（旧五项 + group），都还缺立绘
-    const needsMigration = sameSceneSet(l.scenes, LEGACY_LORA_SCENES)
-      || sameSceneSet(l.scenes, [...LEGACY_LORA_SCENES, 'group']);
-    if (!needsMigration) return l;
-    return { ...l, scenes: [...LEGACY_LORA_SCENES, ...LORA_SCENE_ADDITIONS] };
+    // 空数组 = 全场景（后端语义），不需要补，也不该被改动
+    if (l.scenes.length === 0) return l;
+
+    let scenes = l.scenes;
+
+    // ① 初版五项 / 六项 → 补 group + portrait
+    if (sameSceneSet(scenes, LEGACY_LORA_SCENES)
+      || sameSceneSet(scenes, [...LEGACY_LORA_SCENES, 'group'])) {
+      scenes = [...LEGACY_LORA_SCENES, ...LORA_SCENE_ADDITIONS];
+    }
+
+    // ② 2026-10-23 全链路体检：8 项（那一代"能勾的全部"）→ 补全到当前全集。
+    //    不补的话，各链路补上 scene 之后，头像/道具/媒体/报纸/主动聊天/礼物
+    //    会**突然失去 LoRA** —— 它们此前是靠"漏传 scene 绕过白名单"才生效的。
+    //    ⚠ 7 项那组**不动**：它不含表情包，可能是用户故意排除的，不属于"全选"。
+    if (sameSceneSet(scenes, LEGACY_UI_SCENES_ALL_8)) {
+      scenes = [...LORA_SCENE_KEYS_CURRENT];
+      console.log('[config] 全局 LoRA 的场景白名单补全到当前全集：'
+        + '新增 avatar/item/media/paper/proactive/gift/town，'
+        + '这些链路此前是"因为没传 scene 才生效"，现在改由设置页控制');
+    }
+
+    return scenes === l.scenes ? l : { ...l, scenes };
   });
 }
 

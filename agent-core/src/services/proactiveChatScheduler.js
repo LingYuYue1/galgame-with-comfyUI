@@ -690,6 +690,7 @@ ${motiveName}
     const result = await generateImage(prompt, {
       ragQuery: greeting,
       promptScene: 'proactive',
+      scene: 'proactive',   // ★ 2026-10-23 体检：原来没传 → 绕过 LoRA 白名单
       priority: 'low',
       ...loraOpts,
       /**

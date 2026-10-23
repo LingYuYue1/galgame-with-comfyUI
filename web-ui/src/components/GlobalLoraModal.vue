@@ -117,19 +117,37 @@ const toastFn = inject('toast')
 const globalItems = ref([])
 const activeItems = computed(() => globalItems.value)
 
+/**
+ * 全局 LoRA 的作用场景。
+ *
+ * ★ 2026-10-23 全链路体检：原来只有 8 项，**没有"头像"** ——
+ *   用户在设置页里根本无法给头像单独开关 LoRA，而头像当时是靠"调用点漏传 scene
+ *   绕过白名单"才吃到的。现在补齐到后端 `services/imageScenes.js` 的同一份清单，
+ *   两边必须同步；新增链路时先改那边、再改这里。
+ */
 const sceneOptions = [
   { value: 'chat', label: '聊天' },
   { value: 'group', label: '群聊' },
   { value: 'portrait', label: '立绘' },
+  { value: 'avatar', label: '头像' },
   { value: 'moments', label: '朋友圈' },
   { value: 'events', label: '奇遇' },
   { value: 'sticker', label: '表情包' },
   { value: 'mailbox', label: '信件' },
   { value: 'schedule', label: '日程' },
+  { value: 'item', label: '道具' },
+  { value: 'media', label: '媒体图' },
+  { value: 'paper', label: '报纸' },
+  { value: 'proactive', label: '主动聊天' },
+  { value: 'gift', label: '礼物' },
+  { value: 'town', label: '小镇素材' },
 ]
 
-// 表情包是后补作用范围；新增 LoRA 默认只勾选既有七类，显式打开后才生效。
-const defaultScenes = () => sceneOptions.filter(s => s.value !== 'sticker').map(s => s.value)
+// 表情包与小镇素材属于特殊画风，新增 LoRA 默认不勾，需要时显式打开。
+const DEFAULT_OFF_SCENES = ['sticker', 'town']
+const defaultScenes = () => sceneOptions
+  .filter(s => !DEFAULT_OFF_SCENES.includes(s.value))
+  .map(s => s.value)
 
 const lorasFiles = ref([])
 const activeLoraFileIdx = ref(null)

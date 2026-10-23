@@ -3111,7 +3111,9 @@ async function generateMediaImage(prompt, character = null, opts = {}) {
     artist: finalArtist,
     width: w,
     height: h,
-    scene: 'moments',
+    // ★ 2026-10-23 体检：原为 'moments'（借用朋友圈），现独立成 media，
+    //   这样"朋友圈关掉 LoRA"不会连带把媒体相册一起关掉。调用方可显式覆盖。
+    scene: opts.scene || 'media',
     priority: opts.priority || 'low',
     /**
      * ★ 角色锚点（阶段 6，2026-10-22）：出镜角色的外观由代码整段注入。

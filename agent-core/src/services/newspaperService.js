@@ -470,7 +470,9 @@ async function generateNewsImage(prompt, { ragQuery, loras, character } = {}) {
     artist: charArtist !== null ? charArtist : (config.comfyui.paperArtist || config.comfyui.momentsArtist),
     width: config.comfyui.paperWidth,
     height: config.comfyui.paperHeight,
-    scene: 'moments',
+    // ★ 2026-10-23 体检：原为 'moments'（借用朋友圈），现独立成 paper，
+    //   报纸有自己的画师串与尺寸，LoRA 开关也该独立。
+    scene: 'paper',
     priority: 'low',
     ...(anchors.length ? { anchors } : {}),
     ...(loras?.length ? { customWorkflow: character?.custom_workflow || null, loras } : {}),

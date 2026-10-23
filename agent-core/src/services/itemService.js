@@ -389,7 +389,8 @@ async function generateItemImageAsync(itemId, imagePrompt) {
   if (!snapshot) return;
   try {
     const result = await generateImageRaw(imagePrompt, {
-      scene: 'chat',
+      // ★ 2026-10-23 体检：原为 'chat'，与道具图的语义不符（设置页里"道具"是独立一项）
+      scene: 'item',
       disableRAG: true,
       persistPreparation: false,
       width: config.comfyui.itemWidth,
@@ -429,7 +430,7 @@ export async function repairMissingItemImages({ limit = 100, onProgress } = {}) 
     const prompt = `game item icon, ${row.name}, ${row.description}, ${theme}, floating, glowing softly, no humans, simple background, best quality`;
     try {
       const result = await generateImageRaw(prompt, {
-        scene: 'items', disableRAG: true, persistPreparation: false, width: config.comfyui.itemWidth, height: config.comfyui.itemHeight, artist: config.comfyui.itemArtist || '@ebora',
+        scene: 'item', disableRAG: true,   // ★ 2026-10-23 体检：原为 'items'，不在场景清单里 → 吃不到 LoRA persistPreparation: false, width: config.comfyui.itemWidth, height: config.comfyui.itemHeight, artist: config.comfyui.itemArtist || '@ebora',
         // ★ 无角色链路（阶段 4）：修图用的提示词自带 `no humans`，画面里没有人 → 不注入锚点。
       });
       if (!result.success || !result.images?.length) throw new Error(result.error || 'ComfyUI 未返回图片');

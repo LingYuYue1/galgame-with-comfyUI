@@ -162,7 +162,8 @@ router.post('/generate', async (req, res) => {
   const taskId = taskResult.lastInsertRowid;
 
   // 异步执行，立即返回 taskId
-  generateImage(prompt, { promptScene: 'standalone', ragQuery: rag_query, ragTimeoutMs: RAG_TIMEOUT_FAST_MS })
+  // ★ 2026-10-23 体检：原来没传 scene。这是对外的通用生图接口，归到 chat 一档。
+  generateImage(prompt, { promptScene: 'standalone', scene: 'chat', ragQuery: rag_query, ragTimeoutMs: RAG_TIMEOUT_FAST_MS })
     .then(result => {
       if (result.success) {
         db.prepare(`
@@ -677,15 +678,25 @@ function categoryGenConfig(category) {
   return map[category] || { artist: config.comfyui.artist, width: 1024, height: 1024 };
 }
 
+/**
+ * 「重新生成」时每个图片分类对应的**生图场景**（决定全局 LoRA 走哪条白名单）。
+ *
+ * ★ 2026-10-23 全链路体检修正：这张表原来把头像、立绘都归到 `chat`，
+ *   而它们新生成时用的分别是 `avatar` / `portrait`。
+ *   同一项设置在两条路径上有两种结果 —— 与 D-07（立绘尺寸两条路径各自写死）同类。
+ *   现在两边对齐：重生成也走各自的场景。
+ * ⚠ 工作流选择不受影响：当前 `workflow.mode = custom`，`resolveWorkflowPath` 直接返回自定义模板，
+ *   不读 scene。若将来切到 hybrid，events/peek 走 base（profile 里 events:'base'），与原先一致。
+ */
 const CATEGORY_SCENE = {
   chat: 'chat',
   moments: 'moments',
-  events: 'schedule',
-  peek: 'schedule',
-  mailbox: 'chat',
-  gifts: 'chat',
-  avatargen: 'chat',
-  standing: 'chat',
+  events: 'events',
+  peek: 'events',
+  mailbox: 'mailbox',
+  gifts: 'gift',
+  avatargen: 'avatar',
+  standing: 'portrait',
 };
 
 /** 画风优先级：角色覆盖 > 任务记录 > 分类默认 */
