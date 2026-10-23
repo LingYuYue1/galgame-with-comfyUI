@@ -78,14 +78,20 @@ test('buildAnchorLine compact：只留发型+瞳色，且丢掉身份前缀', ()
   assert.ok(c.length < text.length);
 });
 
-test('★ buildAnchorLine 超长才截，且发色/发型/瞳色留到最后', () => {
+test('★ buildAnchorLine 超长：只砍体型/肤色/标志物，**不再硬砍**（2026-10-23 实测后）', () => {
+  // 订正原因：原实现砍完三类后还会 `while (out.length > 3) out.pop()` 从尾部弹，
+  // 而服装正好在尾部 —— 等于"太长就把衣服脱了"。
+  // 实测（probe-prompt-length）：9957 字符仍能出图，最前面的锚点照样画对；
+  // 硬砍才是真正把人画错的原因。判据：宁可长，不可缺。
   const body = 'Name (Series), long dark brown hair with pink gradient tips, fluorescent pink eyes, fair skin, petite slender build, ' +
     'a small cherry blossom tattoo on her right collarbone, ' + 'extra detail, '.repeat(40);
   const out = buildAnchorLine(body, { maxLen: 200 });
-  assert.ok(out.length <= 200, `超长未截：${out.length}`);
-  assert.ok(out.includes('dark brown'), '把发色砍掉了 —— 那是锚点里最不该丢的');
+  assert.ok(out.includes('dark brown'), '把发色砍掉了 —— 锚点里最不该丢的');
   assert.ok(/eyes?/i.test(out), '把瞳色砍掉了');
-  assert.ok(!out.includes('tattoo'), '应该先砍标志物，结果还留着');
+  assert.ok(!/tattoo/i.test(out), '应该先砍标志物，结果还留着');
+  assert.ok(!/petite slender|fair skin/i.test(out), '应该先砍体型/肤色，结果还留着');
+  assert.ok(out.includes('extra detail'), '★ 不该再从尾部弹段 —— 那会砍到服装');
+  assert.ok(out.length > 200, '★ 超长也不再硬砍（软上限只用来触发"砍次要字段"这一层）');
 });
 
 test('buildAnchorLine 带 side：多人同框时标位置', () => {

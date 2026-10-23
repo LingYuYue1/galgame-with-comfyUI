@@ -84,19 +84,24 @@ test('空的 anchors 数组 / null → 不注入', () => {
   assert.equal(applyAnchors(PROMPT, { anchors: null }).finalPrompt, PROMPT);
 });
 
-test('锚点文本过长时被压缩，但发色/瞳色仍在（900 上限保护）', () => {
+test('锚点超长：先砍体型/肤色，仍超也不硬砍（1500 软上限）', () => {
+  // ★ 2026-10-23 实测订正：上限 450 → 900 → **1500 且不硬砍**。
+  //   实测（scripts/probe-prompt-length.mjs）：955 / 2957 / 5956 / 9957 字符
+  //   四档全部出图成功，~3000 以内全部内容生效，~6000 起末尾开始失真。
+  //   ComfyUI 的 QwenImageTokenizer 是 max_length=99999999 —— 根本不会截断。
+  //   所以这里只保留"砍体型/肤色"这一层（对认人贡献最小），绝不从尾部弹服装。
   const db = getDb();
   seq += 1;
   const name = `__inject_long_${Date.now()}`;
   const r = db.prepare('INSERT INTO characters(name, display_name, base_prompt) VALUES (?,?,?)').run(name, name, '你是测试。');
   const id = Number(r.lastInsertRowid);
-  const longBody = `long dark brown hair with pink gradient tips, fluorescent pink eyes, fair skin, petite slender build, ${'extra detail, '.repeat(60)}`;
+  const longBody = `long dark brown hair with pink gradient tips, fluorescent pink eyes, fair skin, petite slender build, ${'extra detail, '.repeat(200)}`;
   db.prepare('INSERT INTO character_outfits (character_id, name, description, scene, body) VALUES (?,?,?,?,?)')
     .run(id, '日常装', 'jacket', 'work', longBody);
   const out = applyAnchors(PROMPT, { anchors: [{ characterId: id, slot: 'self' }] });
-  // ★ 2026-10-22：上限 450 → 900。实测最长锚点（符玄）737 字符，
-  //   450 会把服装整段砍掉 —— 那不是"压缩"，是把人画错。
-  assert.ok(out.anchorText.length <= 900, `锚点 ${out.anchorText.length} 字符，超过 900`);
-  assert.ok(out.anchorText.includes('dark brown'), '压缩把发色弄丢了');
-  assert.ok(/eyes?/i.test(out.anchorText), '压缩把瞳色弄丢了');
+  assert.ok(out.anchorText.includes('dark brown'), '把发色弄丢了');
+  assert.ok(/eyes?/i.test(out.anchorText), '把瞳色弄丢了');
+  assert.ok(!/petite slender|fair skin/i.test(out.anchorText), '体型/肤色该先被砍');
+  assert.ok(out.anchorText.includes('jacket'), '★ 服装必须留着（原实现会从尾部弹掉它）');
+  assert.ok(out.anchorText.length > 1500, '★ 超过软上限也不再硬砍');
 });

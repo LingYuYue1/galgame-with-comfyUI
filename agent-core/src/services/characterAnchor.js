@@ -95,12 +95,12 @@ function stripIdentityPrefix(text) {
  *        只留「发型 + 瞳色」，约 100 字符。
  *        ⚠ 2026-10-22 夜间用户实报后改了口径 —— 见 `buildAnchorLines` 里的说明：
  *        精简会让她"少了脸和衣服"，画出来完全是另一个人；宁可长，不可缺。
- * @param {number} [opts.maxLen=900] 硬上限保护（实测最长锚点 737 字符，900 留足余量）
+ * @param {number} [opts.maxLen=1500] 单角色锚点软上限（**不硬砍**，见下）
  * @param {string} [opts.side] 'left' / 'right' —— 多人同框时标明位置，避免特征串味
  * @returns {string}
  */
 export function buildAnchorLine(text, opts = {}) {
-  const { compact = false, maxLen = 900, side = '' } = opts;
+  const { compact = false, maxLen = 1500, side = '' } = opts;
   let s = String(text || '').trim().replace(/\s+/g, ' ');
   if (!s) return '';
 
@@ -113,7 +113,20 @@ export function buildAnchorLine(text, opts = {}) {
     // 精简版可以过 100 字符，允许多一点
     if (s.length > 140) s = s.slice(0, 140).replace(/[,，]\s*[^,，]*$/, '');
   } else if (s.length > maxLen) {
-    // 超长才截：按「体型 → 肤色 → 标志物」的逆序砍（发色/发型/瞳色留到最后）
+    /**
+     * 超长处理（2026-10-23 实测后重写）。
+     *
+     * 原实现：先砍体型/肤色/标志物，再从**尾部**逐个弹段 —— 而服装正好在尾部。
+     * 那等于"太长就把衣服脱了"，正是要避免的画错。
+     *
+     * 新实现：只做**第一层**（砍体型/肤色/标志物，它们对"认人"贡献最小），
+     * 砍完还超就**不再硬砍**，只告警。
+     *
+     * 依据（当日实测，见 `scripts/probe-prompt-length.mjs`）：
+     *   955 / 2957 / 5956 / 9957 字符四档全部出图成功，9957 时只是末尾的场景词失效，
+     *   最前面的锚点仍然画对。**锚点在最前，权重最高，长一点不会把它冲掉**；
+     *   硬砍才会。判据同前：宁可长，不可缺。
+     */
     const parts = s.split(',').map(x => x.trim()).filter(Boolean);
     const dropOrder = [/build|figure|体型|身材/i, /skin|肤色/i, /tattoo|scar|痣|纹身|斑/i];
     let out = [...parts];
@@ -121,9 +134,11 @@ export function buildAnchorLine(text, opts = {}) {
       if (out.join(', ').length <= maxLen) break;
       out = out.filter(p => !re.test(p));
     }
-    while (out.join(', ').length > maxLen && out.length > 3) out.pop();
     s = out.join(', ');
-    if (s.length > maxLen) s = s.slice(0, maxLen);
+    if (s.length > maxLen) {
+      console.warn(`[anchor] 锚点 ${s.length} 字符 > ${maxLen}，已跳过硬截断`
+        + '（硬砍会伤到发色/服装，反而把人画错）');
+    }
   }
 
   if (!side) return s;

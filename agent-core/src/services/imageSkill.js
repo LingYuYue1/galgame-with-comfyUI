@@ -549,7 +549,21 @@ export function applyAnchors(promptRefined, opts = {}) {
     return { finalPrompt: prompt, anchorText: '' };
   }
   if (!anchorText) return { finalPrompt: prompt, anchorText: '' };
-  return { finalPrompt: `${anchorText}\n${prompt}`, anchorText };
+  const finalPrompt = `${anchorText}\n${prompt}`;
+  /**
+   * ★ 2026-10-23 实测出的软阈值（`scripts/probe-prompt-length.mjs`）：
+   *   955 / 2957 / 5956 / 9957 字符四档**全部出图成功**（ComfyUI 的 QwenImageTokenizer
+   *   是 max_length=99999999，不会截断）；差别在"后半段还听不听"：
+   *     ~3000 字符 → 锚点、场景、末尾特征全部生效
+   *     ~6000 字符 → 末尾特征出现但开始失真（紫色被画成红色）
+   *     ~10000 字符 → 末尾特征与场景词完全失效，只剩最前面的锚点
+   *   够用就别塞：这里只在越过 4000 时提醒一句，不截断（截断会伤关键字段）。
+   */
+  if (finalPrompt.length > 4000) {
+    console.warn(`[imageSkill] ⚠ 最终提示词 ${finalPrompt.length} 字符（锚点 ${anchorText.length}）—— `
+      + '实测超过约 6000 字符后，靠后的场景描述开始失效；锚点在最前不受影响。');
+  }
+  return { finalPrompt, anchorText };
 }
 
 async function _execute(rawPrompt, opts) {
