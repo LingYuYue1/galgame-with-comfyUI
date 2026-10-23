@@ -551,17 +551,25 @@ export function applyAnchors(promptRefined, opts = {}) {
   if (!anchorText) return { finalPrompt: prompt, anchorText: '' };
   const finalPrompt = `${anchorText}\n${prompt}`;
   /**
-   * ★ 2026-10-23 实测出的软阈值（`scripts/probe-prompt-length.mjs`）：
-   *   955 / 2957 / 5956 / 9957 字符四档**全部出图成功**（ComfyUI 的 QwenImageTokenizer
-   *   是 max_length=99999999，不会截断）；差别在"后半段还听不听"：
-   *     ~3000 字符 → 锚点、场景、末尾特征全部生效
-   *     ~6000 字符 → 末尾特征出现但开始失真（紫色被画成红色）
-   *     ~10000 字符 → 末尾特征与场景词完全失效，只剩最前面的锚点
-   *   够用就别塞：这里只在越过 4000 时提醒一句，不截断（截断会伤关键字段）。
+   * ★ 2026-10-23 实测出的软阈值（`scripts/probe-prompt-length.mjs`）
+   *
+   * ComfyUI 侧不截断（`QwenImageTokenizer.max_length=99999999`），四档全部出图成功：
+   *   955 / 2957 / 5956 / 9957 字符。
+   * 但**画质分水岭在 3000 附近**（用户实看后判定，比我最初的判断保守）：
+   *   · ~2957 → 锚点、场景、末尾特征全部生效
+   *   · ~5956 → 角色边缘开始模糊，末尾特征失真（紫伞被画成红伞）
+   *   · ~9957 → **角色本身变了**：双马尾散开、粉渐变发尾几乎消失
+   *
+   * ⚠ 订正记录：我最初只看"发色 + 衣服"就判定"四档角色都对"，漏了双马尾和发尾渐变 ——
+   *   长提示词**不是只让末尾失效，它会把锚点内部的特征也一起摊薄**。
+   *   判断"像不像"必须由人看（尤其是最标志性的发型特征），不能只核颜色。
+   *
+   * 所以这里按 3000 告警（不是截断，截断会伤关键字段更狠）。
    */
-  if (finalPrompt.length > 4000) {
+  if (finalPrompt.length > 3000) {
     console.warn(`[imageSkill] ⚠ 最终提示词 ${finalPrompt.length} 字符（锚点 ${anchorText.length}）—— `
-      + '实测超过约 6000 字符后，靠后的场景描述开始失效；锚点在最前不受影响。');
+      + '实测超过约 3000 后角色细节开始摊薄（发型/渐变发色会先丢），超过约 6000 会明显换人。'
+      + '要压的是锚点之外的场景描述，别压锚点。');
   }
   return { finalPrompt, anchorText };
 }
