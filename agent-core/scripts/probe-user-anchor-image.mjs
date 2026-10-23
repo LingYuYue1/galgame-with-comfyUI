@@ -1,44 +1,82 @@
 /**
- * 阶段 7 验收图：只出「用户本人」一张，给用户认脸。
+ * 阶段 7 验收 / 试穿图：只出「用户本人」，可选与某个角色同框。
  *
- * 方案 §9 原话：「先出一张「生图测试」给用户认，点头才接链路」
- * —— 所以这个脚本**不接任何业务链路**，只验证"锚点能不能把这个人画出来"。
+ * 用法：
+ *   node scripts/probe-user-anchor-image.mjs                              # 库内锚点，单人
+ *   node scripts/probe-user-anchor-image.mjs --preset=unfinished          # 试穿（不写库）
+ *   node scripts/probe-user-anchor-image.mjs --preset=unfinished --with=171   # 与牢凌同框
+ *   node scripts/probe-user-anchor-image.mjs --preset=gambler --pose=half
  *
- * 用法：node scripts/probe-user-anchor-image.mjs
- * 产物：data/images/avatargen/user_anchor_probe_<时间戳>.png
+ * 方案库见 `scripts/user-outfit-presets.mjs`。
+ * ⚠ 本脚本**只读**配置：试穿不落库，采纳要另外跑 `set-user-anchor.mjs --preset=xx`。
  */
 import { getDb } from '../src/db/index.js';
-import fs from 'fs';
 import path from 'path';
+import { PRESETS } from './user-outfit-presets.mjs';
 
 getDb();
 const { generateImageRaw } = await import('../src/services/imageSkill.js');
 const { config } = await import('../src/config.js');
 const { saveBase64Image } = await import('../src/services/imagePaths.js');
 
-console.log('======== 用户形象（config.user）========');
-console.log(' 昵称:', config.user?.nickname || '(空)');
-console.log(' 性别:', config.user?.gender || '(空)');
-console.log(' 外观:', String(config.user?.appearance || '(空)').slice(0, 300));
-if (!config.user?.appearance) {
-  console.error('\n✗ user_appearance 为空，先填外观再来');
+const argv = process.argv.slice(2);
+const pickArg = (name) => {
+  const hit = argv.find(a => a.startsWith(`--${name}=`));
+  return hit ? hit.slice(name.length + 3) : null;
+};
+const presetKey = pickArg('preset');
+const pose = pickArg('pose') || 'full';       // full=全身立绘  half=半身
+const withId = pickArg('with');               // 与某个角色 id 同框
+
+const preset = presetKey ? PRESETS[presetKey] : null;
+if (presetKey && !preset) {
+  console.error(`✗ 没有这个方案：${presetKey}。可选：${Object.keys(PRESETS).join(' / ')}`);
   process.exit(1);
 }
 
-// 立绘式全身，方便一次看清脸 + 衣服 + 身形
-const PROMPT = 'solo, full body, standing, looking at viewer, hands relaxed at sides, '
-  + 'straight-on view, simple white background, flat lighting, even lighting, no shadows';
+// 试穿时把方案临时挂到内存里的 config（**不写库**），
+// 这样双人模式也能走正常的 applyAnchors（含 1boy/1girl 的人数与位置词）
+if (preset) config.user.anchor = { body: preset.body, outfits: preset.outfits };
+
+console.log('======== 用户形象 ========');
+console.log(' 昵称:', config.user?.nickname || '(空)', '| 性别:', config.user?.gender || '(空)');
+console.log(preset ? ` 试穿方案: ${preset.name}（${presetKey}）—— 不写库` : ' 使用库内锚点');
+if (withId) console.log(` 同框角色 id: ${withId}`);
+
+/** 意气风发的姿态要写进提示词 —— 老气有一半来自"站着不动" */
+const POSE_FULL = [
+  'dynamic confident posture', 'standing with weight on one leg', 'shoulders relaxed',
+  'slight smirk', 'looking at viewer', 'wind moving the hair',
+].join(', ');
+const POSE_HALF = [
+  'half body', 'confident posture', 'slight smirk', 'looking at viewer',
+].join(', ');
+
+const BG = 'simple white background, flat lighting, even lighting, no shadows';
+
+let prompt;
+if (withId) {
+  prompt = `two people standing side by side, ${POSE_FULL}, ${BG}`;
+} else {
+  prompt = `solo, ${pose === 'half' ? POSE_HALF : POSE_FULL}, ${BG}`;
+}
+
+const anchors = withId
+  ? [{ kind: 'user' }, { characterId: Number(withId) }]
+  : [{ kind: 'user' }];
 
 console.log('\n======== 提交生图 ========');
-console.log(' 原始描述:', PROMPT);
-const result = await generateImageRaw(PROMPT, {
-  promptScene: 'avatar',       // 借用头像场景：不跑 RAG，快
+console.log(' 描述:', prompt);
+
+const result = await generateImageRaw(prompt, {
+  promptScene: 'avatar',        // 借用头像场景：不跑 RAG，快
   priority: 'high',
   disableRAG: true,
+  skipOptimization: true,       // 试穿图不要被 LLM 改写锚点
   artist: config.comfyui.momentsArtist,
-  width: 768,
-  height: 1152,                // 全身需要竖图
-  anchors: [{ kind: 'user' }], // ← 阶段 7 的全部意义就在这一行
+  width: withId ? 1280 : (pose === 'half' ? 640 : 576),
+  height: withId ? 1024 : 864,   // 用户要求：试穿图不用生太大，够看清就够
+  anchors,
 });
 
 if (!result?.success || !result.images?.length) {
@@ -47,11 +85,11 @@ if (!result?.success || !result.images?.length) {
 }
 
 const img = result.images[0];
-const filename = `user_anchor_probe_${Date.now()}.png`;
+const tag = presetKey || 'current';
+const filename = `user_outfit_${tag}${withId ? `_with${withId}` : ''}_${Date.now()}.png`;
 const url = saveBase64Image('avatargen', filename, img.base64);
 const abs = path.resolve('data/images', url.replace(/^\/images\//, ''));
 
 console.log('\n======== 结果 ========');
 console.log(' 落盘:', abs);
-console.log(' 最终提示词（前 400 字符）:\n', String(result.promptRefined || '').slice(0, 400));
-console.log(' 锚点文本:\n', String(result.anchorUsed || '(无)').slice(0, 400));
+console.log(' 最终提示词（前 600 字符）:\n', String(result.promptRefined || '').slice(0, 600));
