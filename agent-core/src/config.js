@@ -447,7 +447,12 @@ defaultTimeoutMs: parseInt(process.env.VECTOR_DEFAULT_TIMEOUT_MS, 10) || 120000,
   user: {
     nickname: process.env.USER_NICKNAME || '用户',
     gender: process.env.USER_GENDER || '',
+    // 外观：**给人看、给 LLM 读**的自述（中文）。文案链路用的是这一段。
     appearance: process.env.USER_APPEARANCE || '',
+    // 生图锚点（阶段 7）：`{ body, outfits }` 英文 tag 串，只给生图用。
+    // 实测中文长段在这个二次元微调模型上约束力接近零（§18 同源结论：它吃 tag 不吃散文），
+    // 所以两者分开：appearance 管文案，anchor 管画面。留空 = 退回 appearance。
+    anchor: null,
     persona: process.env.USER_PERSONA || '',
     // 人类（用户）的居住地点：地图里的地点名。空 = 未指定（不猜）。
     home: process.env.USER_HOME || '',

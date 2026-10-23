@@ -21,7 +21,7 @@ import { submitWorkflow, apiToGui } from './comfyClient.js';
 import { config, getNovelaiApiKey } from '../config.js';
 import { generateNovelaiImage } from './novelaiClient.js';
 import { acquireSlot, releaseSlot } from './llmConcurrency.js';
-import { buildAnchorLines } from './characterAnchor.js';
+import { buildAnchorLine, resolveAnchorItem } from './characterAnchor.js';
 import { prepareImagePrompt } from './imagePromptPreparer.js';
 
 const _limitEnabled = () => config.features.serializeBackgroundLLM;
@@ -560,8 +560,28 @@ export function applyAnchors(promptRefined, opts = {}) {
   if (!list || !list.length) return { finalPrompt: prompt, anchorText: '' };
   if (config.comfyui.anchorInjection === false) return { finalPrompt: prompt, anchorText: '' };
   let anchorText = '';
+  const anchorLines = [];
+  const genders = [];
   try {
-    anchorText = buildAnchorLines(list).join('\n');
+    /**
+     * 逐条解析而不是 `buildAnchorLines(list)`：
+     *   · 需要**性别**才能写对人数据（2026-10-23 阶段 7：用户形象是男性）
+     *   · 需要"实际取到锚点的人"而不是 `list.length` —— 某人取不到锚点时，
+     *     原来的人数会写多（`list` 有 3 条、实际只有 2 人能画 → 写成 3girls）
+     */
+    for (const item of list) {
+      const hit = resolveAnchorItem(item);
+      if (!hit?.text) continue;
+      const line = buildAnchorLine(hit.text, {
+        compact: item?.compact === true,
+        side: item?.side || '',
+        gender: hit.gender,
+      });
+      if (!line) continue;
+      anchorLines.push(line);
+      genders.push(hit.gender);
+    }
+    anchorText = anchorLines.join('\n');
   } catch (err) {
     // 锚点取不到不该让整张图失败 —— 宁可不注入，也要出图
     console.warn('[imageSkill] 锚点解析失败，本次不注入:', err.message);
@@ -581,14 +601,27 @@ export function applyAnchors(promptRefined, opts = {}) {
    * 所以在这里统一：**人数由锚点条数决定**，把锚点行与场景词里的人数标签全部剥掉，
    * 只在最前面写一个权威值。`finalizeCountTags` 之后看到的就是这一个值，不会被翻倍。
    *
-   * ⚠ 局限：目前只处理 girl（角色锚点都是女角色）。用户形象（男）接入时要扩展 boy。
+   * ★ 2026-10-23 阶段 7 扩展：支持男女混排。
+   *   用户本人的形象是男性（`config.user.gender = 男`），与女角色同框时必须写
+   *   `1boy, 1girl` 而不是 `2girls` —— 否则模型会把男的也画成女的。
+   *   条数取 `genders`（**实际取到锚点的人**），不是 `list.length`：
+   *   某人取不到锚点时 `list` 里有、`genders` 里没有，用 `list.length` 会写多。
    */
-  const people = list.length;
-  const countTag = people === 1 ? '1girl' : `${people}girls`;
+  const boys = genders.filter(g => g === 'boy').length;
+  const girls = genders.length - boys;
+  let countTag;
+  if (boys === 0) {
+    countTag = girls === 1 ? '1girl' : `${girls}girls`;
+  } else if (girls === 0) {
+    countTag = boys === 1 ? '1boy' : `${boys}boys`;
+  } else {
+    // 男女混排：`1boy, 1girl` / `2boys, 1girl` —— 这是 tag 体系里的标准写法
+    countTag = `${boys}boy${boys > 1 ? 's' : ''}, ${girls}girl${girls > 1 ? 's' : ''}`;
+  }
   const stripGirlCount = (s) => String(s)
     .split('\n')
     .map(line => line
-      .replace(/\b\d+\s*girls?\b/gi, '')
+      .replace(/\b\d+\s*(?:girls?|boys?)\b/gi, '')
       .replace(/^[\s,]+/, '')
       .replace(/,\s*,+/g, ', ')
       .trim())

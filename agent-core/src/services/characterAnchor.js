@@ -18,6 +18,7 @@
  */
 
 import { getDb } from '../db/index.js';
+import { config } from '../config.js';
 import {
   composeOutfitText, getSceneOutfitForNow, sceneOutfitParam,
 } from './outfitScene.js';
@@ -79,6 +80,61 @@ export function resolveAnchor(characterId, opts = {}) {
   return null;
 }
 
+/**
+ * 取「用户本人」的生图锚点（阶段 7，2026-10-23）。
+ *
+ * ── 为什么需要它 ──
+ * `config.user.appearance` 这段文字此前**只喂文案**（聊天/朋友圈/日程/信箱等 11 处都调它），
+ * 生图链路一次都没用过 —— 图里该出现"我"的时候，模型是自由发挥的，
+ * 于是同一个人每张图长得都不一样。用户 2026-10-23 明确要求把男性形象作为本人。
+ *
+ * ── 为什么不直接用中文那段 appearance（实测踩过）──
+ * 一开始就是直接拿 `config.user.appearance`（用户自己写的中文描述型文本）当锚点用，
+ * 结果**出图是个银发蓝西装的少年，与文字毫无关系**。
+ * 结论：这个二次元微调模型对中文长段的约束力接近零 —— 它吃的是 tag，
+ * 与 §18.2 那条"tag 与自然语言是两套先验"同源，只是这里连语言层都换了。
+ * （角色锚点一直稳，正因为它是英文 tag 串。）
+ * 所以拆成两个字段：`appearance` 继续管文案，`anchor{body,outfits}` 管画面。
+ *
+ * ⚠ 与角色锚点的关键差异：**这里不写 `1boy`**。
+ *   施工方案 §18.2 已实测：`1girl/1boy` 开头的 tag 串会把模型切进"全身立绘"模式。
+ *   性别人数由 `applyAnchors` 在最前面统一写一个权威值，锚点正文只描述长相。
+ *
+ * @param {object} [opts]
+ * @param {string} [opts.gender] 覆盖 `config.user.gender`（'男'/'女'/'male'/'female'…）
+ * @returns {{text:string, gender:'boy'|'girl', source:'user-anchor'|'user'}|null}
+ */
+export function resolveUserAnchor(opts = {}) {
+  const gender = normalizeGender(opts.gender ?? config.user?.gender);
+
+  // ① 结构化英文锚点优先（`{ body, outfits }`，与 character_outfits 同一套思路）
+  const a = config.user?.anchor;
+  if (a && typeof a === 'object') {
+    const text = [a.body, a.outfits]
+      .map(x => String(x || '').trim())
+      .filter(Boolean)
+      .join(', ');
+    if (text) return { text, gender, source: 'user-anchor' };
+  }
+
+  // ② 兜底：中文自述（能出图，但认不出是谁 —— 宁可这样，也不要凭空造一个人）
+  const text = String(config.user?.appearance || '').trim();
+  if (!text) return null;
+  return { text, gender, source: 'user' };
+}
+
+/**
+ * 性别归一：中文「男/女」、英文 male/female、以及 1boy/1girl 之类都收。
+ * 认不出时**按 female 处理** —— 现有角色全是女性，这是安全默认；
+ * 用户形象的性别认不出时，`user_gender` 一般都填了，真填错也能一眼看出来。
+ */
+export function normalizeGender(value) {
+  const s = String(value || '').trim().toLowerCase();
+  if (/^(男|男性|male|m|man|boy|1boy|男生)$/.test(s)) return 'boy';
+  if (/^(女|女性|female|f|woman|girl|1girl|女生)$/.test(s)) return 'girl';
+  return 'girl';
+}
+
 /** 去掉 body 开头的「角色名 (作品名)」前缀，用于精简版 */
 function stripIdentityPrefix(text) {
   return String(text || '')
@@ -97,10 +153,12 @@ function stripIdentityPrefix(text) {
  *        精简会让她"少了脸和衣服"，画出来完全是另一个人；宁可长，不可缺。
  * @param {number} [opts.maxLen=1500] 单角色锚点软上限（**不硬砍**，见下）
  * @param {string} [opts.side] 'left' / 'right' —— 多人同框时标明位置，避免特征串味
+ * @param {'boy'|'girl'} [opts.gender='girl'] 位置词的性别。用户本人是男性，
+ *        写 `the girl on the left` 会和 `1boy` 直接打架（阶段 7，2026-10-23）
  * @returns {string}
  */
 export function buildAnchorLine(text, opts = {}) {
-  const { compact = false, maxLen = 1500, side = '' } = opts;
+  const { compact = false, maxLen = 1500, side = '', gender = 'girl' } = opts;
   let s = String(text || '').trim().replace(/\s+/g, ' ');
   if (!s) return '';
 
@@ -142,7 +200,9 @@ export function buildAnchorLine(text, opts = {}) {
   }
 
   if (!side) return s;
-  const pos = side === 'left' ? 'the girl on the left' : 'the girl on the right';
+  // `the man` 而不是 `the boy` —— 与 mediaService 里 `the boy → the man` 的既有转换保持一致
+  const who = gender === 'boy' ? 'the man' : 'the girl';
+  const pos = side === 'left' ? `${who} on the left` : `${who} on the right`;
   // ★ 2026-10-22 夜间修正：**身份前缀不再阻止位置词**。
   //   原来"已有 `Name (Series)` 就不加位置词"，是为了避免读起来打架；
   //   但媒体/体位模板要靠位置词区分同框的两人，缺了它就分不清谁是谁。
@@ -152,25 +212,55 @@ export function buildAnchorLine(text, opts = {}) {
 }
 
 /**
- * 一次取多个角色的锚点（多人同框用）。
- * 第一个整段，第二个起精简 —— 见 buildAnchorLine 的 compact 说明。
+ * 解析「一条」锚点请求 —— 角色或用户本人，统一成一个口径。
  *
- * @param {Array<{characterId:number, scene?:string, side?:'left'|'right',
- *   activity?:object, now?:Date|number|string}>} list
+ * 存在的理由：`applyAnchors` 需要**同时**拿到「文本」和「性别」才能写对人数据，
+ * 而原来的 `buildAnchorLines` 只返回文本（还把空串过滤掉了），
+ * 于是人数只能拿 `list.length` 猜 —— 一旦某人取不到锚点，人数就会写多。
+ *
+ * @param {{kind?:'user'|'character', characterId?:number, gender?:string,
+ *   scene?:string, side?:'left'|'right', activity?:object,
+ *   now?:Date|number|string, compact?:boolean}} item
+ * @returns {{text:string, gender:'boy'|'girl', source:string}|null}
+ */
+export function resolveAnchorItem(item) {
+  if (!item) return null;
+
+  // ① 用户本人（`kind:'user'` 与方案里的 `slot:'user'` 两种写法都收）
+  if (item.kind === 'user' || item.slot === 'user') {
+    const u = resolveUserAnchor({ gender: item.gender });
+    return u ? { text: u.text, gender: u.gender, source: u.source } : null;
+  }
+
+  // ② 角色（默认。现有角色卡全是女性，性别未指定按 girl 处理）
+  const anchor = resolveAnchor(item.characterId, {
+    scene: item.scene || 'auto',
+    activity: item.activity,
+    ...(item.now != null ? { now: toDate(item.now) } : {}),
+  });
+  if (!anchor?.text) return null;
+  return {
+    text: anchor.text,
+    gender: normalizeGender(item.gender ?? 'girl'),
+    source: anchor.source,
+  };
+}
+
+/**
+ * 一次取多个角色的锚点（多人同框用）。
+ * 每个角色都是整段 —— 见 buildAnchorLine 的 compact 说明。
+ *
+ * @param {Array<{characterId:number, kind?:'user', gender?:string, scene?:string,
+ *   side?:'left'|'right', activity?:object, now?:Date|number|string, compact?:boolean}>} list
+ *   `kind: 'user'` = 用户本人（此时不看 characterId，读 config.user.appearance）
  *   `activity` = 那一段日程（配图必须传，避免"此刻"选错装）
  *   `now`      = 画面发生的**时刻**（补图/重绘历史帖时用；不传＝现在）
- * @returns {string[]} 与入参同序、可能含空串（角色取不到锚点时）
+ * @returns {string[]} 与入参同序、可能含空串（取不到锚点时）
  */
 export function buildAnchorLines(list = []) {
-  return (Array.isArray(list) ? list : []).map((item, i) => {
-    const anchor = resolveAnchor(item?.characterId, {
-      scene: item?.scene || 'auto',
-      activity: item?.activity,
-      // ★ 2026-10-22 补：没有它，补图/重绘只能按"此刻"选装 ——
-      //   凌晨重绘一张下午的帖子，会给她换成睡衣。
-      ...(item?.now != null ? { now: toDate(item.now) } : {}),
-    });
-    if (!anchor?.text) return '';
+  return (Array.isArray(list) ? list : []).map((item) => {
+    const hit = resolveAnchorItem(item);
+    if (!hit?.text) return '';
     /**
      * ★★ 2026-10-22 夜间修正（用户实报"图左侧的人不是符玄，差距挺大"）
      *
@@ -185,7 +275,11 @@ export function buildAnchorLines(list = []) {
      * 判据订正：**稀释只是权重降低，缺字段是直接画错**。宁可长，不可缺。
      * 现在默认整段；只有调用方显式传 `compact: true` 才精简（留给极端多人图）。
      */
-    return buildAnchorLine(anchor.text, { compact: item?.compact === true, side: item?.side || '' });
+    return buildAnchorLine(hit.text, {
+      compact: item?.compact === true,
+      side: item?.side || '',
+      gender: hit.gender,
+    });
   }).filter(Boolean);
 }
 

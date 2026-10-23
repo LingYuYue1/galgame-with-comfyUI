@@ -156,6 +156,12 @@ export const SETTING_TO_CONFIG = {
   user_nickname:                   { obj: 'user',     key: 'nickname',          type: 'string' },
   user_gender:                     { obj: 'user',     key: 'gender',            type: 'string' },
   user_appearance:                 { obj: 'user',     key: 'appearance',        type: 'string' },
+  // ★ 用户形象的**生图锚点**（阶段 7，2026-10-23）：`{ body, outfits }` 英文 tag 串。
+  //   为什么要单开一个字段，而不是复用上面那段 appearance：
+  //   实测中文长段锚点在这个模型上**几乎不起作用**（出图是个银发蓝西装的少年，与文字无关），
+  //   而英文 tag 串一直很稳（角色锚点就是英文）。所以 appearance 继续管文案，
+  //   这里管生图；留空 = 退回用 appearance（效果差但不会崩）。
+  user_anchor:                     { obj: 'user',     key: 'anchor',            type: 'json' },
   user_persona:                    { obj: 'user',     key: 'persona',           type: 'string' },
   // ★ 人类（用户）的居住地点：地图里的一个**子区或场景名**（如「二维市」「旧川里」）。
   //   角色日程里"回家/去找你"就有了真实落点；对角色而言这也是一条已知信息
