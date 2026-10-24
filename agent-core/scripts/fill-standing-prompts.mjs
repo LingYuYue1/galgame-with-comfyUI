@@ -47,25 +47,26 @@ const NEW_OUTFITS = [
     scene: 'casual',
     name: '私服',
     description:
-      'black lace-trimmed camisole dress with a pink ribbon at the waist, layered over a sheer white blouse with puffed sleeves, ' +
-      'a cropped black denim jacket with pink stitched seams, black knee-high socks with lace cuffs, ' +
-      'chunky black platform sneakers with pink laces, a small heart-shaped crossbody bag, thin silver rings',
+      'a burgundy ribbed high-neck knit vest tucked into a wine-red tartan pleated mini skirt, ' +
+      'an ivory double-breasted cropped wool coat with gold buttons worn open, black over-knee socks, ' +
+      'black chunky Mary Jane shoes, a small black boxy handbag, a black beret tilted to one side',
   },
   {
     characterId: 171,
     scene: 'home',
     name: '居家',
     description:
-      'oversized off-white knit cardigan worn open over a black slip dress with a lace hem, ' +
-      'soft black cotton lounge shorts, fluffy pink indoor slippers, a thin silver anklet at one ankle',
+      'an oversized cream cotton t-shirt with a wide loose neckline slipping off one shoulder, ' +
+      'pale grey cotton lounge shorts barely showing beneath the hem, ' +
+      'a fog-blue knit cardigan worn slouched with the sleeves covering her hands, fluffy white indoor slippers',
   },
   {
     characterId: 171,
     scene: 'sleep',
     name: '睡衣',
     description:
-      'black satin sleep camisole with delicate pink lace trim along the neckline and thin straps, ' +
-      'matching short satin shorts, a loose sheer black robe slipping off one shoulder, barefoot',
+      'a lotus-pink silk nightgown with thin straps, fine ivory lace tracing both the neckline and the hem, ' +
+      'falling in a soft drape to mid-thigh with a small side slit, barefoot',
   },
 ];
 
@@ -202,30 +203,29 @@ const PROMPTS = [
   /* ── #171 牢凌 ─────────────────────────────────────────── */
   {
     characterId: 171, scene: 'casual',
-    text: `${LL_LOOK} She wears a black lace-trimmed camisole dress with a pink ribbon at the waist, layered over a sheer `
-      + 'white blouse with puffed sleeves, a cropped black denim jacket with pink stitched seams, black knee-high socks '
-      + 'with lace cuffs, chunky black platform sneakers with pink laces, and a small heart-shaped crossbody bag. '
-      + 'She stands at a slight three-quarter angle in a light springy posture, one hand lifting a twintail tip between '
-      + 'her fingers and the other tucked into her jacket pocket, chin slightly lowered with a calm faintly knowing '
-      + 'half-smile, weight shifted onto one leg. ' + LL_FRAME,
+    text: `${LL_LOOK} She wears a burgundy ribbed high-neck knit vest tucked into a wine-red tartan pleated mini skirt, `
+      + 'an ivory double-breasted cropped wool coat with gold buttons worn open, black over-knee socks, '
+      + 'black chunky Mary Jane shoes, and a small black boxy handbag. '
+      + 'She stands with one hand resting on the handle of her small bag and the other at her hip, chin slightly '
+      + 'lowered with a calm knowing half-smile, weight shifted onto one leg. ' + LL_FRAME,
   },
   {
     characterId: 171, scene: 'home',
-    text: `${LL_LOOK} She wears an oversized off-white knit cardigan thrown open over a black slip dress with a lace hem, `
-      + 'soft black cotton lounge shorts, and fluffy pink indoor slippers, her twintails left loose and slightly '
-      + 'disheveled with the black ribbon ornaments sitting askew. '
+    text: `${LL_LOOK} She wears an oversized cream cotton t-shirt with a wide loose neckline slipping off one shoulder, `
+      + 'pale grey cotton lounge shorts barely showing beneath the hem, a fog-blue knit cardigan worn slouched, '
+      + 'and fluffy white indoor slippers, her twintails let down and loosely tied. '
       + 'She stands in a relaxed indoor posture with one hand tugging a cardigan sleeve down over her knuckles and the '
       + 'other resting at her hip, head tilted with a soft drowsy gaze and a small quiet smile, weight settled onto one leg. '
       + LL_FRAME,
   },
   {
     characterId: 171, scene: 'sleep',
-    text: `${LL_LOOK} She wears a black satin sleep camisole with delicate pink lace trim along the neckline and thin `
-      + 'straps, matching short satin shorts, and a loose sheer black robe slipping off one shoulder, barefoot, '
+    text: `${LL_LOOK} She wears a lotus-pink silk nightgown with thin straps and fine ivory lace along the neckline, `
+      + 'falling in a soft drape to mid-thigh, barefoot, '
       + 'her pink-purple gradient hair loosened from its buns and spilling over her shoulders, '
       + 'the black ribbon ornaments set aside. '
-      + 'She stands in a languid just-before-sleep posture, one hand holding the slipping robe at her shoulder and the '
-      + 'other hanging loosely, head tilted with heavy half-lidded mismatched eyes and a faint tired half-smile. '
+      + 'She stands in a languid just-before-sleep posture, one hand resting at her waist and the other hanging '
+      + 'loosely, head tilted with heavy half-lidded mismatched eyes and a faint tired half-smile. '
       + LL_FRAME,
   },
 
@@ -331,10 +331,8 @@ for (const p of PROMPTS) {
 console.log(`\n  合计 ${PROMPTS.length} 份 / 平均 ${Math.round(total / PROMPTS.length)} 字符`);
 
 if (!DRY) {
-  // ★ 前置构图锚：所有立绘提示词都要在**身份句之前**钉死画幅。
-  // 尾部那句 `full body from head to feet` 管不住头部先验 —— 2026-10-24 两次实锤
-  // （情趣套画到膝盖、#14 casual 删掉粒子句后直接画成胸像）。
-  const FRAME_ANCHOR = 'Full-length wide shot of a standing figure, the entire body inside the frame from head to feet. ';
+  // ⚠ 这里**不加**前置构图锚：wide shot 会拉远、角色变小，与立绘「角色尽量大」相悖。
+  // 只有情趣套需要（有原图证据画到膝盖），那一条在 fill-sport-swim-assets.mjs 里单独处理。
   // image_url 不动：已有图的槽保留原图，只换 prompt；缺图的槽插 NULL 等出图
   const upsert = db.prepare(
     `INSERT INTO character_standings (character_id, scene, image_url, prompt_text, updated_at)
@@ -343,13 +341,8 @@ if (!DRY) {
        prompt_text = excluded.prompt_text,
        updated_at  = CURRENT_TIMESTAMP`
   );
-  db.transaction(() => {
-    for (const p of PROMPTS) {
-      const text = p.text.includes('the entire body inside the frame') ? p.text : FRAME_ANCHOR + p.text;
-      upsert.run(p.characterId, p.scene, text);
-    }
-  })();
-  console.log('  → 12 份 prompt 已写入 character_standings.prompt_text（含前置构图锚）');
+  db.transaction(() => { for (const p of PROMPTS) upsert.run(p.characterId, p.scene, p.text); })();
+  console.log('  → 12 份 prompt 已写入 character_standings.prompt_text');
   db.close();
 }
 

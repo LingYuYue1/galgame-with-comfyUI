@@ -169,12 +169,12 @@ const OUTFITS = {
 
   /* ── #171 牢凌：暗黑甜酷，黑 + 粉 + 银 ─────────────────── */
   171: {
-    sport: 'a black cropped training top with pink satin binding and a small ribbon bow at the center chest, '
-      + 'matching black high-waist running shorts with pink piping and a lace-trimmed hem, chunky black and pink trainers with ribbon laces, '
-      + 'her pink-purple twintails tied back through a black ribbon, a thin silver chain at her waist',
-    swim: 'a black bikini with pink satin ribbon ties at the shoulders and hips and a small lace trim along the edges, '
-      + 'a sheer black cover-up with a scalloped lace hem slipping off one shoulder, a thin silver anklet',
-    lingerie: 'a black sheer lace bodysuit with an open front, the lace only half-covering her chest and leaving the centre bare beneath pink satin ribbon ties at the shoulders, a high-cut leg line with black ribbon at the hips, sheer black thigh-high stockings with pink lace bands, a thin silver waist chain',
+    sport: 'a white cropped polo shirt with mint-green collar trim and the top two buttons left open, '
+      + 'a mint-green pleated tennis skirt with built-in shorts, white ankle socks, white and mint-green court shoes, '
+      + 'a white terry wristband on her left wrist, a white visor cap',
+    swim: 'an ivory one-piece swimsuit with a square neckline, cherry-red binding along every edge, a high-cut leg '
+      + 'and a low scooped back, a sheer cherry-red beach shirt tied at the waist',
+    lingerie: 'a lotus-pink satin corset with a lace-up front and ivory lace edging along the top and bottom, worn over bare skin, matching white lace high-waisted shorts, sheer white thigh-high stockings with lace garter straps, a white lace choker',
   },
 };
 
@@ -218,9 +218,9 @@ const POSE = {
   '113:swim': 'She stands with both hands tucked into the pockets of the beach shirt, head tilted with a quiet neutral expression, water droplets running from her damp silvery hair down one shoulder.',
   '113:lingerie': 'She stands loosely with both hands hanging at her sides, head tilted with a blank, slightly sleepy stare.',
 
-  '171:sport': 'She stands in a light springy stance, one hand on her hip and the other adjusting the ribbon in her hair, chin slightly lowered with a calm confident half-smile.',
-  '171:swim': 'She stands with one hand holding the cover-up at her shoulder and the other resting at her hip, head tilted with a faint knowing smile.',
-  '171:lingerie': 'She stands at a slight three-quarter angle, one hand resting at her waist and the other touching the pink ribbon at her shoulder, chin lowered with a calm, knowing half-smile.',
+  '171:sport': 'She stands in a light ready stance, one hand resting on her hip and the other adjusting the white visor cap, chin lifted with a bright competitive grin.',
+  '171:swim': 'She stands with one hand holding the tied beach shirt at her waist and the other tucking a strand of hair behind her ear, head tilted with a bright playful grin.',
+  '171:lingerie': 'She stands very straight with one hand resting on the laces at her waist and the other at her side, chin lowered with a composed, faintly embarrassed smile.',
 };
 
 /** 性别 → 人称 / tag（#5 景元是男性，其余女性） */
@@ -241,9 +241,11 @@ function buildPrompt(id, scene) {
   const bare = (scene === 'swim' || scene === 'lingerie') ? ', barefoot' : '';
   // 情趣：服装描述全在讲躯干（open front / chest / hip bone），模型会把镜头拉近。
   // 构图约束写在末尾救不回来（尾部约束管不住头部先验），所以身份句之后立刻钉一次。
-  // 前置锚对所有场景生效 —— 2026-10-24 第二次实锤：删掉中间的粒子句后，
-  // #14 casual 直接画成胸像（末尾的 full body 完全没拉住）。
-  const frameFront = ' Full-length wide shot of a standing figure, the entire body inside the frame from head to feet.';
+  // 前置锚**只给情趣用**：那一套是唯一有原图证据"画到膝盖、脚没进画面"的。
+  // 其余场景不要加 —— `wide shot` 会拉远、角色变小，与立绘「角色尽量大」相悖。
+  const frameFront = scene === 'lingerie'
+    ? ' Full-length wide shot of a standing figure, the entire body inside the frame from head to feet.'
+    : '';
   return `${look}${frameFront} ${subj} wears ${outfit}${bare}. ${pose} `
     + 'Soft backlight and drifting particles, pure white background, simple background, solo, '
     + `${tag}, full body from head to feet, `
