@@ -17,6 +17,12 @@
  * 符玄的星图、姬子的玫瑰、青雀的鸟纹、爻光的孔雀羽、景元的云纹）。
  * 长度控制在 220~400 字符 —— 太短特征稀，太长会在日程配图里稀释身体锚点。
  *
+ * ── 立绘不写道具（2026-10-24 用户定）──────────────────────────
+ * 情趣立绘一度按角色配过成人道具（马鞭/手铐/牵引绳…），随后去掉：
+ * 第二阶段要改「角色的衣服引用」，硬编码在 prompt 里的道具会跟这套改造打架；
+ * 将来另做**道具库**，按次挂载，而不是写死在角色身上。
+ * （注意 description 本来就没写道具，全链路不受影响；这里清的是 prompt 里的姿势句。）
+ *
  * ── 立绘写法（与 fill-standing-prompts.mjs 同口径）──────────────
  * 外观句沿用该角色 work 立绘 prompt 的外观段（发/眼/肤色/体型逐字不变），
  * 只替换服装与姿势 —— 七套立绘放在一起要像同一个人。
@@ -178,43 +184,43 @@ const OUTFITS = {
 const POSE = {
   '4:sport': 'She stands in a springy athletic ready stance, one hand on her hip and the other raised in a light stretch, chin lifted with a bright energetic grin, her weight on the balls of her feet.',
   '4:swim': 'She stands with one hand tucked behind her head and the other resting on her hip, head tilted with a bright playful grin, water droplets glinting on her shoulders.',
-  '4:lingerie': 'She stands with one hip cocked, a small pink wand vibrator held loosely against her thigh in one hand and the other tucked behind her neck, head tilted with a bright, embarrassed grin, her cheeks flushed.',
+  '4:lingerie': 'She stands with one hip cocked, one hand resting on her thigh and the other tucked behind her neck, head tilted with a bright, embarrassed grin, her cheeks flushed.',
 
   '5:sport': 'He stands in a grounded martial stance, one arm extended loosely to the side and the other tucked behind his back, chin slightly lowered with a calm confident half-smile.',
   '5:swim': 'He stands with his weight on one leg, one hand pushing his damp white hair back and the other resting at his side, head tilted with an easy amused smile, water droplets on his shoulders.',
-  '5:lingerie': 'He stands at an unhurried three-quarter angle, a coil of crimson silk rope looped loosely through one hand and the other at his side, chin slightly lifted with a languid, knowing half-smile.',
+  '5:lingerie': 'He stands at an unhurried three-quarter angle, one hand resting at his hip and the other hanging at his side, chin slightly lifted with a languid, knowing half-smile.',
 
   '12:sport': 'She stands in a half-hearted stretch, one arm raised overhead and the other hanging limp, head tilted back with a lazy half-lidded look and a small sighing pout.',
   '12:swim': 'She stands with one hand holding the cover-up at her shoulder and the other planted on her hip, head tilted with a relaxed sleepy smile.',
-  '12:lingerie': 'She stands in a lazy slouch, a slim pink silicone toy dangling from two fingers of one hand and the other resting at her hip, head tilted with a drowsy, knowing half-smile.',
+  '12:lingerie': 'She stands in a lazy slouch, one hand resting at her hip and the other hanging loose at her side, head tilted with a drowsy, knowing half-smile.',
 
   '14:sport': 'She stands in a slouched athletic stance, one hand on her hip and the other holding a water bottle loosely at her side, head tilted with a bored but cocky smirk, a light sheen of sweat at her temples.',
   '14:swim': 'She stands with her arms crossed loosely, her weight on one hip, head tilted with a half-lidded defiant look, water droplets glinting along her shoulders and her short silver-white hair slightly damp.',
-  '14:lingerie': 'She stands with one shoulder dropped, a pair of black leather handcuffs held by one cuff and swinging from her fingers, the other hand on her hip, head tilted with a half-lidded, faintly challenging stare.',
+  '14:lingerie': 'She stands with one shoulder dropped, one hand resting on her hip and the other hanging loose at her side, head tilted with a half-lidded, faintly challenging stare.',
 
   '15:sport': 'She stands in a light bouncing stance, one hand on her hip and the other raised in a teasing wave, head tilted with a sly playful grin.',
   '15:swim': 'She stands with one hip cocked, one hand lifting the wrap skirt and the other raised near her chin, head tilted with a mischievous knowing smile.',
-  '15:lingerie': 'She stands with one hip cocked, a short black riding crop with a tiny golden bell at the tip resting lightly against her palm, the other hand at her waist, head tilted with a sly, knowing look.',
+  '15:lingerie': 'She stands with one hip cocked, one hand resting at her waist and the other lifted near her lips, head tilted with a sly, knowing look.',
 
   '31:sport': 'She stands in a composed upright stance, one hand resting at her waist and the other lightly raised, chin lifted with a restrained confident smile.',
   '31:swim': 'She stands with one hand holding the cover-up closed and the other at her side, head tilted with a calm composed smile.',
-  '31:lingerie': 'She stands very straight, a polished jade toy held loosely at her hip in one hand and the other at her side, chin lifted with a composed, faintly embarrassed smile.',
+  '31:lingerie': 'She stands very straight, one hand resting at her waist and the other at her side, chin lifted with a composed, faintly embarrassed smile.',
 
   '47:sport': 'She stands in a light jogging-ready stance, one hand adjusting the hair tie at her ponytail and the other resting at her side, head tilted with a quiet confident smile.',
   '47:swim': 'She stands with one hand resting on the shirt at her shoulder and the other at her side, head tilted with a calm reflective gaze.',
-  '47:lingerie': 'She stands at a quiet three-quarter angle, a long peacock feather tickler turning slowly between her fingers and the other hand at her side, head tilted with a calm, level gaze.',
+  '47:lingerie': 'She stands at a quiet three-quarter angle, one hand resting at her side and the other lightly touching her collarbone, head tilted with a calm, level gaze.',
 
   '112:sport': 'She stands in a poised athletic stance, one hand on her hip and the other brushing her ponytail back over her shoulder, head tilted with a warm confident smile.',
   '112:swim': 'She stands with one hand holding the wrap at her shoulder and the other resting at her hip, head tilted with an unhurried elegant smile.',
-  '112:lingerie': 'She stands with her weight on one leg, a black leather paddle held loosely against her thigh and the other hand lifting a strand of red hair, head tilted with a composed, faintly amused smile.',
+  '112:lingerie': 'She stands with her weight on one leg, one hand at her hip and the other lifting a strand of red hair over her shoulder, head tilted with a composed, faintly amused smile.',
 
   '113:sport': 'She stands in a loose athletic stance, one hand pushing her hair back from her face and the other hanging at her side, head tilted with a calm focused gaze.',
   '113:swim': 'She stands with both hands tucked into the pockets of the beach shirt, head tilted with a quiet neutral expression, water droplets running from her damp silvery hair down one shoulder.',
-  '113:lingerie': 'She stands loosely, a small matte black wand vibrator held down at her side in one hand and the other hanging loose, head tilted with a blank, slightly sleepy stare.',
+  '113:lingerie': 'She stands loosely with both hands hanging at her sides, head tilted with a blank, slightly sleepy stare.',
 
   '171:sport': 'She stands in a light springy stance, one hand on her hip and the other adjusting the ribbon in her hair, chin slightly lowered with a calm confident half-smile.',
   '171:swim': 'She stands with one hand holding the cover-up at her shoulder and the other resting at her hip, head tilted with a faint knowing smile.',
-  '171:lingerie': 'She stands at a slight three-quarter angle, a black leather collar with a thin silver chain leash looped over her fingers, her other hand resting at her waist, chin lowered with a calm, knowing half-smile.',
+  '171:lingerie': 'She stands at a slight three-quarter angle, one hand resting at her waist and the other touching the pink ribbon at her shoulder, chin lowered with a calm, knowing half-smile.',
 };
 
 /** 性别 → 人称 / tag（#5 景元是男性，其余女性） */
