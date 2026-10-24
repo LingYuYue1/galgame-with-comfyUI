@@ -228,9 +228,17 @@ function buildPrompt(id, scene) {
   const male = MALE.has(id);
   const subj = male ? 'He' : 'She';
   const tag = male ? '1boy' : '1girl';
-  // 泳装赤脚；运动装穿运动鞋（描述里已有鞋）；情趣现在配吊袜带，**不能再写 barefoot**
-  const bare = scene === 'swim' ? ', barefoot' : '';
-  return `${look} ${subj} wears ${outfit}${bare}. ${pose} `
+  // 泳装与情趣都是赤脚。
+  // ⚠ 情趣这里踩过坑：一度以为「配了 thigh-high stockings 就不能 barefoot」而删掉，
+  //   但 thigh-high 是大腿袜（只到膝上），小腿与脚本来就露着 —— 删掉它就等于
+  //   抽掉了 prompt 里**唯一的脚部锚点**，模型画到膝盖就收尾（2026-10-24 实图验证）。
+  const bare = (scene === 'swim' || scene === 'lingerie') ? ', barefoot' : '';
+  // 情趣：服装描述全在讲躯干（open front / chest / hip bone），模型会把镜头拉近。
+  // 构图约束写在末尾救不回来（尾部约束管不住头部先验），所以身份句之后立刻钉一次。
+  const frameFront = scene === 'lingerie'
+    ? ' Full-length wide shot of a standing figure, the entire body inside the frame from the top of the head down to bare feet.'
+    : '';
+  return `${look}${frameFront} ${subj} wears ${outfit}${bare}. ${pose} `
     + 'Soft backlight and drifting particles, pure white background, simple background, solo, '
     + `${tag}, full body from head to feet, `
     + 'vertical 1:2 composition with generous negative space above and below.';
