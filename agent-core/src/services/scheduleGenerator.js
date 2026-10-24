@@ -994,6 +994,15 @@ ${directionMsg}`;
           try {
             const r = await ensureOutfitAnnotations(schedule, character.id);
             schedule = r.schedule;
+            // ── B2 覆盖率告警（2026-10-24，随「每段必填」契约一起加的）──
+            // 修复本身也可能失败（LLM 波动 / 返回长度不对），而失败时 `r.schedule` 是**原样返回**的
+            // —— 空段会一路传到出图链路，靠兜底变成"穿得不对"（不裸，但不是那一段该穿的）。
+            // 所以这里必须留痕：静默通过 = 以后再出这类问题查不到源头。
+            const gaps = schedule.filter(a => !String(a?.outfit ?? '').trim()).length;
+            if (gaps) {
+              console.warn(`[scheduleGen] 着装覆盖率不足：${gaps}/${schedule.length} 段未标注`
+                + `（${r.repaired ? '修复后仍缺' : `修复未生效：${r.reason}`}）`);
+            }
           } catch (err) {
             console.warn(`[scheduleGen] 着装标注修复失败（不影响日程生成）: ${err.message}`);
           }

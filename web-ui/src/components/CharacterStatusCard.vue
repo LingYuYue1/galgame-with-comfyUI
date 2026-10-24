@@ -30,6 +30,13 @@
               :class="i === 0 ? 'tag-green' : 'tag-orange'"
             >{{ tag }}</span>
           </template>
+          <!-- 此刻的着装（2026-10-24）：常服 / 居家 / 睡衣 / 全身 / 运动装 / 泳装 / 情趣
+               —— 角色有七套，显示的永远是"她现在这一套"。 -->
+          <span
+            v-if="char.current_outfit"
+            class="outfit-badge"
+            :title="`ta 现在穿的是「${char.current_outfit}」`"
+          >{{ char.current_outfit }}</span>
         </div>
       </div>
 
@@ -438,6 +445,17 @@ const footnote = computed(() => {
 [data-theme="dark"] .tag-green  { background: rgba(82,196,26,0.26);  color: #9ee57a; }
 [data-theme="dark"] .tag-orange { background: rgba(250,173,20,0.28); color: #ffcf70; }
 .tag-overflow { background: rgba(0,0,0,0.04); color: var(--text-secondary); }
+
+/* 此刻的着装（2026-10-24）。中性描边胶囊，**故意不用彩色** ——
+   衣服名不是"状态/兴趣标签"，跟 社交/娱乐 那两枚彩色 tag 混在一起会被读成同一类东西。
+   margin-left:auto 把它顶到名字行最右侧（用户指的位置）。 */
+.outfit-badge {
+  margin-left: auto;
+  font-size: 0.65rem; padding: 2px 8px; border-radius: 999px;
+  font-weight: 600; white-space: nowrap; flex-shrink: 0;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
 
 /* ── Mid ── */
 .card-mid {

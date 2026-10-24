@@ -639,7 +639,9 @@ function findCurrentIndex(activities, minutes) {
  *  1. 角色没有场景服装 → null（调用方回落原外观）
  *  2. 当前时段是睡眠（replyDelay=-1）→ **强制** sleep 那套（硬规则，优先于任何标注）
  *  3. 否则从当前时段**向前回溯**，找最近一个有 outfit 标注的时段 → 按名字匹配
- *     （日程只在「换装的那一刻」标注 outfit，其余留空，这样换装次数天然被限制）
+ *     （旧契约：日程只在「换装的那一刻」标注 outfit，其余留空。**2026-10-24 起契约已改成
+ *      「每段必填」**，新数据不会再有空段，回溯对它永不命中；但**回溯必须保留** ——
+ *      存量 29 份日程是按旧契约生成的，删掉它那几天的时段会全部兜底成日常装）
  *  4. 都没匹配上 → 回到该角色的第一套**日常**服装（兜底，避免没衣服穿）
  *
  * ⚠ **兜底绝不能落到 `nude`** —— 那是"只用于私密场景"的一套，
@@ -842,7 +844,10 @@ export function buildOutfitAnnotateLayer(characterId, opts = {}) {
 - **地点必须在私密空间**（自己家 / 酒店客房 / 浴室）。在**外面**（街上、酒馆、车站、广场、
   公园、河岸）做爱**不标"${nudeName}"** —— 那种场合角色仍穿着衣服或不整，标对应的外出服。
 - **睡眠时段绝不标"${nudeName}"**（睡觉一律穿"${sleepName || '睡衣'}"，硬规则，哪怕裸睡）。
-- 洗完澡接着过日常时，别忘了**从浴室出来那一段重新标上衣服**（居家或外出）。
+- **★ 在家 ≠ 裸着**（2026-10-24 收紧）：洗完澡出来、在家休息、做家务、在家看书、在家工作、
+  在家招待朋友 —— **一律标"${exHome}"或睡衣，不许标"${nudeName}"**。
+  "${nudeName}"只覆盖"身体直接接触水或性"的那一段本身，**不覆盖"在家"这个状态**。
+- 洗完之后紧接着的时段必须**重新标上衣服**（居家或外出）—— 现在每段都要有值，这一步不能省。
 - 用不到就完全不出现这个值 —— 不要为了"丰富"而给角色安排这段时段。` : '';
 
   // 运动/泳装/情趣：只对角色真的配了的场景讲，没配就别提（免得提示词带偏）
@@ -864,40 +869,67 @@ ${lines.join('\n')}
 ${list}
 
 请在生成日程时，为**每个时段**额外输出一个字段 \`outfit\`：
-- 值为上面某套服装的**名称**（原样照抄，不要改写）。
-- **只在「换装的那一刻」填写**，其余时段填 \`null\`（表示沿用上一段的穿着）。
+- 值为上面某套服装的**名称**（原样照抄，不要改写，不要写"同上"）。
+- **每个时段都必须给出值**，一个都不能空、不能写 \`null\`。
+  这张日程是出图的**保底依据**：某一段空着，等于告诉系统"这一段不知道她穿什么"。
+- 连续几个时段穿同一套时，**重复写同一个名字**（不要因为重复就省掉）。
+- 在符合该场合的几套里**可以随机挑一套**（不必精确到"只有唯一正确答案"），
+  但不能跨越场合：上班不可能是睡衣，睡觉不可能是常服。
 
 ### 一、先给每个时段判断「在自己住所内 / 在住所外」
 - **住所内**＝这个角色自己的住处（卧室、浴室、客厅、厨房等）。
 - **住所外**＝其余一切地方：街道、商店、胡同、车站、广场、公园、河岸、酒馆、学校、公司，
   以及**别人家**（哪怕在室内，也不是"在家"）。${zoneHintBlock}
 
-### 二、以下 4 个时点**必须**标 outfit，一个都不能漏
+### 二、下面 4 个时点**最容易标错**，逐个对一遍（其余时段同样必须标）
 1. **入睡** → 标"${sleepName || '睡衣'}"（睡眠时段的 outfit 必须是它）。
 2. **睡醒起床** → 标一套白天的衣服。
 3. **从住所出门**（去任何"住所外"的地方）→ 标一套**外出**的（常服或私服）。
 4. **从外面回到住所** → 标"${exHome}"。${nudeBlock}${specialBlock}
 
-### 三、写完自检（逐时段过，发现矛盾就补标）
-- 某个"住所外"的时段，穿的却是**居家服或睡衣** → ✗ 错。在这一段补标一套外出服。
+### 三、写完自检（逐时段过一遍，一段都不能跳过）
+- 某个"住所外"的时段，穿的却是**居家服或睡衣** → ✗ 错。把这一段改成外出服。
   （唯一例外：明确写的是家门口的短暂活动，如"下楼取快递""楼下便利店"，可沿用。）
-- 某个"住所内"的时段，穿的却是外出服 → ✗ 错。在这一段补标居家服。
-- \`outfit\` 非 null 的时段**通常是 4~6 个**；一天里出门几次、回家几次，就要标几次。
-  **不要为了凑少数几次，把"出门"或"回家"漏掉** —— 漏掉的后果是角色会穿着睡衣/居家服在街上活动。
-- 反过来也别无理由频繁换装（同一地点、同一活动内不要反复换）。
+- 某个"住所内"的时段，穿的却是外出服 → ✗ 错。把这一段改成居家服。
+- **任何一个时段的 outfit 是空 / \`null\`** → ✗ 错。补上，整张日程里不许有空段。
+- 出门、回家这两处最容易漏，但**不是唯一需要标的地方**：每段都要有值。
 
 - 可用作白天的服装：${dayNames}。
 
-示例（仅示意 outfit 字段的密度与位置，实际按角色真实日程；注意"出门"与"回家"两处都有标注）：
+示例（**每一段都带 outfit**；注意连续两段同一套时是**重复写名字**，不是留空）：
 {"startTime":"07:00","endTime":"07:30","activity":"晨间梳洗","location":"公寓浴室","replyDelay":0,"tags":["日常"],"description":"……","outfit":"${exHome}"}
+{"startTime":"07:30","endTime":"08:00","activity":"在家吃早饭","location":"公寓厨房","replyDelay":0,"tags":["日常"],"description":"……","outfit":"${exHome}"}
 {"startTime":"08:00","endTime":"12:00","activity":"上班","location":"公司","replyDelay":0,"tags":["工作"],"description":"……","outfit":"${exOut}"}
 {"startTime":"12:00","endTime":"13:00","activity":"午休回公寓","location":"公寓客厅","replyDelay":0,"tags":["日常"],"description":"……","outfit":"${exHome}"}
 {"startTime":"13:00","endTime":"18:00","activity":"继续上班","location":"公司","replyDelay":0,"tags":["工作"],"description":"……","outfit":"${exOut}"}
 {"startTime":"19:00","endTime":"22:00","activity":"在家做饭休息","location":"公寓客厅","replyDelay":0,"tags":["日常"],"description":"……","outfit":"${exHome}"}
-{"startTime":"22:00","endTime":"07:00","activity":"就寝","location":"公寓卧室","replyDelay":-1,"tags":["睡眠"],"description":"……","outfit":${hasSleep ? `"${sleepName}"` : 'null'}}`;
+{"startTime":"22:00","endTime":"07:00","activity":"就寝","location":"公寓卧室","replyDelay":-1,"tags":["睡眠"],"description":"……","outfit":"${hasSleep ? sleepName : exHome}"}`;
 }
 
 // ── 生成后校验 + 一次专注修复 ────────────────────────────────
+
+/**
+ * 覆盖率判据（纯函数，可单测）。
+ *
+ * ── 判据变过一次，这里记清楚（2026-10-24）────────────────────────
+ * 旧契约：「只在换装的那一刻标 outfit」，所以判据是 `marked < 4`（一天至少 4 个换装点）。
+ * 新契约：「**每个时段都必须有值**」，所以判据变成 `有任何一段为空`。
+ *
+ * 为什么换：旧契约依赖消费端**向前回溯**，而回溯链的前提是"换装点没漏"。实测 29 份日程有
+ * 4 份一个换装点都没有，那几天全靠兜底 —— 兜底只能保证"不是裸着"，保证不了"穿得对"。
+ *
+ * @param {Array} schedule 日程数组
+ * @param {Set<string>} validNames 该角色实有的服装名
+ * @returns {string|null} null = 合格；否则是修复原因（直接写进日志）
+ */
+export function outfitCoverageGap(schedule, validNames) {
+  if (!Array.isArray(schedule) || !schedule.length) return null;
+  const illegal = schedule.filter(a => a?.outfit && !validNames.has(String(a.outfit).trim()));
+  if (illegal.length) return `非法服装名 ${illegal.length} 处`;
+  const blanks = schedule.filter(a => !String(a?.outfit ?? '').trim()).length;
+  if (blanks) return `有 ${blanks} 个时段未标注`;
+  return null;
+}
 
 /**
  * 校验日程的 outfit 标注，不达标就用一次**只做标注**的专注调用补回来。
@@ -922,29 +954,13 @@ export async function ensureOutfitAnnotations(schedule, characterId) {
   }
   const valid = new Set(outfits.map(o => o.name));
 
-  // ── 校验 ──
+  // ── 校验：任何一段为空都不合格（新契约），非法名照旧抓 ──
+  const reason = outfitCoverageGap(schedule, valid);
+  if (!reason) return { schedule, repaired: false, reason: 'ok' };
   const marked = schedule.filter(a => a?.outfit).length;
-  const illegal = schedule.filter(a => a?.outfit && !valid.has(String(a.outfit).trim()));
 
-  /**
-   * 阈值取「固定 4」而不是按地点切换次数推算。
-   *
-   * 曾试过 `transitions - 1`（地点段变了就大概要换装），但那个估算**过于激进**：
-   * 「公寓卧室 → 公寓浴室」这种同住处的移动也会被算成一次切换，于是几乎每次都触发修复
-   * —— 等于每次生成日程都白跑一次 LLM 调用（实测 3 轮全部触发）。
-   *
-   * 一天正常至少需要 4 个换装点（入睡 / 起床 / 出门 / 回家）；低于 4 才可疑。
-   * 用户报的那个 case 正是 3 个 —— 能被抓住。而 6~9 个的正常日程不会再被误触发。
-   */
-  const floor = 4;
-
-  const needsRepair = illegal.length > 0 || marked < floor;
-  if (!needsRepair) return { schedule, repaired: false, reason: 'ok' };
-
-  const reason = illegal.length
-    ? `非法服装名 ${illegal.length} 处`
-    : `换装点偏少（${marked} < ${floor}）`;
   console.log(`[outfitScene] 标注不合格（${reason}），发起一次专注修复`);
+
 
   // ── 修复：只输出与日程等长的 outfit 数组 ──
   const list = outfits.map(o => `- "${o.name}"（${LABEL_BY_KEY[o.scene] || o.scene}）`).join('\n');
@@ -970,11 +986,13 @@ ${list}
 2. 睡眠时段（标了【睡眠】的）→ 必须穿${sleepName ? ` "${sleepName}"` : '睡衣'}。
 3. **住所外**的时段 → 必须穿外出服（工装或私服），**绝不能是居家服或睡衣**。
 4. 回到自己住处 → 穿${homeName ? ` "${homeName}"` : '居家服'}。
-5. **只在穿着发生变化的那一段**给出名字，没变化就填 null（表示沿用上一段）。
-   出门、回家都是变化，都要给。
+5. **每一段都必须给出名字**，不许出现 null、空字符串或"同上"（2026-10-24 起改成每段必填）。
+   连续几段穿同一套时，**重复写同一个名字**。
+6. 在符合该场合的几套里可以随机挑，但**不能跨越场合**（上班不可能是睡衣，睡觉不可能是常服）。
 
-⚠ 只输出 JSON，格式严格如下（数组长度必须等于 ${schedule.length}，第 i 项对应上面第 i 条）：
-{"outfits": ["${exOut}", null, "..."]}
+⚠ 只输出 JSON，格式严格如下（数组长度必须等于 ${schedule.length}，第 i 项对应上面第 i 条；
+**数组里每一项都是服装名，不能有 null**）：
+{"outfits": ["${exOut}", "${exOut}", "..."]}
 不要输出任何解释或 JSON 以外的文字。` },
     { role: 'user', content: lines },
   ];

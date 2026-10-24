@@ -16,6 +16,7 @@ import { broadcast } from './unifiedStreamBus.js';
 import { getLocalDateKey, shiftDateKey } from '../utils/localDate.js';
 import { onCharacterWake } from './dreamService.js';
 import { extendEventSchedule, reapplyActiveEventSchedule } from './eventSchedule.js';
+import { getSceneOutfitForActivity } from './outfitScene.js';
 
 
 // ── 缓存 ──
@@ -266,11 +267,30 @@ export function getTodaySchedule(characterId) {
   if (!schedule) return null;
 
   const now = new Date();
-  const enriched = schedule.map(act => ({
-    ...act,
-    tags: normalizeTags(act.tags),
-    isCurrent: isInTimeSlot(act.startTime, act.endTime, now),
-  }));
+  const enriched = schedule.map(act => {
+    let outfitName = String(act.outfit || '').trim() || null;
+    if (!outfitName) {
+      /**
+       * 存量数据的补显示（2026-10-24）。
+       *
+       * 旧契约下日程只在「换装的那一刻」标 outfit、其余留空，所以直接读 `act.outfit`
+       * 会让 UI 大片空白。这里用**与出图链路同一个函数**（`getSceneOutfitForActivity`）
+       * 把"这一段实际穿什么"解析出来 —— 回溯逻辑只有一份，UI 看到的和画出来的是同一套，
+       * 不会出现"面板上写睡衣、图里是常服"。
+       *
+       * 只对空段调用：新契约（每段必填）的数据直接命中上面那行，不产生额外查询。
+       */
+      try {
+        outfitName = getSceneOutfitForActivity(characterId, act)?.outfit?.name || null;
+      } catch { /* 服装解析失败不该影响日程展示 */ }
+    }
+    return {
+      ...act,
+      tags: normalizeTags(act.tags),
+      isCurrent: isInTimeSlot(act.startTime, act.endTime, now),
+      outfitName,
+    };
+  });
 
   return enriched;
 }
@@ -684,11 +704,25 @@ export function getAllOverview() {
     const sleeping = !!(activity && activity.replyDelay === -1);
     const sleepUntil = sleeping ? calcSleepUntil(activity.endTime, now) : null;
     const tempWoken = isTempWoken(char.id, now);
+    /**
+     * 此刻的着装（2026-10-24 用户要求：日程卡上直接看到「她现在穿什么」）。
+     *
+     * 有标注就直接用；旧契约的数据多数时段没有标注 → 用**与出图链路同一个函数**
+     * 解析（向前回溯），这样卡上写的和画出来的是同一套。
+     * 角色没配场景服装时返回 null，卡上就不显示这一枚，不占位。
+     */
+    let outfitName = String(activity?.outfit || '').trim() || null;
+    if (!outfitName && activity) {
+      try {
+        outfitName = getSceneOutfitForActivity(char.id, activity)?.outfit?.name || null;
+      } catch { /* 服装解析失败不该影响总览 */ }
+    }
     return {
       id: char.id,
       display_name: char.display_name,
       avatar_path: char.avatar_path,
       current_activity: activity ? `${activity.activity} · ${activity.location}` : '未设置日程',
+      current_outfit: outfitName,
       reply_delay: activity ? activity.replyDelay : 0,
       is_sleeping: sleeping,
       sleep_until: sleepUntil,

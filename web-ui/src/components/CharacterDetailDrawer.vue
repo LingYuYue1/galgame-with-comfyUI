@@ -161,7 +161,14 @@ cx="40" cy="40" r="34" fill="none" stroke="var(--accent)"
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" /><circle cx="12" cy="13" r="4" /></svg>
                     </linshe-button>
                   </div>
-                  <div class="tl-loc">{{ act.location }}</div>
+                  <div class="tl-loc">
+                    <span class="tl-loc-t">{{ act.location }}</span>
+                    <span
+                      v-if="act.outfitName"
+                      class="tl-outfit"
+                      :title="`这一段的着装：${act.outfitName}`"
+                    >{{ act.outfitName }}</span>
+                  </div>
                   <div v-if="act.isCurrent" class="tl-mark">
                     <span class="pulse"></span>此刻
                   </div>
@@ -741,7 +748,22 @@ onUnmounted(() => {
 .tl-top .tl-peek-btn + .tl-peek-btn { margin-left: 0; }
 .tl-item:hover .tl-peek-btn { opacity: 0.35; }
 .tl-peek-btn:hover { opacity: 1 !important; }
-.tl-loc { font-size: 0.75rem; color: var(--text-secondary); margin-top: 3px; }
+.tl-loc {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: 0.75rem; color: var(--text-secondary); margin-top: 3px;
+}
+.tl-loc-t { min-width: 0; }
+/* 每个时段对应的服装（2026-10-24）。低权重中性胶囊：它和地点同级，
+   不能跟「改过啦」那种状态标抢注意力。 */
+.tl-outfit {
+  flex-shrink: 0;
+  font-size: 0.62rem; font-weight: 600; line-height: 1;
+  color: var(--text-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 7px;
+  white-space: nowrap;
+}
 
 /* ── 单条日程编辑弹窗 ── */
 .edit-hint {
