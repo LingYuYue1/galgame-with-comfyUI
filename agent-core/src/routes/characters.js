@@ -1523,7 +1523,12 @@ ${buildCharacterPersona(char, { variant: 'full', outfits: avatarOutfits, appeara
      * 其余链路（立绘/朋友圈/奇遇/日程）**保持 tag 锚点不变** —— 它们要的就是立绘/场景图，
      * `1girl` 开头正合适。全项目只有"头像要特写"这一条链路与它冲突。
      */
-    const AVATAR_FRAMING_OUT = /\b(?:full[- ]?body|full[- ]?figure|full[- ]?length|whole[- ]?body|wide shot|long shot|medium shot|cowboy shot|from head to toe|standing|legs?|feet|shoes|thighs?)\b/gi;
+    /**
+     * 2026-10-24 追加「朝向类」词：用户要正脸，而 LLM 极爱写 three-quarter / turned slightly，
+     * 与构图句的 frontal 直接打架。这里先剥掉，剩下的由构图句统一规定朝向。
+     * （注：`looking directly at the viewer` 不在剥离范围内 —— 那是要保留的正向词）
+     */
+    const AVATAR_FRAMING_OUT = /\b(?:full[- ]?body|full[- ]?figure|full[- ]?length|whole[- ]?body|wide shot|long shot|medium shot|cowboy shot|from head to toe|standing|legs?|feet|shoes|thighs?|three[- ]?quarter(?:\s+(?:turn|angle|view|pose))?|profile(?:\s+view)?|side view|sideways|looking away|turned (?:slightly )?(?:away|aside)|back view|from behind)\b/gi;
     promptText = String(promptText)
       .replace(AVATAR_FRAMING_OUT, '')
       .replace(/,\s*,+/g, ', ')
@@ -1534,11 +1539,18 @@ ${buildCharacterPersona(char, { variant: 'full', outfits: avatarOutfits, appeara
      * 构图句放在**最前**（此时提示词里没有 tag 锚点，它就是全文开头）：
      * 先用自然语言把"画面怎么裁"说定，再让后面那段句子补五官与表情。
      * 用中性说法（不说 her/his），男性角色卡同样适用。
+     *
+     * 2026-10-24 用户定（两条）：
+     *   ① **正脸**：原先没规定朝向，LLM 常写 three-quarter / turned slightly，出图是侧脸或回头。
+     *      这里明确 frontal + 直视镜头，压住"回眸/侧颜"的先验。
+     *   ② **头顶留一点空间**：原句是 `the top of the head nearly touches the upper edge`（贴边），
+     *      在 768 方图里会显得顶天立地；改成留一条窄背景，额头到发顶完整。
      */
     const AVATAR_FRAMING = 'The picture is a tight close-up portrait of a single character. '
-      + 'The head and shoulders fill the entire frame: the top of the head nearly touches the upper edge, '
+      + 'The head and shoulders fill the frame: a narrow strip of plain background is left above the top of the head, '
       + 'and the bottom edge crops the body at the chest, so no waist, no legs and no feet are visible. '
-      + 'The face is large, centered and clearly visible. '
+      + 'The face is turned straight toward the camera in a frontal view, looking directly at the viewer, '
+      + 'large, centered and clearly visible. '
       + 'Plain simple white background, nothing else in the picture.';
 
     promptText = `${AVATAR_FRAMING} ${promptText}, simple background, flat lighting`;
