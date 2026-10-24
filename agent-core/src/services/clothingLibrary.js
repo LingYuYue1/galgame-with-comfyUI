@@ -6,7 +6,9 @@ const byTag = new Map(catalog.entries.map(entry => [entry.tag, entry]));
 export function getClothingLibrary() { return catalog; }
 
 export function resolveClothingTags(tags, scene = 'work') {
-  if (!['work', 'casual', 'home', 'sleep'].includes(scene)) throw new Error('服装场景无效');
+  // 2026-10-24：补 sport/swim —— 立绘槽位已扩到六套，衣服库要与之一致。
+  // nude（常量描述）与 lingerie（成人向已废除）仍不开放。
+  if (!['work', 'casual', 'home', 'sleep', 'sport', 'swim'].includes(scene)) throw new Error('服装场景无效');
   if (!Array.isArray(tags) || !tags.length || tags.length > 32 || tags.some(tag => typeof tag !== 'string')) throw new Error('请选择 1–32 个服装 tag');
   return [...new Set(tags)].map(tag => {
     const entry = byTag.get(tag);

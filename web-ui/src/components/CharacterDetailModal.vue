@@ -2137,7 +2137,7 @@ const standingPanel = reactive({
   tip: standingTip,
   displayUrl: standingDisplayUrl,
   mode: standingMode,
-  // 四套场景形象（常服/私服/居家/睡衣）
+  // 六套场景形象（常服/私服/居家/睡衣/运动装/泳装）—— 面板按数组长度渲染，不硬编码格数
   scenes: standingScenes,
   sceneIndex: standingSceneIdx,
   sceneLabel: currentSceneLabel,

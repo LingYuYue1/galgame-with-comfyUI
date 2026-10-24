@@ -13,11 +13,17 @@
  *   ③ 立绘直接 map 枚举 → 枚举一加就自动进列表，文案从未跟改。
  * 修复 = 立绘**单独用四套常量**（`OUTFIT_SCENES` 去掉 `PRIVATE_SCENE`），路由校验同步收口。
  *
+ * ── 2026-10-24 变更：四套 → 六套（显式加 sport / swim）─────────────────────
+ * 用户：「之前加了泳装那些，但（立绘）还没有对应的」→ 立绘补上运动装/泳装两个槽位。
+ * 这是**显式加 key**，不是放开推导：`lingerie`（情趣）仍不进立绘 —— 成人向方向已废除，
+ * 只保留服装描述供私密场景用。所以原来那条「立绘不该跟着服装枚举一起膨胀」的约束
+ * 改为「立绘槽位必须是服装枚举的**真子集**」——它仍然拦住"整表 map"的复发。
+ *
  * 本测试钉住四件事：
- *   ① 槽位集 = [work, casual, home, sleep]，不含 nude，顺序固定；
- *   ② `listSceneStandings` 恒返回四行；即便库里**历史遗留**了 nude 行也不返回；
+ *   ① 槽位集 = [work, casual, home, sleep, sport, swim]，不含 nude/lingerie，顺序固定；
+ *   ② `listSceneStandings` 恒返回六行；即便库里**历史遗留**了 nude 行也不返回；
  *   ③ work 槽仍以 `characters.standing_url` 兜底（既有设计不回归）；
- *   ④ 路由契约：GET /standings 的 scenes 为四套；对 nude 的删除 / 上传一律 400「无效的场景」，
+ *   ④ 路由契约：GET /standings 的 scenes 为六套；对 nude 的删除 / 上传一律 400「无效的场景」，
  *      堵住「能写不能看」的半态。
  *
  * ⚠ 全程临时库 + 临时 IMAGES_DIR，不碰真实数据、不调 LLM。
@@ -68,23 +74,27 @@ function callRoute(method, url, params = {}, body = {}) {
 }
 
 // ─────────────────────────────────────────────────────────
-// ① 槽位集：四套，且不含全身
+// ① 槽位集：六套，且不含全身
 // ─────────────────────────────────────────────────────────
 
-test('★ 立绘槽位只有四套（不含「全身」/nude），顺序固定', () => {
-  assert.deepEqual(STANDING_SCENE_KEYS, ['work', 'casual', 'home', 'sleep'],
-    '立绘槽位应为四套且顺序固定');
+test('★ 立绘槽位六套（不含「全身」/nude 与「情趣」/lingerie），顺序固定', () => {
+  assert.deepEqual(STANDING_SCENE_KEYS, ['work', 'casual', 'home', 'sleep', 'sport', 'swim'],
+    '立绘槽位应为六套且顺序固定');
   assert.ok(!STANDING_SCENE_KEYS.includes(PRIVATE_SCENE),
     `立绘不得含私密场景「${PRIVATE_SCENE}」（修复前 OUTFIT_SCENES 整表 map → 5 格）`);
   assert.ok(!STANDING_SCENE_KEYS.includes('nude'), '裸体/全身槽必须被排除');
-  // 枚举本身仍是五套（服装通道要用全身）—— 只收立绘，不动服装
-  // 服装枚举 2026-10-22 扩到 8 套（+运动/泳装/情趣），但**立绘仍是四套** —— 见 STANDING_SCENE_KEYS
+  // 情趣套：成人向方向已废除（2026-10-19），只留服装描述供私密场景用，不做立绘
+  assert.ok(!STANDING_SCENE_KEYS.includes('lingerie'), '情趣套不进立绘');
+  // 服装枚举 2026-10-22 扩到 8 套（+运动/泳装/情趣）。
+  // 立绘是**显式白名单**：2026-10-24 显式加了 sport/swim，但不是跟着枚举自动膨胀 ——
+  // 这正是 F-19 的教训（整表 map 会让 nude 悄悄长成页签）。故断言它是真子集。
   assert.equal(OUTFIT_SCENES.length, 8, '服装通道用了全部枚举');
-  assert.deepEqual(STANDING_SCENE_KEYS, ['work', 'casual', 'home', 'sleep'], '立绘不该跟着服装枚举一起膨胀');
-  // 标签口径：四套的中文名（「工装」已改名「常服」）
+  assert.ok(STANDING_SCENE_KEYS.length < OUTFIT_SCENES.length,
+    '立绘槽位必须是服装枚举的真子集（加槽位要显式写进白名单）');
+  // 标签口径：六套的中文名（「工装」已改名「常服」）
   assert.deepEqual(
     STANDING_SCENE_KEYS.map(k => STANDING_SCENE_LABELS[k]),
-    ['常服', '私服', '居家', '睡衣'],
+    ['常服', '私服', '居家', '睡衣', '运动装', '泳装'],
   );
 });
 
@@ -92,11 +102,11 @@ test('★ 立绘槽位只有四套（不含「全身」/nude），顺序固定',
 // ② 列表恒四行；历史遗留的 nude 行也不返回
 // ─────────────────────────────────────────────────────────
 
-test('listSceneStandings：恒返回四行、顺序固定', () => {
+test('listSceneStandings：恒返回六行、顺序固定', () => {
   seedChar();
   const rows = listSceneStandings(CID);
-  assert.equal(rows.length, 4, '应恒为四行（修复前为 5 行，多出「全身」）');
-  assert.deepEqual(rows.map(r => r.scene), ['work', 'casual', 'home', 'sleep']);
+  assert.equal(rows.length, 6, '应恒为六行（修复前为 5 行，多出「全身」）');
+  assert.deepEqual(rows.map(r => r.scene), ['work', 'casual', 'home', 'sleep', 'sport', 'swim']);
 });
 
 test('★ 库里历史遗留的 nude 立绘行不得出现在列表里（修复后仍需过滤）', () => {
@@ -108,7 +118,7 @@ test('★ 库里历史遗留的 nude 立绘行不得出现在列表里（修复�
   ).run(CID);
 
   const rows = listSceneStandings(CID);
-  assert.equal(rows.length, 4, '遗留 nude 行不得让列表变回 5 格');
+  assert.equal(rows.length, 6, '遗留 nude 行不得让列表变回 5 格');
   assert.ok(!rows.some(r => r.scene === 'nude'), '不得返回 nude 槽');
   // 脏数据本身仍在库里（本修复不删用户数据）——只保证不外显
   const raw = db.prepare(
@@ -140,16 +150,17 @@ test('work 槽有显式立绘时优先用它、不标兜底', () => {
 });
 
 // ─────────────────────────────────────────────────────────
-// ④ 路由契约：GET 四套；nude 的删/传一律 400
+// ④ 路由契约：GET 六套；nude 的删/传一律 400
 // ─────────────────────────────────────────────────────────
 
-test('GET /:id/standings：scenes 为四套、standings 四行，均不含全身', async () => {
+test('GET /:id/standings：scenes 为六套、standings 六行，均不含全身', async () => {
   seedChar();
   const { status, payload } = await callRoute('GET', `/${CID}/standings`, { id: String(CID) });
   assert.equal(status, 200);
-  assert.equal(payload.scenes.length, 4, '返回的场景元数据应为四套');
+  assert.equal(payload.scenes.length, 6, '返回的场景元数据应为六套');
   assert.ok(!payload.scenes.some(s => s.key === 'nude'), 'scenes 不得含 nude');
-  assert.equal(payload.standings.length, 4);
+  assert.ok(!payload.scenes.some(s => s.key === 'lingerie'), 'scenes 不得含 lingerie');
+  assert.equal(payload.standings.length, 6);
 });
 
 test('★ DELETE /:id/standings/nude → 400 无效的场景（堵住「能写不能看」半态）', async () => {

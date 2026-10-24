@@ -1,10 +1,10 @@
 /**
- * characterStanding.js — 四套场景立绘（常服 / 私服 / 居家 / 睡衣）
+ * characterStanding.js — 六套场景立绘（常服 / 私服 / 居家 / 睡衣 / 运动装 / 泳装）
  *
  * ── 解决什么问题 ──
  *
  * 角色原本只有一张立绘（characters.standing_url）。做完「场景服装」之后，角色在不同场合
- * 穿不同衣服，但形象面板只能看到那一张 —— 本模块让每个角色在四个场景下各有一张立绘，
+ * 穿不同衣服，但形象面板只能看到那一张 —— 本模块让每个角色在多个场景下各有一张立绘，
  * 详情页可以左右切换查看。
  *
  * ── 为什么是四套，而不是 OUTFIT_SCENES 的全部五套（F-19）──
@@ -34,25 +34,28 @@ import { getDb } from '../db/index.js';
 import { OUTFIT_SCENES, PRIVATE_SCENE } from './outfitScene.js';
 
 /**
- * 立绘独占的场景集 = `OUTFIT_SCENES` **去掉私密场景（「全身」）**，顺序沿用枚举
- * （work / casual / home / sleep）。过滤而不是另抄一份字面量：套名/标签仍以 outfitScene 为单一真源。
+ * 立绘独占的场景集 = 下面的显式白名单，顺序沿用 `OUTFIT_SCENES` 的枚举顺序
+ * （work / casual / home / sleep / sport / swim）。套名/标签仍以 outfitScene 为单一真源。
  */
 /**
- * 立绘只做这四套。
+ * 立绘做这六套（2026-10-24 用户要求加运动装/泳装）。
  *
  * 为什么是**显式白名单**而不是"整表减掉 nude"（2026-10-22）：
  * 服装枚举后来加了 运动/泳装/情趣 三套，如果继续用 filter 推导，立绘面板会突然多出三格，
  * 每个角色凭空多三张要画的图。立绘要的是**基准形象**，四套足够；
  * 新衣服只在剧情配图里"按需拿取"（用户原话），不强制出立绘。
  * 以后要加立绘槽位，在这里显式加，别靠推导。
+ *
+ * 2026-10-24 变更：用户「之前加了泳装那些，但（立绘）还没有对应的」→ 显式加 sport / swim。
+ * `lingerie` 仍然不进（成人向方向已废除，保留描述即可）。
  */
-const STANDING_SCENE_KEYS = ['work', 'casual', 'home', 'sleep'];
+const STANDING_SCENE_KEYS = ['work', 'casual', 'home', 'sleep', 'sport', 'swim'];
 export const STANDING_SCENES = OUTFIT_SCENES.filter(s => STANDING_SCENE_KEYS.includes(s.key));
 const SCENE_KEYS = STANDING_SCENES.map(s => s.key);
 const LABEL_BY_KEY = Object.fromEntries(STANDING_SCENES.map(s => [s.key, s.label]));
 
 /**
- * 该角色的四套场景立绘（四行始终齐全、顺序固定）。
+ * 该角色的六套场景立绘（行数始终齐全、顺序固定）。
  * work 槽用 characters.standing_url 兜底；is_fallback 标记该行的图其实是兜底来的
  * （「删除」时应清空 work 槽的显式记录，而不是去删那张默认立绘 —— 见路由层）。
  * @returns {Array<{scene, sceneLabel, image_url, prompt_text, is_fallback}>}
@@ -115,7 +118,7 @@ export function deleteSceneStanding(characterId, scene) {
 }
 
 /**
- * 对外暴露的四套场景 key / 标签 —— 路由层用它做**入参校验**（generate / upload / delete），
- * 因此「全身」/nude 会在入口被拒（400 无效的场景），不会出现「能写不能看」的半态。
+ * 对外暴露的六套场景 key / 标签 —— 路由层用它做**入参校验**（generate / upload / delete），
+ * 因此「全身」/nude 与「情趣」/lingerie 会在入口被拒（400 无效的场景），不会出现「能写不能看」的半态。
  */
 export { SCENE_KEYS as STANDING_SCENE_KEYS, LABEL_BY_KEY as STANDING_SCENE_LABELS };
