@@ -241,9 +241,9 @@ function buildPrompt(id, scene) {
   const bare = (scene === 'swim' || scene === 'lingerie') ? ', barefoot' : '';
   // 情趣：服装描述全在讲躯干（open front / chest / hip bone），模型会把镜头拉近。
   // 构图约束写在末尾救不回来（尾部约束管不住头部先验），所以身份句之后立刻钉一次。
-  const frameFront = scene === 'lingerie'
-    ? ' Full-length wide shot of a standing figure, the entire body inside the frame from the top of the head down to bare feet.'
-    : '';
+  // 前置锚对所有场景生效 —— 2026-10-24 第二次实锤：删掉中间的粒子句后，
+  // #14 casual 直接画成胸像（末尾的 full body 完全没拉住）。
+  const frameFront = ' Full-length wide shot of a standing figure, the entire body inside the frame from head to feet.';
   return `${look}${frameFront} ${subj} wears ${outfit}${bare}. ${pose} `
     + 'Soft backlight and drifting particles, pure white background, simple background, solo, '
     + `${tag}, full body from head to feet, `

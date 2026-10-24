@@ -331,6 +331,10 @@ for (const p of PROMPTS) {
 console.log(`\n  合计 ${PROMPTS.length} 份 / 平均 ${Math.round(total / PROMPTS.length)} 字符`);
 
 if (!DRY) {
+  // ★ 前置构图锚：所有立绘提示词都要在**身份句之前**钉死画幅。
+  // 尾部那句 `full body from head to feet` 管不住头部先验 —— 2026-10-24 两次实锤
+  // （情趣套画到膝盖、#14 casual 删掉粒子句后直接画成胸像）。
+  const FRAME_ANCHOR = 'Full-length wide shot of a standing figure, the entire body inside the frame from head to feet. ';
   // image_url 不动：已有图的槽保留原图，只换 prompt；缺图的槽插 NULL 等出图
   const upsert = db.prepare(
     `INSERT INTO character_standings (character_id, scene, image_url, prompt_text, updated_at)
@@ -339,8 +343,13 @@ if (!DRY) {
        prompt_text = excluded.prompt_text,
        updated_at  = CURRENT_TIMESTAMP`
   );
-  db.transaction(() => { for (const p of PROMPTS) upsert.run(p.characterId, p.scene, p.text); })();
-  console.log('  → 12 份 prompt 已写入 character_standings.prompt_text');
+  db.transaction(() => {
+    for (const p of PROMPTS) {
+      const text = p.text.includes('the entire body inside the frame') ? p.text : FRAME_ANCHOR + p.text;
+      upsert.run(p.characterId, p.scene, text);
+    }
+  })();
+  console.log('  → 12 份 prompt 已写入 character_standings.prompt_text（含前置构图锚）');
   db.close();
 }
 
