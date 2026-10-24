@@ -92,8 +92,9 @@ const FIX_OUTFITS = [
 /** 景元：work 是铠甲常服（含 high ponytail）。casual/home/sleep 三套发型要松散，
  *  所以外观句去掉 "in a high ponytail"，但发色/瞳色/泪痣/体型逐字保留。 */
 const JY_LOOK =
-  'Jing Yuan \\(Honkai: Star Rail\\) has long white hair, loose side locks falling over his right eye, ' +
-  'golden yellow eyes, and a small tear mole below his left eye. He has a light complexion and a tall lean build.';
+  'Jing Yuan \\(Honkai: Star Rail\\) is a tall, lean adult man with long white hair, loose side locks falling ' +
+  'over his right eye, a sharp jawline, golden yellow eyes, and a small tear mole below his left eye. ' +
+  'He has light skin, broad shoulders, a flat chest and a lean muscular frame.';
 const JY_FRAME =
   'Soft backlight rims his white hair and shoulders with a faint golden glow and drifting motes, ' +
   'pure white background, simple background, solo, 1boy, full body from head to boots, ' +
