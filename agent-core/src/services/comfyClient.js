@@ -268,6 +268,10 @@ export function guiToApi(workflow) {
   }
   const nodeIds = new Set(workflow.nodes.map(n => String(n.id)));
   const rerouteIds = new Set(workflow.nodes.filter(n => n.type === 'Reroute').map(n => String(n.id)));
+  // 纯前端节点：只存在于画布上，后端没有对应 class_type。
+  // 不跳过的话提交时会 400 missing_node_type —— 典型场景是用户在 ComfyUI 里
+  // 给工作流加了个笔记（Note）说注意事项，程序一跑就崩。
+  const FRONTEND_ONLY_TYPES = new Set(['Reroute', 'Note', 'MarkdownNote']);
 
   // 索引 links: targetNode_targetSlot → link
   const linkByTarget = new Map();
@@ -291,7 +295,7 @@ export function guiToApi(workflow) {
 
   const api = {};
   for (const node of workflow.nodes || []) {
-    if (node.type === 'Reroute') continue;
+    if (FRONTEND_ONLY_TYPES.has(node.type)) continue;
 
     const apiNode = { inputs: {}, class_type: node.type, _meta: { title: getTitle(node) } };
     const wvs = node.widgets_values || [];
