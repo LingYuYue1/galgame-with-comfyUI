@@ -79,3 +79,8 @@ docs/BUG-*.md
 # 本地临时调试脚本（不进 git）
 agent-core/scripts/_q-*.mjs
 docs/备份/
+
+# 测试与备份的本地产物（跑测试/快照会写入，不入库）
+agent-core/tmp-test-images/
+agent-core/tmp-test-worlds/
+linshe-backups/
