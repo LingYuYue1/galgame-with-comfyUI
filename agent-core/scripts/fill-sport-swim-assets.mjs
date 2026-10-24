@@ -75,7 +75,7 @@ const OUTFITS = {
   4: {
     sport: 'a cropped white and ice-blue zip-up track jacket with pink piping and a small embroidered snowflake patch on the chest, worn open over a pale pink ribbed sports top, '
       + 'matching ice-blue running shorts with a hidden key pocket and pink drawstring, white ankle socks with a pink stripe, '
-      + 'white and sky-blue cushioned running shoes, a slim armband holding her phone on her left arm, a pink scrunchie tying her hair back',
+      + 'white and sky-blue cushioned running shoes, a slim phone armband clipped to her left upper arm, a pink scrunchie tying her hair back',
     swim: 'an ice-blue one-piece swimsuit with a square neckline, white contrast piping and a small embroidered snowflake at one hip, '
       + 'a sheer white beach shirt tied at the waist with a pink ribbon, a thin silver anklet with a tiny camera charm',
     lingerie: 'an ice-blue sheer mesh bodysuit with an open front, the netting leaving her chest and stomach bare beneath white lace that only edges the sides, thin pink ribbon ties at the shoulders and hips, a high-cut leg line, white lace thigh-high stockings with pink garters, a small snowflake pendant resting between her collarbones',
