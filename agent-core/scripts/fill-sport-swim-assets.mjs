@@ -68,8 +68,7 @@ const OUTFITS = {
       + 'white and gold cushioned running shoes, a slim gold-tone fitness band on her left wrist, her hair in a neat low ponytail tied with a plain black band',
     swim: 'a deep navy one-piece swimsuit with a high round neckline and thin gold-trimmed straps, a narrow gold belt detail cinching the waist, '
       + 'a sheer ivory pareo knotted at one hip, a small gold pendant resting at her collarbone',
-    lingerie: 'a champagne silk chemise with fine ivory lace tracing the neckline and hem, thin adjustable straps and a delicate keyhole at the front, '
-      + 'a matching champagne silk robe with three-quarter sleeves slipping off one shoulder, a narrow satin sash tied loosely at the waist, a thin gold anklet',
+    lingerie: 'a sheer black lace bodysuit with an open front, the fine lace only half-covering her chest and leaving the centre of her body and her stomach bare, thin straps and a gold ring at the sternum, a high-cut leg line rising above the hip, sheer black thigh-high stockings with wide lace bands, a slim gold waist chain, her thin gold-rimmed glasses still on',
   },
 
   /* ── #4 三月七：冰蓝 + 粉，旅拍少女 ─────────────────────── */
@@ -79,8 +78,7 @@ const OUTFITS = {
       + 'white and sky-blue cushioned running shoes, a slim armband holding her phone on her left arm, a pink scrunchie tying her hair back',
     swim: 'an ice-blue one-piece swimsuit with a square neckline, white contrast piping and a small embroidered snowflake at one hip, '
       + 'a sheer white beach shirt tied at the waist with a pink ribbon, a thin silver anklet with a tiny camera charm',
-    lingerie: 'a pale pink satin bralette and high-waisted satin short set with scalloped ivory lace along the edges, thin adjustable straps and a small ribbon bow at the center, '
-      + 'an oversized white cotton shirt worn open over it and slipping off one shoulder, a thin ice-blue ribbon tied at one wrist',
+    lingerie: 'an ice-blue sheer mesh bodysuit with an open front, the netting leaving her chest and stomach bare beneath white lace that only edges the sides, thin pink ribbon ties at the shoulders and hips, a high-cut leg line, white lace thigh-high stockings with pink garters, a small snowflake pendant resting between her collarbones',
   },
 
   /* ── #5 景元：仙侠武将，云纹 + 金 + 暗红 ────────────────── */
@@ -90,8 +88,7 @@ const OUTFITS = {
       + 'worn leather wrist wraps on both forearms, a thin gold chain at his throat',
     swim: 'dark navy knee-length swim trunks with a faint golden cloud pattern along the hem and a drawstring waist, '
       + 'an open white linen shirt worn loose over his shoulders with the sleeves rolled to the elbow, a thin gold chain at his throat',
-    lingerie: 'a pair of low-slung black silk lounge trousers with a soft sheen and a thin gold drawstring, '
-      + 'an open floor-length black silk robe worn loose over his shoulders with a golden cloud-patterned collar, a thin gold chain at his throat',
+    lingerie: 'a pair of low black silk briefs with a thin gold drawstring, an open floor-length black silk robe worn loose and falling off both shoulders, wide golden cloud-patterned lapels hanging open down his chest and stomach, a thin gold chain at his throat, a black jade ring on one finger',
   },
 
   /* ── #12 青雀：绿 + 黑，慵懒牌戏少女 ───────────────────── */
@@ -101,8 +98,7 @@ const OUTFITS = {
       + 'a folded towel draped around her neck, her twintails tied back loosely so they rest above her shoulders',
     swim: 'a jade-green bikini with black contrast binding and a small embroidered bird at one hip, '
       + 'a black open-weave mesh cover-up slipping off one shoulder, a thin black cord anklet, a slim gold ring on one finger',
-    lingerie: 'a jade-green satin camisole set with black lace tracing the neckline and hem, thin adjustable straps, '
-      + 'matching satin shorts with a lace-edged hem, a sheer black short robe worn open over it, a slim gold ring on one finger',
+    lingerie: 'a jade-green sheer lace bodysuit with an open front, the lace only half-covering her chest and leaving the centre bare, thin black ribbon ties at the hips, a high-cut leg line, sheer black thigh-high stockings with lace bands, a slim gold waist chain',
   },
 
   /* ── #14 银狼：赛博，黑 + 紫霓虹 + 像素 ────────────────── */
@@ -112,8 +108,7 @@ const OUTFITS = {
       + 'a slim black fitness band on her left wrist, her short silver-white hair pushed back with a black headband',
     swim: 'a black one-piece swimsuit with a high-cut leg, neon-violet piping tracing every seam and a faint pixel-grid print along the sides, '
       + 'a sheer black beach shirt worn open with the sleeves rolled, a thin black cord anklet with a tiny violet bead',
-    lingerie: 'a black satin and violet lace bralette with a small silver ring at the center gore, matching black satin shorts with sheer lace panels at the hip, '
-      + 'an oversized charcoal tank top worn loose over it and slipping off one shoulder, a slim black choker with a tiny violet pixel charm',
+    lingerie: 'a black sheer mesh bodysuit with an open front, the fine netting leaving her chest and stomach bare beneath thin neon-violet straps that cross over her breasts and down her waist, a high-cut leg line above the hip bone, a matte black waist harness with silver O-rings linked by chains to a matching choker, sheer black thigh-high stockings',
   },
 
   /* ── #15 花火：和风，红 + 黑 + 金，铃铛 ────────────────── */
@@ -123,8 +118,7 @@ const OUTFITS = {
       + 'a folded black towel around her neck, her high pigtails swinging free with the crimson barrettes still in',
     swim: 'a red bikini with black crisscross straps across the back and gold ring hardware at the hips, '
       + 'a sheer black wrap skirt printed with faint cherry blossoms tied at one side, a thin gold chain anklet with a tiny bell',
-    lingerie: 'a red silk and black lace lingerie set with delicate cherry-blossom embroidery on one cup, thin black straps crossing at the back, '
-      + 'matching high-waisted black lace shorts, a short red silk robe with black trim worn open, a thin gold waist chain with a tiny bell',
+    lingerie: 'a crimson sheer lace bralette with an open front, the cups only half-covering beneath black ribbon ties at the shoulders, a matching low-rise black lace thong with side ties, a crimson rope harness bound around her waist and over her hips with a small golden bell at the centre, sheer crimson thigh-high stockings, a black collar with a tiny bell',
   },
 
   /* ── #31 符玄：太卜司，紫 + 粉 + 星图 + 第三眼 ──────────── */
@@ -134,8 +128,7 @@ const OUTFITS = {
       + 'a thin gold hair tie, a slim gold bangle at her left wrist',
     swim: 'a purple one-piece swimsuit with pale pink binding, a high neckline and a delicate constellation print scattered along one side, '
       + 'a sheer white cover-up knotted at the waist with a gold cord, a thin gold bangle at her left wrist',
-    lingerie: 'a lilac silk and ivory lace lingerie set with fine gold thread running through the lace, thin adjustable straps, '
-      + 'matching high-waisted lilac satin shorts with lace panels, a sheer ivory robe with gold trim draped open over her shoulders, a slim gold bangle',
+    lingerie: 'a lilac sheer lace bodysuit with an open front, the lace leaving the centre of her chest and her stomach bare beneath a fine gold thread running through the pattern, thin straps and a gold ring at the sternum, a high-cut leg line, sheer white thigh-high stockings with gold-trimmed bands, her third-eye gem left uncovered',
   },
 
   /* ── #47 爻光：知性，雾蓝灰 + 孔雀羽 ───────────────────── */
@@ -145,8 +138,7 @@ const OUTFITS = {
       + 'a simple silver hair tie, a thin silver watch at her left wrist, her long white hair pulled back into a practical low ponytail',
     swim: 'a deep blue-grey one-piece swimsuit with a subtle peacock-feather print sweeping along one side and a high rounded neckline, '
       + 'a sheer ivory beach shirt worn open with the sleeves rolled, a thin silver anklet',
-    lingerie: 'a slate-blue silk and ivory lace lingerie set with a soft peacock-feather jacquard woven into the silk, thin adjustable straps, '
-      + 'matching high-waisted slate shorts with a lace hem, a long sheer ivory robe worn open and slipping from one shoulder, a slim silver bracelet',
+    lingerie: 'a slate-blue sheer lace bodysuit with an open front, the lace only edging the sides and leaving her chest and stomach bare, thin straps crossing at the back, a high-cut leg line, sheer charcoal thigh-high stockings with lace bands, a slim silver waist chain',
   },
 
   /* ── #112 姬子：成熟，酒红 + 金 + 玫瑰 ─────────────────── */
@@ -156,8 +148,7 @@ const OUTFITS = {
       + 'a slim gold watch at her left wrist, her long red hair tied back in a high ponytail with a gold clasp',
     swim: 'a deep wine-red one-piece swimsuit with gold ring hardware at the hips, thin straps crossing at the back and a low scoop back, '
       + 'a sheer black wrap draped over one shoulder with a gold clasp',
-    lingerie: 'a wine-red silk and black lace lingerie set with gold-tone hardware at the straps and a fine rose embroidery along one side, '
-      + 'matching black lace high-waisted shorts, a short wine-red silk robe with black lace trim draped open over her shoulders, a thin gold bracelet',
+    lingerie: 'a wine-red sheer lace bodysuit with a deep open front, the lace only half-covering her chest and leaving the centre and her stomach bare, thin straps with gold-tone hardware at the shoulders, a high-cut leg line, black lace thigh-high stockings with wide bands, a thin gold waist chain',
   },
 
   /* ── #113 星：散漫，灰 + 黑，棒球 ──────────────────────── */
@@ -167,8 +158,7 @@ const OUTFITS = {
       + 'her silver-grey hair pulled back into a short messy knot',
     swim: 'a black one-piece swimsuit with charcoal side panels, a thin white stripe down each side and a modest scoop neckline, '
       + 'an oversized white beach shirt worn open with the sleeves rolled, a thin black cord necklace',
-    lingerie: 'a charcoal satin and black lace lingerie set with a simple scoop neckline and thin straps, '
-      + 'matching charcoal satin shorts with a lace hem, an oversized washed-grey shirt worn open over it and hanging off one shoulder, a thin black cord necklace',
+    lingerie: 'a charcoal sheer mesh bodysuit with an open front, the netting leaving her chest and stomach bare beneath thin black binding at the sides, a high-cut leg line, black lace thigh-high stockings with plain bands, a thin black cord necklace',
   },
 
   /* ── #171 牢凌：暗黑甜酷，黑 + 粉 + 银 ─────────────────── */
@@ -178,8 +168,7 @@ const OUTFITS = {
       + 'her pink-purple twintails tied back through a black ribbon, a thin silver chain at her waist',
     swim: 'a black bikini with pink satin ribbon ties at the shoulders and hips and a small lace trim along the edges, '
       + 'a sheer black cover-up with a scalloped lace hem slipping off one shoulder, a thin silver anklet',
-    lingerie: 'a black satin and pink lace lingerie set with ribbon ties at the shoulders and delicate scalloped lace along the neckline and hem, '
-      + 'matching black satin shorts with a pink lace edge, a short sheer black robe with lace trim slipping off both shoulders, a thin silver waist chain',
+    lingerie: 'a black sheer lace bodysuit with an open front, the lace only half-covering her chest and leaving the centre bare beneath pink satin ribbon ties at the shoulders, a high-cut leg line with black ribbon at the hips, sheer black thigh-high stockings with pink lace bands, a thin silver waist chain',
   },
 };
 
@@ -189,43 +178,43 @@ const OUTFITS = {
 const POSE = {
   '4:sport': 'She stands in a springy athletic ready stance, one hand on her hip and the other raised in a light stretch, chin lifted with a bright energetic grin, her weight on the balls of her feet.',
   '4:swim': 'She stands with one hand tucked behind her head and the other resting on her hip, head tilted with a bright playful grin, water droplets glinting on her shoulders.',
-  '4:lingerie': 'She stands at a soft three-quarter angle, one hand drawing the open shirt back over her shoulder and the other resting at her hip, head tilted with a shy but playful smile, her cheeks faintly flushed.',
+  '4:lingerie': 'She stands with one hip cocked, one hand holding her camera loosely against her thigh and the other tucked behind her neck, head tilted with a bright, slightly embarrassed grin, her cheeks flushed.',
 
   '5:sport': 'He stands in a grounded martial stance, one arm extended loosely to the side and the other tucked behind his back, chin slightly lowered with a calm confident half-smile.',
   '5:swim': 'He stands with his weight on one leg, one hand pushing his damp white hair back and the other resting at his side, head tilted with an easy amused smile, water droplets on his shoulders.',
-  '5:lingerie': 'He stands at an unhurried three-quarter angle with the robe hanging open, one hand loosely holding its collar and the other at his side, chin slightly lifted with a languid, knowing half-smile.',
+  '5:lingerie': 'He stands at an unhurried three-quarter angle, one hand loosely holding a small wine cup and the other at his side, chin slightly lifted with a languid, knowing half-smile.',
 
   '12:sport': 'She stands in a half-hearted stretch, one arm raised overhead and the other hanging limp, head tilted back with a lazy half-lidded look and a small sighing pout.',
   '12:swim': 'She stands with one hand holding the cover-up at her shoulder and the other planted on her hip, head tilted with a relaxed sleepy smile.',
-  '12:lingerie': 'She stands with one hand tugging the open robe closed and the other behind her neck, head tilted with a drowsy, bashful half-smile, one shoulder dipping.',
+  '12:lingerie': 'She stands in a lazy slouch, one hand holding a single card up between two fingers and the other resting at her hip, head tilted with a drowsy, knowing half-smile.',
 
   '14:sport': 'She stands in a slouched athletic stance, one hand on her hip and the other holding a water bottle loosely at her side, head tilted with a bored but cocky smirk, a light sheen of sweat at her temples.',
   '14:swim': 'She stands with her arms crossed loosely, her weight on one hip, head tilted with a half-lidded defiant look, water droplets glinting along her shoulders and her short silver-white hair slightly damp.',
-  '14:lingerie': 'She stands with one shoulder dropped and arms loosely folded, head tilted with a half-lidded, faintly challenging stare, the oversized tank top sliding down one arm.',
+  '14:lingerie': 'She stands with one shoulder dropped, a handheld console held loosely in one hand and the other on her hip, head tilted with a half-lidded, faintly challenging stare.',
 
   '15:sport': 'She stands in a light bouncing stance, one hand on her hip and the other raised in a teasing wave, head tilted with a sly playful grin.',
   '15:swim': 'She stands with one hip cocked, one hand lifting the wrap skirt and the other raised near her chin, head tilted with a mischievous knowing smile.',
-  '15:lingerie': 'She stands with one hip cocked and the robe hanging loose off both shoulders, one hand lifted near her lips and the other resting at her waist, head tilted with a sly, knowing grin.',
+  '15:lingerie': 'She stands with one hip cocked, lifting a white-and-red kitsune mask to half-hide her grin with one hand, the other resting at her waist, head tilted with a sly, knowing look.',
 
   '31:sport': 'She stands in a composed upright stance, one hand resting at her waist and the other lightly raised, chin lifted with a restrained confident smile.',
   '31:swim': 'She stands with one hand holding the cover-up closed and the other at her side, head tilted with a calm composed smile.',
-  '31:lingerie': 'She stands very straight with the robe draped open at her shoulders, one hand resting on the robe edge and the other at her side, chin lifted with a composed, faintly embarrassed smile.',
+  '31:lingerie': 'She stands very straight, one hand holding a small gold astrological disc at her hip and the other at her side, chin lifted with a composed, faintly embarrassed smile.',
 
   '47:sport': 'She stands in a light jogging-ready stance, one hand adjusting the hair tie at her ponytail and the other resting at her side, head tilted with a quiet confident smile.',
   '47:swim': 'She stands with one hand resting on the shirt at her shoulder and the other at her side, head tilted with a calm reflective gaze.',
-  '47:lingerie': 'She stands at a quiet three-quarter angle with the robe slipping from one shoulder, one hand holding it loosely and the other at her side, head tilted with a calm, level gaze.',
+  '47:lingerie': 'She stands at a quiet three-quarter angle, one hand turning a single peacock feather between her fingers and the other at her side, head tilted with a calm, level gaze.',
 
   '112:sport': 'She stands in a poised athletic stance, one hand on her hip and the other brushing her ponytail back over her shoulder, head tilted with a warm confident smile.',
   '112:swim': 'She stands with one hand holding the wrap at her shoulder and the other resting at her hip, head tilted with an unhurried elegant smile.',
-  '112:lingerie': 'She stands with her weight on one leg and the robe open over her shoulders, one hand resting at her hip and the other lifting a strand of red hair, head tilted with a composed, faintly amused smile.',
+  '112:lingerie': 'She stands with her weight on one leg, one hand holding a glass of red wine at her hip and the other lifting a strand of red hair, head tilted with a composed, faintly amused smile.',
 
   '113:sport': 'She stands in a loose athletic stance, one hand pushing her hair back from her face and the other hanging at her side, head tilted with a calm focused gaze.',
   '113:swim': 'She stands with both hands tucked into the pockets of the beach shirt, head tilted with a quiet neutral expression, water droplets running from her damp silvery hair down one shoulder.',
-  '113:lingerie': 'She stands loosely with one shoulder bare where the shirt has slid down, both hands hanging at her sides, head tilted with a blank, slightly sleepy stare.',
+  '113:lingerie': 'She stands loosely with one hand turning a worn baseball between her fingers and the other hanging at her side, head tilted with a blank, slightly sleepy stare.',
 
   '171:sport': 'She stands in a light springy stance, one hand on her hip and the other adjusting the ribbon in her hair, chin slightly lowered with a calm confident half-smile.',
   '171:swim': 'She stands with one hand holding the cover-up at her shoulder and the other resting at her hip, head tilted with a faint knowing smile.',
-  '171:lingerie': 'She stands at a slight three-quarter angle with the sheer robe sliding off both shoulders, one hand lifting a twintail tip and the other resting at her waist, chin lowered with a calm, knowing half-smile.',
+  '171:lingerie': 'She stands at a slight three-quarter angle, drawing a long black satin ribbon between her fingers with one hand and resting the other at her waist, chin lowered with a calm, knowing half-smile.',
 };
 
 /** 性别 → 人称 / tag（#5 景元是男性，其余女性） */
@@ -239,8 +228,8 @@ function buildPrompt(id, scene) {
   const male = MALE.has(id);
   const subj = male ? 'He' : 'She';
   const tag = male ? '1boy' : '1girl';
-  // 泳装与情趣赤脚；运动装穿运动鞋（描述里已有鞋），不能再说 barefoot
-  const bare = (scene === 'swim' || scene === 'lingerie') ? ', barefoot' : '';
+  // 泳装赤脚；运动装穿运动鞋（描述里已有鞋）；情趣现在配吊袜带，**不能再写 barefoot**
+  const bare = scene === 'swim' ? ', barefoot' : '';
   return `${look} ${subj} wears ${outfit}${bare}. ${pose} `
     + 'Soft backlight and drifting particles, pure white background, simple background, solo, '
     + `${tag}, full body from head to feet, `
