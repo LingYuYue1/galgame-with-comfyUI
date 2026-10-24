@@ -13,6 +13,19 @@
 
 除非任务明确要求，不要随意重做已有设计或引入新的 UI 体系。
 
+## 前端构建（强制）
+
+**改完 `web-ui/src/` 里的任何东西，必须 `cd web-ui && npm run build`**，否则用户根本看不到（2026-10-24 实报过一次）。
+
+1. 用户用的是 **3099**，它托管的是 **`agent-core/public/`** —— vite `outDir` 的**构建产物**，不是源码。
+2. **5173** 是 vite dev（直接读源码、热更新），只有 agent 自己拿它调试。
+3. **验收前端必须做在 3099 上**（截图或接口实读）。在 5173 上看见 ≠ 用户看得见。
+4. 后端 `agent-core/src` 由 nodemon 自动重启，**不需要手动构建**；只有前端要。
+5. 构建前核对：vite 配了 `emptyOutDir: true`，会清空 `agent-core/public`。其中除产物外还有
+   `Whimsy of the Village.mp3`、`letter-paper.avif`，它们在 `web-ui/public/` 有同尺寸备份，
+   打包会拷回来 —— **但清理任何目录前先 `ls` 两边比一次字节数**。
+6. 缓存：`assets/*` 带 hash + 30 天缓存（安全），`index.html` 不设 maxAge → 用户 F5 即可。
+
 ## 小镇游戏化 UI
 
 小镇玩法以「奇遇」为唯一链路：NPC 互动（`TownResidentActions.vue`）发出邀请 → 服务线索/特殊奇遇走 LLM 叙事事件 → 玩家在奇遇页（`EventsView.vue`）用选项推进。建筑服务（按摩、喝酒、喝咖啡等）、NPC 邀请与 NPC 服务都由奇遇承载，不做步骤式结算面板。
