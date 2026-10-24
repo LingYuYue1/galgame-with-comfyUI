@@ -228,7 +228,10 @@ async function main() {
       url: "http://localhost:8765/health",
       cwd: resolve(ROOT, "vector-service"),
       getCmd() {
-        return resolveVectorPython(ROOT);
+        // Windows + shell:true 下，解释器路径若含括号（如 "邻舍Ling(二创)"），cmd 会把 "("
+        // 当成命令分组符，命令在括号处被截断 → 报「'E:\...\邻舍Ling' 不是内部或外部命令」，
+        // 向量服务静默起不来（agent-core 只会报 vector_service: down）。必须加引号。
+        return `"${resolveVectorPython(ROOT)}"`;
       },
       args: ["-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8765"],
     },
